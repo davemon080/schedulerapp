@@ -1,0 +1,6 @@
+{
+  "name": "University Schedule",
+  "description": "iOS 16-style university scheduling application with light-themed frosted glassmorphism.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
