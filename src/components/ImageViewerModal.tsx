@@ -12,6 +12,7 @@ import {
   Trash2,
   Maximize2,
 } from 'lucide-react';
+import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
 
 interface ImageViewerModalProps {
   isOpen: boolean;
@@ -36,6 +37,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [lastTap, setLastTap] = useState<number>(0);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -207,12 +209,7 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
 
               {onDeleteImage && (
                 <button
-                  onClick={() => {
-                    if (window.confirm('Delete this image attachment?')) {
-                      onDeleteImage(currentIndex);
-                      if (currentIndex > 0) setCurrentIndex((prev) => prev - 1);
-                    }
-                  }}
+                  onClick={() => setIsConfirmDeleteOpen(true)}
                   className="p-2 sm:p-2.5 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-300 backdrop-blur-xl border border-red-500/30 transition-all cursor-pointer shadow-lg active:scale-95"
                   title="Delete image"
                 >
@@ -375,6 +372,24 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               </button>
             </div>
           </motion.footer>
+
+          {/* Confirm Delete Image Modal */}
+          <ConfirmDeleteModal
+            isOpen={isConfirmDeleteOpen}
+            onClose={() => setIsConfirmDeleteOpen(false)}
+            onConfirm={async () => {
+              if (onDeleteImage) {
+                onDeleteImage(currentIndex);
+                if (currentIndex > 0) setCurrentIndex((prev) => prev - 1);
+              }
+              setIsConfirmDeleteOpen(false);
+            }}
+            title="Delete Attachment Image"
+            itemType="image"
+            itemName={`Image ${currentIndex + 1} of ${images.length}`}
+            description="Are you sure you want to remove this attached screenshot/image? This action cannot be undone."
+            confirmLabel="Yes, Remove Image"
+          />
         </motion.div>
       )}
     </AnimatePresence>

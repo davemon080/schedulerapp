@@ -1,0 +1,194 @@
+{
+  "entities": {
+    "Department": {
+      "title": "Department",
+      "description": "Academic university faculty or department",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "level": { "type": "number" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["name", "code"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Registered academic course syllabus and units",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "courseCode": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "department_id": { "type": "string" },
+        "units": { "type": "number" },
+        "semester": { "type": "string" },
+        "pdfurl": { "type": "string" },
+        "level": { "type": "number" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["courseCode", "title"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "Timetable scheduled lecture or lab session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "courseCode": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["Lecture", "Lab", "Tutorial"] },
+        "day": { "type": "number" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "venue": { "type": "string" },
+        "lecturer": { "type": "string" },
+        "department_id": { "type": "string" },
+        "status": { "type": "string" },
+        "notes": { "type": "string" },
+        "level": { "type": "number" },
+        "semester": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["courseCode", "title", "day", "startTime", "endTime", "venue"]
+    },
+    "Deadline": {
+      "title": "Deadline",
+      "description": "Course assignment, deliverable or exam deadline",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "courseCode": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "dueTime": { "type": "string" },
+        "description": { "type": "string" },
+        "department_id": { "type": "string" },
+        "isCompleted": { "type": "boolean" },
+        "attachmentUrl": { "type": "string" },
+        "level": { "type": "number" },
+        "semester": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["title", "courseCode", "dueDate", "dueTime"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Official broadcast announcement published by department admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "priority": { "type": "string", "enum": ["urgent", "normal"] },
+        "author": { "type": "string" },
+        "department_id": { "type": "string" },
+        "attachmentUrl": { "type": "string" },
+        "level": { "type": "number" },
+        "semester": { "type": "string" },
+        "createdat": { "type": "string" }
+      },
+      "required": ["title", "body", "priority"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "System or timetable alert notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "type": { "type": "string" },
+        "department_id": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "level": { "type": "number" },
+        "createdat": { "type": "string" }
+      },
+      "required": ["title", "body"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Student or staff profile record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "matric_number": { "type": "string" },
+        "full_name": { "type": "string" },
+        "department_id": { "type": "string" },
+        "department": { "type": "string" },
+        "level": { "type": "number" },
+        "year_level": { "type": "string" },
+        "isadmin": { "type": "boolean" },
+        "iscourserep": { "type": "boolean" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["email", "full_name"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "Student feedback, clash reports and inquiries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_email": { "type": "string" },
+        "category": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string" },
+        "createdat": { "type": "string" }
+      },
+      "required": ["message"]
+    },
+    "CurrentSemester": {
+      "title": "CurrentSemester",
+      "description": "Active semester state configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "semester_code": { "type": "string" },
+        "is_active": { "type": "boolean" }
+      },
+      "required": ["semester_code", "is_active"]
+    }
+  },
+  "firestore": {
+    "/departments/{departmentId}": {
+      "schema": "Department",
+      "description": "University academic departments"
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Registered academic courses"
+    },
+    "/activities/{activityId}": {
+      "schema": "Activity",
+      "description": "Timetable classes, lectures, and lab sessions"
+    },
+    "/deadlines/{deadlineId}": {
+      "schema": "Deadline",
+      "description": "Assignments, homework, and submission deadlines"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Broadcast notices and circulars"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Alert notifications"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Student accounts and user profiles"
+    },
+    "/feedback/{feedbackId}": {
+      "schema": "Feedback",
+      "description": "Student feedback submissions and clash reports"
+    },
+    "/current_semester/{semesterId}": {
+      "schema": "CurrentSemester",
+      "description": "Academic semester control state"
+    }
+  }
+}

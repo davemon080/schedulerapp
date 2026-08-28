@@ -25,8 +25,17 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const displayName = userSession?.fullName || 'Rapheal Ogwu';
-  const displayDepartment = userSession?.department || 'Industrial Chemistry';
+  const displayName = userSession?.fullName || 'Student User';
+  const displayDepartment = userSession?.department || 'Department of Industrial Chemistry';
+
+  const getInitials = (name: string) => {
+    if (!name || name.trim().length === 0) return 'ST';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return `${parts[0].charAt(0)}${parts[1].charAt(0)}`.toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -69,15 +78,14 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
           {profileImage ? (
             <img
               src={profileImage}
-              alt="Profile avatar"
+              alt={`${displayName} avatar`}
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover"
             />
           ) : (
-            <>
-              <div className="absolute inset-0 bg-white/30 backdrop-blur-sm"></div>
-              <FlaskConical className="w-5 h-5 relative z-10 text-[#007AFF] transition-transform group-hover/avatar:scale-110 duration-200" />
-            </>
+            <div className="w-full h-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-inner">
+              {getInitials(displayName)}
+            </div>
           )}
 
           {/* Hover overlay hint to change avatar */}

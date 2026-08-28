@@ -10,6 +10,10 @@ export interface EventItem {
   instructor?: string;
   dayKey: string; // e.g. "WED 19"
   colorAccent?: string;
+  notes?: string;
+  department_id?: string;
+  level?: number;
+  semester?: string;
 }
 
 export interface DayTimelineItem {
@@ -42,14 +46,26 @@ export interface AssignmentItem {
 export type NavigationTab = 'Schedule' | 'Deadlines' | 'Broadcasts' | 'Modules' | 'Profile' | 'Notifications';
 
 export interface UserSession {
+  id?: string;
+  uid?: string;
   email: string;
   matricNumber: string;
   fullName: string;
   department: string;
+  department_id?: string;
   faculty?: string;
   yearLevel?: string;
+  level?: number;
+  profileImage?: string;
+  profile_pic_url?: string;
+  isAdmin?: boolean;
+  isCourseRep?: boolean;
+  is_payed?: boolean;
+  is_paid?: boolean;
+  hasFreeAccess?: boolean;
   isLoggedIn: boolean;
 }
+
 
 export interface NotificationItem {
   id: string;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { HeaderSection } from './components/HeaderSection';
 import { DayTimelineSection } from './components/DayTimelineSection';
 import { ActivitiesSection } from './components/ActivitiesSection';
@@ -12,18 +12,66 @@ import { DeadlinesView, BroadcastsView, ModulesView, ProfileView } from './compo
 import { AssignmentDetailsView } from './components/AssignmentDetailsView';
 import { DeadlineEditModal } from './components/DeadlineEditModal';
 import { LoginPage } from './components/LoginPage';
+import { AdminDashboard } from './admin/AdminDashboard';
 import { INITIAL_DAYS, INITIAL_EVENTS, INITIAL_ASSIGNMENTS, NOTIFICATIONS } from './data/mockData';
 import { AssignmentItem, EventItem, NavigationTab, NotificationItem, UserSession } from './types';
 import { Plus, Check, CheckCheck, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import {
+  fetchScheduleActivities,
+  createScheduleActivity,
+  updateScheduleActivity,
+  deleteScheduleActivity,
+  fetchAssignments,
+  createAssignment,
+  updateAssignment,
+  deleteAssignment,
+  fetchAnnouncementsAndNotifications,
+  fetchCourses,
+  subscribeToRealtimeDatabase,
+} from './lib/dbService';
+import { CourseRecord } from './admin/types';
 
 export default function App() {
+  const checkIsAdminRoute = () => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    const search = window.location.search.toLowerCase();
+    return (
+      path.includes('adminschedulerapp') ||
+      path.startsWith('/admin') ||
+      hash.includes('adminschedulerapp') ||
+      hash.includes('admin') ||
+      search.includes('adminschedulerapp') ||
+      search.includes('view=admin')
+    );
+  };
+
+  const [isAdminView, setIsAdminView] = useState<boolean>(() => checkIsAdminRoute());
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      setIsAdminView(checkIsAdminRoute());
+    };
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
+  }, []);
+
   const [days, setDays] = useState(INITIAL_DAYS);
   const [selectedDayId, setSelectedDayId] = useState<string>('WED 19');
   const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
+  const [assignments, setAssignments] = useState<AssignmentItem[]>(INITIAL_ASSIGNMENTS);
   const [notifications, setNotifications] = useState<NotificationItem[]>(NOTIFICATIONS);
+  const [courses, setCourses] = useState<CourseRecord[]>([]);
   const [activeTab, setActiveTab] = useState<NavigationTab>('Schedule');
   const [showSplash, setShowSplash] = useState(true);
+  const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
   
   // Student Portal Auth Session
   const [userSession, setUserSession] = useState<UserSession | null>(() => {
@@ -38,49 +86,6 @@ export default function App() {
     return null;
   });
 
-  const handleLogin = (session: UserSession) => {
-    setUserSession(session);
-    try {
-      localStorage.setItem('university_schedule_user', JSON.stringify(session));
-    } catch (e) {
-      console.error(e);
-    }
-    showToast(`Welcome, ${session.fullName}!`);
-    addActivityNotification(
-      'Portal Session Active',
-      `Signed in as ${session.fullName} (Matric: ${session.matricNumber}).`,
-      'system',
-      'success'
-    );
-  };
-
-  const handleLogout = () => {
-    setUserSession(null);
-    try {
-      localStorage.removeItem('university_schedule_user');
-    } catch (e) {
-      console.error(e);
-    }
-    setActiveTab('Schedule');
-    setSelectedAssignmentForDetails(null);
-    showToast('Signed out of Student Portal');
-  };
-
-  // Custom uploaded profile avatar (saved in local memory / device)
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-
-  // Assignments & Deadlines State
-  const [assignments, setAssignments] = useState<AssignmentItem[]>(INITIAL_ASSIGNMENTS);
-  const [selectedAssignmentForDetails, setSelectedAssignmentForDetails] = useState<AssignmentItem | null>(null);
-  const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState<AssignmentItem | null>(null);
-
-  // Menu & Bottom Drawer States
-  const [selectedEventForMenu, setSelectedEventForMenu] = useState<EventItem | null>(null);
-  const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -111,7 +116,130 @@ export default function App() {
     []
   );
 
-  const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
+  // Sync Student Portal with Firebase Firestore
+  const syncStudentPortalData = useCallback(async () => {
+    try {
+      const [dbEvents, dbAssigns, dbNotifs, dbCourses] = await Promise.all([
+        fetchScheduleActivities(),
+        fetchAssignments(),
+        fetchAnnouncementsAndNotifications(),
+        fetchCourses(),
+      ]);
+
+      if (dbEvents && dbEvents.length > 0) {
+        setEvents(dbEvents);
+      }
+      if (dbAssigns && dbAssigns.length > 0) {
+        setAssignments(dbAssigns);
+      }
+      if (dbNotifs && dbNotifs.length > 0) {
+        setNotifications(dbNotifs);
+      }
+      if (dbCourses && dbCourses.length > 0) {
+        setCourses(dbCourses);
+      }
+    } catch (err) {
+      console.warn('Student portal sync notice:', err);
+    }
+  }, []);
+
+  // On mount and when session activates, subscribe to live Firestore changes
+  useEffect(() => {
+    const unsubscribe = subscribeToRealtimeDatabase({
+      onEvents: (dbEvents) => {
+        if (dbEvents && dbEvents.length > 0) setEvents(dbEvents);
+      },
+      onAssignments: (dbAssigns) => {
+        if (dbAssigns && dbAssigns.length > 0) setAssignments(dbAssigns);
+      },
+      onNotifications: (dbNotifs) => {
+        if (dbNotifs && dbNotifs.length > 0) setNotifications(dbNotifs);
+      },
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const handleGlobalSyncEvents = useCallback((updated: EventItem[]) => {
+    setEvents(updated);
+  }, []);
+
+  const handleGlobalSyncAssignments = useCallback((updated: AssignmentItem[]) => {
+    setAssignments(updated);
+  }, []);
+
+  const handleGlobalSyncNotifications = useCallback((updated: NotificationItem[]) => {
+    setNotifications(updated);
+  }, []);
+
+  const handleLogin = (session: UserSession) => {
+    setUserSession(session);
+    try {
+      localStorage.setItem('university_schedule_user', JSON.stringify(session));
+      const userKey = session.email || session.matricNumber;
+      const savedPic = localStorage.getItem(`university_profile_img_${userKey}`);
+      if (savedPic) {
+        setProfileImage(savedPic);
+      } else if (session.profileImage || session.profile_pic_url) {
+        setProfileImage(session.profileImage || session.profile_pic_url || null);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    showToast(`Welcome, ${session.fullName}!`);
+    addActivityNotification(
+      'Portal Session Active',
+      `Signed in as ${session.fullName} (Matric: ${session.matricNumber}).`,
+      'system',
+      'success'
+    );
+    syncStudentPortalData();
+  };
+
+  const handleLogout = () => {
+    setUserSession(null);
+    try {
+      localStorage.removeItem('university_schedule_user');
+    } catch (e) {
+      console.error(e);
+    }
+    setActiveTab('Schedule');
+    setSelectedAssignmentForDetails(null);
+    showToast('Signed out of Student Portal');
+  };
+
+  // Custom uploaded profile avatar (saved in local memory / device)
+  const [profileImage, setProfileImage] = useState<string | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('university_schedule_user');
+      if (savedUser) {
+        const user = JSON.parse(savedUser);
+        const savedPic = localStorage.getItem(`university_profile_img_${user.email || user.matricNumber}`);
+        if (savedPic) return savedPic;
+        if (user.profileImage || user.profile_pic_url || user.photoURL) {
+          return user.profileImage || user.profile_pic_url || user.photoURL;
+        }
+      }
+      const generic = localStorage.getItem('university_schedule_profile_img');
+      if (generic) return generic;
+    } catch (e) {
+      console.error(e);
+    }
+    return null;
+  });
+
+  // Assignments & Deadlines State
+  const [selectedAssignmentForDetails, setSelectedAssignmentForDetails] = useState<AssignmentItem | null>(null);
+  const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState<AssignmentItem | null>(null);
+
+  // Menu & Bottom Drawer States
+  const [selectedEventForMenu, setSelectedEventForMenu] = useState<EventItem | null>(null);
+  const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   // Filter events for currently selected day
   const currentDayEvents = useMemo(() => {
@@ -146,7 +274,7 @@ export default function App() {
   };
 
   // Handler to Delete Event
-  const handleDeleteEvent = (eventId: string) => {
+  const handleDeleteEvent = async (eventId: string) => {
     const target = events.find((e) => e.id === eventId);
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
     showToast('Event removed from your schedule');
@@ -156,10 +284,11 @@ export default function App() {
       'schedule',
       'alert'
     );
+    await deleteScheduleActivity(eventId);
   };
 
   // Handler to Toggle Postponed status
-  const handleTogglePostponed = (eventId: string) => {
+  const handleTogglePostponed = async (eventId: string) => {
     let statusAfter = false;
     let targetCourse = 'Class';
     setEvents((prev) =>
@@ -183,6 +312,7 @@ export default function App() {
       'schedule',
       statusAfter ? 'alert' : 'success'
     );
+    await updateScheduleActivity(eventId, { isPostponed: statusAfter });
   };
 
   // Handler to Share Event
@@ -211,7 +341,7 @@ export default function App() {
   };
 
   // Handler to Save New / Edited Event
-  const handleSaveEvent = (saved: EventItem) => {
+  const handleSaveEvent = async (saved: EventItem) => {
     const isEdit = !!editingEvent;
     setEvents((prev) => {
       const exists = prev.some((e) => e.id === saved.id);
@@ -229,6 +359,12 @@ export default function App() {
       'schedule',
       'success'
     );
+
+    if (isEdit) {
+      await updateScheduleActivity(saved.id, saved);
+    } else {
+      await createScheduleActivity(saved);
+    }
   };
 
   const handleMarkAllNotifsRead = () => {
@@ -247,6 +383,23 @@ export default function App() {
 
   const handleProfileImageUpload = (imageDataUrl: string) => {
     setProfileImage(imageDataUrl || null);
+    try {
+      if (userSession) {
+        const userKey = userSession.email || userSession.matricNumber;
+        if (imageDataUrl) {
+          localStorage.setItem(`university_profile_img_${userKey}`, imageDataUrl);
+        } else {
+          localStorage.removeItem(`university_profile_img_${userKey}`);
+        }
+      }
+      if (imageDataUrl) {
+        localStorage.setItem('university_schedule_profile_img', imageDataUrl);
+      } else {
+        localStorage.removeItem('university_schedule_profile_img');
+      }
+    } catch (e) {
+      console.error(e);
+    }
     showToast(imageDataUrl ? 'Profile picture updated!' : 'Profile picture reset');
     addActivityNotification(
       'Profile Photo Changed',
@@ -258,20 +411,22 @@ export default function App() {
     );
   };
 
-  const handleTriggerRefresh = () => {
+  const handleTriggerRefresh = async () => {
     setIsDataLoading(true);
+    await syncStudentPortalData();
     setTimeout(() => {
       setIsDataLoading(false);
       showToast('Timetable & student data refreshed');
-    }, 900);
+    }, 400);
   };
 
   // Assignment / Deadline Handlers
-  const handleToggleCompleteAssignment = (id: string) => {
+  const handleToggleCompleteAssignment = async (id: string) => {
+    let newStatus = false;
     setAssignments((prev) =>
       prev.map((item) => {
         if (item.id === id) {
-          const newStatus = !item.isCompleted;
+          newStatus = !item.isCompleted;
           const updated: AssignmentItem = {
             ...item,
             isCompleted: newStatus,
@@ -294,9 +449,11 @@ export default function App() {
         return item;
       })
     );
+    await updateAssignment(id, { isCompleted: newStatus });
   };
 
-  const handleSaveAssignment = (savedAssignment: AssignmentItem) => {
+  const handleSaveAssignment = async (savedAssignment: AssignmentItem) => {
+    const isEdit = !!editingAssignment;
     setAssignments((prev) => {
       const exists = prev.some((a) => a.id === savedAssignment.id);
       if (exists) {
@@ -316,9 +473,15 @@ export default function App() {
       'deadline',
       'info'
     );
+
+    if (isEdit) {
+      await updateAssignment(savedAssignment.id, savedAssignment);
+    } else {
+      await createAssignment(savedAssignment);
+    }
   };
 
-  const handleDeleteAssignment = (id: string) => {
+  const handleDeleteAssignment = async (id: string) => {
     const target = assignments.find((a) => a.id === id);
     setAssignments((prev) => prev.filter((a) => a.id !== id));
     if (selectedAssignmentForDetails?.id === id) {
@@ -331,6 +494,7 @@ export default function App() {
       'deadline',
       'alert'
     );
+    await deleteAssignment(id);
   };
 
   const handleAddImagesToAssignment = (id: string, newImages: string[]) => {
@@ -421,7 +585,7 @@ export default function App() {
     return currentDay ? currentDay.dateNum : 19;
   }, [days, selectedDayId]);
 
-  // Master animation variants for snappy, ultra-smooth page transitions across the entire app
+  // Master animation variants for page transitions
   const pageVariants = {
     initial: {
       opacity: 0,
@@ -434,7 +598,7 @@ export default function App() {
       scale: 1,
       transition: {
         duration: 0.14,
-        ease: [0.16, 1, 0.3, 1],
+        ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
       },
     },
     exit: {
@@ -443,336 +607,371 @@ export default function App() {
       scale: 0.995,
       transition: {
         duration: 0.09,
-        ease: [0.16, 1, 0.3, 1],
+        ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
       },
     },
   };
 
+  // Dedicated Desktop-Only Admin Dashboard Route (/adminschedulerapp)
+  if (isAdminView) {
+    return (
+      <AdminDashboard
+        onBackToStudentPortal={() => {
+          if (typeof window !== 'undefined') {
+            window.history.pushState(null, '', '/');
+          }
+          setIsAdminView(false);
+        }}
+        initialEvents={events}
+        initialAssignments={assignments}
+        initialNotifications={notifications}
+        onGlobalSyncEvents={handleGlobalSyncEvents}
+        onGlobalSyncAssignments={handleGlobalSyncAssignments}
+        onGlobalSyncNotifications={handleGlobalSyncNotifications}
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#F5F5F7] text-[#1C1C1E] relative overflow-x-hidden flex flex-col items-center">
-      {/* Splash Screen */}
-      <AnimatePresence>
-        {showSplash && (
-          <SplashScreen
-            onComplete={() => setShowSplash(false)}
-            appName="Scheduler"
-          />
-        )}
-      </AnimatePresence>
-
-      {/* 
-        Ambient Soft Gradient Orbs in Background 
-        These ambient lights provide rich light refractions that shine through the frosted glass (backdrop-blur)
-      */}
-      <div className="fixed top-[-100px] left-[-80px] w-[340px] h-[340px] rounded-full bg-gradient-to-tr from-blue-300/35 to-sky-200/40 blur-[90px] pointer-events-none -z-10" />
-      <div className="fixed top-[280px] right-[-100px] w-[360px] h-[360px] rounded-full bg-gradient-to-br from-indigo-200/30 to-purple-200/25 blur-[100px] pointer-events-none -z-10" />
-      <div className="fixed bottom-[-60px] left-[15%] w-[380px] h-[380px] rounded-full bg-gradient-to-tr from-sky-200/35 to-emerald-100/30 blur-[110px] pointer-events-none -z-10" />
-
-      {/* Main Container mimicking iOS screen boundaries */}
-      <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-3 pb-32 relative">
-        
-        {/* iOS Dynamic Header & Status Bar Area */}
-        <div className="space-y-4 flex-1">
-          {/* Top Header Row (Hidden when viewing dedicated Notifications page) */}
-          {activeTab !== 'Notifications' && (
-            <HeaderSection
-              onOpenNotifications={() => setActiveTab('Notifications')}
-              onOpenCalendarView={() => setIsCalendarOpen(true)}
-              onOpenProfileTab={() => setActiveTab('Profile')}
-              unreadCount={unreadNotifCount}
-              profileImage={profileImage}
-              onUploadProfileImage={handleProfileImageUpload}
-              isNotificationsActive={activeTab === 'Notifications'}
+    <ErrorBoundary fallbackTitle="Student Portal Safe Mode">
+      <div className="min-h-screen bg-[#F5F5F7] text-[#1C1C1E] relative overflow-x-hidden flex flex-col items-center">
+        {/* Splash Screen */}
+        <AnimatePresence mode="wait">
+          {showSplash && (
+            <SplashScreen
+              onComplete={() => setShowSplash(false)}
+              appName="Scheduler"
             />
           )}
+        </AnimatePresence>
 
-          {/* Conditional View by Active Navigation Tab with Slide & Blur Transition */}
-          <AnimatePresence mode="wait">
-            {activeTab === 'Schedule' && (
-              <motion.div
-                key="tab-schedule"
-                variants={pageVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="space-y-4"
-              >
-                {/* Day Timeline Section */}
-                <DayTimelineSection
-                  days={updatedDays}
-                  selectedDayId={selectedDayId}
-                  onSelectDay={(id) => setSelectedDayId(id)}
-                />
+        {/* Main Content: Authenticated Dashboard vs Login Screen */}
+        {!userSession ? (
+          <LoginPage onLogin={handleLogin} />
+        ) : (
+          <>
+            {/* Ambient Soft Gradient Orbs in Background */}
+            <div className="fixed top-[-100px] left-[-80px] w-[340px] h-[340px] rounded-full bg-gradient-to-tr from-blue-300/35 to-sky-200/40 blur-[90px] pointer-events-none -z-10" />
+            <div className="fixed top-[280px] right-[-100px] w-[360px] h-[360px] rounded-full bg-gradient-to-br from-indigo-200/30 to-purple-200/25 blur-[100px] pointer-events-none -z-10" />
+            <div className="fixed bottom-[-60px] left-[15%] w-[380px] h-[380px] rounded-full bg-gradient-to-tr from-sky-200/35 to-emerald-100/30 blur-[110px] pointer-events-none -z-10" />
 
-                {/* Today's Activities Section */}
-                <ActivitiesSection
-                  events={currentDayEvents}
-                  selectedDayName={selectedDayId}
-                  onOpenMenu={handleOpenMenu}
-                  onSelectCard={(evt) => handleOpenMenu(evt)}
-                  isLoading={isDataLoading}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === 'Notifications' && (
-              <motion.div
-                key="tab-notifications"
-                variants={pageVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-              >
-                <NotificationsView
-                  notifications={notifications}
-                  onBackToSchedule={() => setActiveTab('Schedule')}
-                  onDeleteNotif={handleDeleteNotif}
-                  isLoading={isDataLoading}
-                />
-              </motion.div>
-            )}
-
-            {activeTab === 'Deadlines' && (
-              <motion.div
-                key={selectedAssignmentForDetails ? `tab-deadline-detail-${selectedAssignmentForDetails.id}` : 'tab-deadlines'}
-                variants={pageVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-              >
-                {selectedAssignmentForDetails ? (
-                  <AssignmentDetailsView
-                    assignment={selectedAssignmentForDetails}
-                    onBack={() => setSelectedAssignmentForDetails(null)}
-                    onToggleComplete={handleToggleCompleteAssignment}
-                    onEdit={handleEditAssignmentModal}
-                    onDelete={handleDeleteAssignment}
-                    onAddImages={handleAddImagesToAssignment}
-                    onDeleteImage={handleDeleteAssignmentImage}
-                  />
-                ) : (
-                  <DeadlinesView
-                    onBackToSchedule={() => setActiveTab('Schedule')}
-                    assignments={assignments}
-                    onSelectAssignment={(asn) => setSelectedAssignmentForDetails(asn)}
-                    onToggleCompleteAssignment={handleToggleCompleteAssignment}
-                    onAddNewDeadline={() => {
-                      setEditingAssignment(null);
-                      setIsDeadlineModalOpen(true);
-                    }}
-                    isLoading={isDataLoading}
+            {/* Main Container mimicking iOS screen boundaries */}
+            <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-3 pb-32 relative">
+              {/* iOS Dynamic Header & Status Bar Area */}
+              <div className="space-y-4 flex-1">
+                {/* Top Header Row */}
+                {activeTab !== 'Notifications' && (
+                  <HeaderSection
+                    onOpenNotifications={() => setActiveTab('Notifications')}
+                    onOpenCalendarView={() => setIsCalendarOpen(true)}
+                    onOpenProfileTab={() => setActiveTab('Profile')}
+                    unreadCount={unreadNotifCount}
+                    profileImage={profileImage}
+                    onUploadProfileImage={handleProfileImageUpload}
+                    isNotificationsActive={false}
+                    userSession={userSession}
                   />
                 )}
-              </motion.div>
-            )}
 
-            {activeTab === 'Broadcasts' && (
-              <motion.div
-                key="tab-broadcasts"
-                variants={pageVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-              >
-                <BroadcastsView
-                  onBackToSchedule={() => setActiveTab('Schedule')}
-                  isLoading={isDataLoading}
-                />
-              </motion.div>
-            )}
+                {/* Conditional View by Active Navigation Tab */}
+                <AnimatePresence mode="wait">
+                  {activeTab === 'Schedule' && (
+                    <motion.div
+                      key="tab-schedule"
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                      className="space-y-4"
+                    >
+                      {/* Day Timeline Section */}
+                      <DayTimelineSection
+                        days={updatedDays}
+                        selectedDayId={selectedDayId}
+                        onSelectDay={(id) => setSelectedDayId(id)}
+                      />
 
-            {activeTab === 'Modules' && (
-              <motion.div
-                key="tab-modules"
-                variants={pageVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-              >
-                <ModulesView
-                  onBackToSchedule={() => setActiveTab('Schedule')}
-                  isLoading={isDataLoading}
-                />
-              </motion.div>
-            )}
+                      {/* Today's Activities Section */}
+                      <ActivitiesSection
+                        events={currentDayEvents}
+                        selectedDayName={selectedDayId}
+                        onOpenMenu={handleOpenMenu}
+                        onSelectCard={(evt) => handleOpenMenu(evt)}
+                        isLoading={isDataLoading}
+                      />
+                    </motion.div>
+                  )}
 
-            {activeTab === 'Profile' && (
-              <motion.div
-                key="tab-profile"
-                variants={pageVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-              >
-                <ProfileView
-                  onBackToSchedule={() => setActiveTab('Schedule')}
-                  profileImage={profileImage}
-                  onUploadProfileImage={handleProfileImageUpload}
-                  onReplaySplash={() => setShowSplash(true)}
-                  onTriggerRefresh={handleTriggerRefresh}
-                  isLoading={isDataLoading}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
+                  {activeTab === 'Notifications' && (
+                    <motion.div
+                      key="tab-notifications"
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      <NotificationsView
+                        notifications={notifications}
+                        onBackToSchedule={() => setActiveTab('Schedule')}
+                        onDeleteNotif={handleDeleteNotif}
+                        isLoading={isDataLoading}
+                      />
+                    </motion.div>
+                  )}
 
-      {/* Standalone Hovering Floating Action Button (FAB) anchored to the viewport */}
-      <AnimatePresence>
-        {!isAnyDrawerOpen &&
-          activeTab !== 'Profile' &&
-          activeTab !== 'Notifications' &&
-          !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) && (
-            <div className="fixed bottom-[84px] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
-              <motion.button
-                key="floating-fab-btn"
-                initial={{ opacity: 0, scale: 0.75, y: 15 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.75, y: 15 }}
-                whileTap={{ scale: 0.9 }}
-                whileHover={{ scale: 1.05 }}
-                transition={{ type: 'spring', damping: 22, stiffness: 350 }}
-                onClick={handleFloatingActionClick}
-                aria-label={floatingButtonTitle}
-                title={floatingButtonTitle}
-                className="w-14 h-14 rounded-full bg-[#007AFF] text-white flex items-center justify-center shadow-[0_10px_28px_rgba(0,122,255,0.45)] hover:bg-[#0069D9] cursor-pointer border border-blue-300/40 group pointer-events-auto transition-colors"
-              >
-                <Plus className="w-7 h-7 text-white stroke-[2.5] transition-transform duration-300 group-hover:rotate-90" />
-              </motion.button>
+                  {activeTab === 'Deadlines' && (
+                    <motion.div
+                      key={selectedAssignmentForDetails ? `tab-deadline-detail-${selectedAssignmentForDetails.id}` : 'tab-deadlines'}
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      {selectedAssignmentForDetails ? (
+                        <AssignmentDetailsView
+                          assignment={selectedAssignmentForDetails}
+                          onBack={() => setSelectedAssignmentForDetails(null)}
+                          onToggleComplete={handleToggleCompleteAssignment}
+                          onEdit={handleEditAssignmentModal}
+                          onDelete={handleDeleteAssignment}
+                          onAddImages={handleAddImagesToAssignment}
+                          onDeleteImage={handleDeleteAssignmentImage}
+                        />
+                      ) : (
+                        <DeadlinesView
+                          onBackToSchedule={() => setActiveTab('Schedule')}
+                          assignments={assignments}
+                          onSelectAssignment={(asn) => setSelectedAssignmentForDetails(asn)}
+                          onToggleCompleteAssignment={handleToggleCompleteAssignment}
+                          onAddNewDeadline={() => {
+                            setEditingAssignment(null);
+                            setIsDeadlineModalOpen(true);
+                          }}
+                          isLoading={isDataLoading}
+                        />
+                      )}
+                    </motion.div>
+                  )}
+
+                  {activeTab === 'Broadcasts' && (
+                    <motion.div
+                      key="tab-broadcasts"
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      <BroadcastsView
+                        onBackToSchedule={() => setActiveTab('Schedule')}
+                        isLoading={isDataLoading}
+                        notifications={notifications}
+                      />
+                    </motion.div>
+                  )}
+
+                  {activeTab === 'Modules' && (
+                    <motion.div
+                      key="tab-modules"
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      <ModulesView
+                        onBackToSchedule={() => setActiveTab('Schedule')}
+                        isLoading={isDataLoading}
+                        courses={courses}
+                        userSession={userSession}
+                      />
+                    </motion.div>
+                  )}
+
+                  {activeTab === 'Profile' && (
+                    <motion.div
+                      key="tab-profile"
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      <ProfileView
+                        onBackToSchedule={() => setActiveTab('Schedule')}
+                        profileImage={profileImage}
+                        onUploadProfileImage={handleProfileImageUpload}
+                        onReplaySplash={() => setShowSplash(true)}
+                        onTriggerRefresh={handleTriggerRefresh}
+                        isLoading={isDataLoading}
+                        userSession={userSession}
+                        onLogout={handleLogout}
+                        onNavigateToAdmin={() => {
+                          if (typeof window !== 'undefined') {
+                            window.history.pushState(null, '', '/adminschedulerapp');
+                          }
+                          setIsAdminView(true);
+                        }}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
-          )}
-      </AnimatePresence>
 
-      {/* Standalone Bottom Navigation Bar permanently fixed in viewport (hidden on Notifications page and Deadline Details page) */}
-      <AnimatePresence>
-        {activeTab !== 'Notifications' && !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{
-              opacity: isAnyDrawerOpen ? 0 : 1,
-              y: isAnyDrawerOpen ? 30 : 0,
-              pointerEvents: isAnyDrawerOpen ? 'none' : 'auto',
-            }}
-            exit={{ opacity: 0, y: 30 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
-          >
-            <BottomNavBar
-              activeTab={activeTab}
-              onSelectTab={(tab) => {
-                if (tab !== 'Deadlines') {
-                  setSelectedAssignmentForDetails(null);
+            {/* Floating Action Button (FAB) */}
+            <AnimatePresence>
+              {!isAnyDrawerOpen &&
+                activeTab !== 'Profile' &&
+                activeTab !== 'Notifications' &&
+                !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) && (
+                  <div className="fixed bottom-[84px] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
+                    <motion.button
+                      key="floating-fab-btn"
+                      initial={{ opacity: 0, scale: 0.75, y: 15 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.75, y: 15 }}
+                      whileTap={{ scale: 0.9 }}
+                      whileHover={{ scale: 1.05 }}
+                      transition={{ type: 'spring', damping: 22, stiffness: 350 }}
+                      onClick={handleFloatingActionClick}
+                      aria-label={floatingButtonTitle}
+                      title={floatingButtonTitle}
+                      className="w-14 h-14 rounded-full bg-[#007AFF] text-white flex items-center justify-center shadow-[0_10px_28px_rgba(0,122,255,0.45)] hover:bg-[#0069D9] cursor-pointer border border-blue-300/40 group pointer-events-auto transition-colors"
+                    >
+                      <Plus className="w-7 h-7 text-white stroke-[2.5] transition-transform duration-300 group-hover:rotate-90" />
+                    </motion.button>
+                  </div>
+                )}
+            </AnimatePresence>
+
+            {/* Standalone Bottom Navigation Bar */}
+            <AnimatePresence>
+              {activeTab !== 'Notifications' && !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{
+                    opacity: isAnyDrawerOpen ? 0 : 1,
+                    y: isAnyDrawerOpen ? 30 : 0,
+                    pointerEvents: isAnyDrawerOpen ? 'none' : 'auto',
+                  }}
+                  exit={{ opacity: 0, y: 30 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                >
+                  <BottomNavBar
+                    activeTab={activeTab}
+                    onSelectTab={(tab) => {
+                      if (tab !== 'Deadlines') {
+                        setSelectedAssignmentForDetails(null);
+                      }
+                      setActiveTab(tab);
+                    }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Floating Action Bar on Notifications Page */}
+            <AnimatePresence>
+              {activeTab === 'Notifications' && (
+                <motion.div
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{
+                    opacity: isAnyDrawerOpen ? 0 : 1,
+                    y: isAnyDrawerOpen ? 30 : 0,
+                    pointerEvents: isAnyDrawerOpen ? 'none' : 'auto',
+                  }}
+                  exit={{ opacity: 0, y: 30 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                  className="fixed bottom-0 left-0 right-0 z-40 flex justify-center px-4 pb-4 pt-2 pointer-events-none"
+                >
+                  <div className="w-full max-w-md flex items-center justify-between gap-3 pointer-events-auto">
+                    <motion.button
+                      whileTap={{ scale: 0.94 }}
+                      whileHover={{ scale: 1.02, y: -2 }}
+                      onClick={handleMarkAllNotifsRead}
+                      disabled={unreadNotifCount === 0}
+                      className={`flex-1 py-3 px-5 rounded-[28px] font-bold text-[13px] border backdrop-blur-2xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
+                        unreadNotifCount > 0
+                          ? 'bg-[#007AFF]/90 hover:bg-[#007AFF] text-white border-blue-400/60 shadow-[0_12px_32px_rgba(0,122,255,0.38)]'
+                          : 'bg-white/80 text-[#8E8E93] border-white/90 cursor-not-allowed opacity-60 shadow-[0_8px_24px_rgba(0,0,0,0.06)]'
+                      }`}
+                    >
+                      <CheckCheck className="w-4 h-4" />
+                      <span>Mark all read</span>
+                    </motion.button>
+
+                    {notifications.length > 0 && (
+                      <motion.button
+                        whileTap={{ scale: 0.94 }}
+                        whileHover={{ scale: 1.02, y: -2 }}
+                        onClick={handleClearAllNotifs}
+                        className="py-3 px-5 rounded-[28px] bg-red-500/12 hover:bg-red-500/20 text-red-600 font-bold text-[13px] border border-red-200/80 backdrop-blur-2xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-[0_10px_28px_rgba(239,68,68,0.18)] hover:shadow-[0_14px_32px_rgba(239,68,68,0.26)]"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Clear</span>
+                      </motion.button>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Frosted Glass Bottom Sheet */}
+            <EventBottomSheet
+              isOpen={isBottomSheetOpen}
+              event={selectedEventForMenu}
+              onClose={() => setIsBottomSheetOpen(false)}
+              onEdit={handleEditEvent}
+              onDelete={handleDeleteEvent}
+              onTogglePostponed={handleTogglePostponed}
+              onShare={handleShareEvent}
+            />
+
+            {/* Edit / Add Activity Modal */}
+            <EventEditModal
+              isOpen={isEditModalOpen}
+              event={editingEvent}
+              selectedDayKey={selectedDayId}
+              onClose={() => setIsEditModalOpen(false)}
+              onSave={handleSaveEvent}
+            />
+
+            {/* Add / Edit Deadline Modal */}
+            <DeadlineEditModal
+              isOpen={isDeadlineModalOpen}
+              assignment={editingAssignment}
+              onClose={() => setIsDeadlineModalOpen(false)}
+              onSave={handleSaveAssignment}
+            />
+
+            {/* Monthly Calendar View */}
+            <CalendarModal
+              isOpen={isCalendarOpen}
+              selectedDate={selectedDateNum}
+              onClose={() => setIsCalendarOpen(false)}
+              onSelectDate={(dateNum) => {
+                const matchedDay = days.find((d) => d.dateNum === dateNum);
+                if (matchedDay) {
+                  setSelectedDayId(matchedDay.id);
                 }
-                setActiveTab(tab);
               }}
             />
-          </motion.div>
+          </>
         )}
-      </AnimatePresence>
 
-      {/* Floating Standalone Action Bar Fixed at the Exact Bottom Navigation Position on Notifications Page */}
-      <AnimatePresence>
-        {activeTab === 'Notifications' && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{
-              opacity: isAnyDrawerOpen ? 0 : 1,
-              y: isAnyDrawerOpen ? 30 : 0,
-              pointerEvents: isAnyDrawerOpen ? 'none' : 'auto',
-            }}
-            exit={{ opacity: 0, y: 30 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
-            className="fixed bottom-0 left-0 right-0 z-40 flex justify-center px-4 pb-4 pt-2 pointer-events-none"
-          >
-            <div className="w-full max-w-md flex items-center justify-between gap-3 pointer-events-auto">
-              {/* Mark All Read - Floating Standalone Pill Button */}
-              <motion.button
-                whileTap={{ scale: 0.94 }}
-                whileHover={{ scale: 1.02, y: -2 }}
-                onClick={handleMarkAllNotifsRead}
-                disabled={unreadNotifCount === 0}
-                className={`flex-1 py-3 px-5 rounded-[28px] font-bold text-[13px] border backdrop-blur-2xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
-                  unreadNotifCount > 0
-                    ? 'bg-[#007AFF]/90 hover:bg-[#007AFF] text-white border-blue-400/60 shadow-[0_12px_32px_rgba(0,122,255,0.38)]'
-                    : 'bg-white/80 text-[#8E8E93] border-white/90 cursor-not-allowed opacity-60 shadow-[0_8px_24px_rgba(0,0,0,0.06)]'
-                }`}
-              >
-                <CheckCheck className="w-4 h-4" />
-                <span>Mark all read</span>
-              </motion.button>
-
-              {/* Clear - Floating Standalone Pill Button */}
-              {notifications.length > 0 && (
-                <motion.button
-                  whileTap={{ scale: 0.94 }}
-                  whileHover={{ scale: 1.02, y: -2 }}
-                  onClick={handleClearAllNotifs}
-                  className="py-3 px-5 rounded-[28px] bg-red-500/12 hover:bg-red-500/20 text-red-600 font-bold text-[13px] border border-red-200/80 backdrop-blur-2xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-[0_10px_28px_rgba(239,68,68,0.18)] hover:shadow-[0_14px_32px_rgba(239,68,68,0.26)]"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Clear</span>
-                </motion.button>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Frosted Glass Bottom Sheet (Slides up when three-dot menu is clicked) */}
-      <EventBottomSheet
-        isOpen={isBottomSheetOpen}
-        event={selectedEventForMenu}
-        onClose={() => setIsBottomSheetOpen(false)}
-        onEdit={handleEditEvent}
-        onDelete={handleDeleteEvent}
-        onTogglePostponed={handleTogglePostponed}
-        onShare={handleShareEvent}
-      />
-
-      {/* Edit / Add Activity Modal (Slides from under the app) */}
-      <EventEditModal
-        isOpen={isEditModalOpen}
-        event={editingEvent}
-        selectedDayKey={selectedDayId}
-        onClose={() => setIsEditModalOpen(false)}
-        onSave={handleSaveEvent}
-      />
-
-      {/* Add / Edit Deadline Modal (Slides from under the app) */}
-      <DeadlineEditModal
-        isOpen={isDeadlineModalOpen}
-        assignment={editingAssignment}
-        onClose={() => setIsDeadlineModalOpen(false)}
-        onSave={handleSaveAssignment}
-      />
-
-      {/* Monthly Calendar View (Slides from under the app) */}
-      <CalendarModal
-        isOpen={isCalendarOpen}
-        selectedDate={selectedDateNum}
-        onClose={() => setIsCalendarOpen(false)}
-        onSelectDate={(dateNum) => {
-          const matchedDay = days.find((d) => d.dateNum === dateNum);
-          if (matchedDay) {
-            setSelectedDayId(matchedDay.id);
-          }
-        }}
-      />
-
-      {/* Toast Notification Pill */}
-      <AnimatePresence>
-        {toastMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 15, scale: 0.95 }}
-            className="fixed top-5 z-50 px-4 py-2.5 rounded-full glass-container-solid border border-white text-[13px] font-semibold text-[#1C1C1E] shadow-[0_10px_30px_rgba(0,0,0,0.12)] flex items-center gap-2"
-          >
-            <Check className="w-4 h-4 text-emerald-600" />
-            <span>{toastMessage}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+        {/* Toast Notification Pill */}
+        <AnimatePresence>
+          {toastMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 15, scale: 0.95 }}
+              className="fixed top-5 z-50 px-4 py-2.5 rounded-full glass-container-solid border border-white text-[13px] font-semibold text-[#1C1C1E] shadow-[0_10px_30px_rgba(0,0,0,0.12)] flex items-center gap-2"
+            >
+              <Check className="w-4 h-4 text-emerald-600" />
+              <span>{toastMessage}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </ErrorBoundary>
   );
 }

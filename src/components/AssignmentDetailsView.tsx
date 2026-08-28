@@ -20,6 +20,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
+import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
 
 interface AssignmentDetailsViewProps {
   assignment: AssignmentItem;
@@ -42,6 +43,8 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
 }) => {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleOpenViewer = (index: number) => {
@@ -105,12 +108,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
 
           <motion.button
             whileTap={{ scale: 0.94 }}
-            onClick={() => {
-              if (window.confirm('Delete this deadline?')) {
-                onDelete(assignment.id);
-                onBack();
-              }
-            }}
+            onClick={() => setIsConfirmDeleteOpen(true)}
             className="p-2 rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer"
             title="Delete assignment"
           >
@@ -350,6 +348,28 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
           }}
         />
       )}
+
+      {/* Confirm Delete Deadline Modal */}
+      <ConfirmDeleteModal
+        isOpen={isConfirmDeleteOpen}
+        onClose={() => setIsConfirmDeleteOpen(false)}
+        onConfirm={async () => {
+          setIsDeleting(true);
+          try {
+            await onDelete(assignment.id);
+            setIsConfirmDeleteOpen(false);
+            onBack();
+          } finally {
+            setIsDeleting(false);
+          }
+        }}
+        title="Delete Academic Deadline"
+        itemType="assignment / deadline"
+        itemName={`${assignment.course} - ${assignment.title}`}
+        description="Are you sure you want to delete this assignment deadline? It will be permanently removed from your task board."
+        confirmLabel="Yes, Delete Deadline"
+        isDeleting={isDeleting}
+      />
     </div>
   );
 };
