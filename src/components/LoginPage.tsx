@@ -15,7 +15,8 @@ import {
 import { UserSession } from '../types';
 import { auth } from '../lib/firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { fetchStudentByAuthUid, fetchStudentByEmailOrMatric } from '../lib/dbService';
+import { fetchStudentByAuthUid, fetchStudentByEmailOrMatric, fetchCurrentSemester, normalizeSemester } from '../lib/dbService';
+import { getStudentActiveLevel, getStudentActiveSemester } from '../lib/academicScope';
 
 interface LoginPageProps {
   onLogin: (session: UserSession) => void;
@@ -115,7 +116,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const studentUid = authUserUid || studentProfile?.uid || studentProfile?.id || 'usr_' + trimmedEmail.replace(/[@.]/g, '_');
       const studentName = studentProfile?.full_name || studentProfile?.fullName || studentProfile?.name || trimmedEmail.split('@')[0];
       const department = studentProfile?.department || 'Department of Industrial Chemistry';
-      const yearLevel = studentProfile?.year_level || studentProfile?.yearLevel || `${studentProfile?.level || 100} Level`;
+      const departmentId = studentProfile?.department_id || (department.toLowerCase().includes('industrial') ? 'dept-ich' : 'dept-chm');
+      const activeLevel = getStudentActiveLevel(studentProfile);
+      
+      // Fetch the live university semester from Firestore to ensure immediate alignment with admin dashboard
+      let activeSemester = '1st Semester';
+      let activeSession = '2025/2026';
+      try {
+        const semDoc = await fetchCurrentSemester();
+        if (semDoc?.semester_code) {
+          activeSemester = normalizeSemester(semDoc.semester_code);
+          const sMatch = semDoc.semester_code.match(/\d{4}\/\d{4}/);
+          if (sMatch) activeSession = sMatch[0];
+        }
+      } catch (sErr) {
+        console.warn('Could not fetch active semester on login:', sErr);
+        activeSemester = getStudentActiveSemester(studentProfile, '1st Semester');
+      }
+
+      const yearLevel = `${activeLevel} Level`;
       const verifiedMatric = studentProfile?.matric_number || studentProfile?.matricNumber || trimmedMatric;
 
       const profilePic = studentProfile?.profile_pic_url || studentProfile?.profileImage || studentProfile?.photoURL || '';
@@ -127,12 +146,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         matricNumber: verifiedMatric,
         fullName: studentName,
         department: department,
+        department_id: departmentId,
         faculty: 'Physical Sciences',
+        level: activeLevel,
         yearLevel: yearLevel,
+        year_level: yearLevel,
+        semester: activeSemester,
+        current_semester: activeSemester,
         profileImage: profilePic,
         profile_pic_url: profilePic,
         isAdmin: Boolean(studentProfile?.isadmin || studentProfile?.isAdmin),
         isCourseRep: Boolean(studentProfile?.iscourserep || studentProfile?.isCourseRep),
+        is_payed: Boolean(studentProfile?.is_payed ?? studentProfile?.is_paid ?? true),
+        is_paid: Boolean(studentProfile?.is_payed ?? studentProfile?.is_paid ?? true),
+        hasFreeAccess: Boolean(studentProfile?.is_payed ?? studentProfile?.is_paid ?? true),
         isLoggedIn: true,
       });
     } catch (err: any) {

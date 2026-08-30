@@ -11,6 +11,7 @@ interface EventBottomSheetProps {
   onDelete: (eventId: string) => void;
   onTogglePostponed: (eventId: string) => void;
   onShare: (event: EventItem) => void;
+  isCourseRep?: boolean;
 }
 
 export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
@@ -21,6 +22,7 @@ export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
   onDelete,
   onTogglePostponed,
   onShare,
+  isCourseRep = false,
 }) => {
   const [copied, setCopied] = React.useState(false);
 
@@ -78,6 +80,11 @@ export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
                 <p className="text-[12px] text-[#8E8E93] mt-0.5">
                   {event.time} • {event.location}
                 </p>
+                {event.instructor && (
+                  <p className="text-[11.5px] font-medium text-slate-600 mt-1">
+                    Lecturer: <span className="font-semibold text-slate-800">{event.instructor}</span>
+                  </p>
+                )}
               </div>
 
               <button
@@ -91,26 +98,28 @@ export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
 
             {/* Action Items List */}
             <div className="space-y-1.5 pt-1">
-              {/* Option: Edit Event (Pencil icon) */}
-              <button
-                onClick={() => {
-                  onEdit(event);
-                  onClose();
-                }}
-                className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-[20px] hover:bg-white/90 active:bg-[#007AFF]/10 text-left transition-colors cursor-pointer group"
-              >
-                <div className="w-9 h-9 rounded-full bg-blue-500/10 text-[#007AFF] flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <Pencil className="w-[18px] h-[18px]" />
-                </div>
-                <div className="flex-1">
-                  <span className="text-[15px] font-semibold text-[#1C1C1E] block">
-                    Edit Event
-                  </span>
-                  <span className="text-[12px] text-[#8E8E93] block">
-                    Modify time, hall, or tags
-                  </span>
-                </div>
-              </button>
+              {/* Option: Edit Event (Pencil icon) - Course Rep Only */}
+              {isCourseRep && (
+                <button
+                  onClick={() => {
+                    onEdit(event);
+                    onClose();
+                  }}
+                  className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-[20px] hover:bg-white/90 active:bg-[#007AFF]/10 text-left transition-colors cursor-pointer group"
+                >
+                  <div className="w-9 h-9 rounded-full bg-blue-500/10 text-[#007AFF] flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Pencil className="w-[18px] h-[18px]" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-[15px] font-semibold text-[#1C1C1E] block">
+                      Edit Event
+                    </span>
+                    <span className="text-[12px] text-[#8E8E93] block">
+                      Modify time, hall, or tags
+                    </span>
+                  </div>
+                </button>
+              )}
 
               {/* Option: Share (Share icon) */}
               <button
@@ -151,47 +160,51 @@ export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
                 </div>
               </button>
 
-              {/* Toggle Postponed State */}
-              <button
-                onClick={() => {
-                  onTogglePostponed(event.id);
-                  onClose();
-                }}
-                className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-[20px] hover:bg-white/90 text-left transition-colors cursor-pointer group"
-              >
-                <div className="w-9 h-9 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <AlertCircle className="w-[18px] h-[18px]" />
-                </div>
-                <div className="flex-1">
-                  <span className="text-[15px] font-semibold text-[#1C1C1E] block">
-                    {event.isPostponed ? 'Mark as Confirmed / Active' : 'Mark as Postponed'}
-                  </span>
-                  <span className="text-[12px] text-[#8E8E93] block">
-                    Update status badge for class members
-                  </span>
-                </div>
-              </button>
+              {/* Toggle Postponed State - Course Rep Only */}
+              {isCourseRep && (
+                <button
+                  onClick={() => {
+                    onTogglePostponed(event.id);
+                    onClose();
+                  }}
+                  className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-[20px] hover:bg-white/90 text-left transition-colors cursor-pointer group"
+                >
+                  <div className="w-9 h-9 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <AlertCircle className="w-[18px] h-[18px]" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-[15px] font-semibold text-[#1C1C1E] block">
+                      {event.isPostponed ? 'Mark as Confirmed / Active' : 'Mark as Postponed'}
+                    </span>
+                    <span className="text-[12px] text-[#8E8E93] block">
+                      Update status badge for class members
+                    </span>
+                  </div>
+                </button>
+              )}
 
-              {/* Option: Delete Event (Trash icon) */}
-              <button
-                onClick={() => {
-                  onDelete(event.id);
-                  onClose();
-                }}
-                className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-[20px] hover:bg-red-50/80 active:bg-red-100 text-left transition-colors cursor-pointer group"
-              >
-                <div className="w-9 h-9 rounded-full bg-red-500/10 text-[#FF3B30] flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <Trash2 className="w-[18px] h-[18px]" />
-                </div>
-                <div className="flex-1">
-                  <span className="text-[15px] font-semibold text-[#FF3B30] block">
-                    Delete Event
-                  </span>
-                  <span className="text-[12px] text-red-400 block">
-                    Remove from your personal schedule
-                  </span>
-                </div>
-              </button>
+              {/* Option: Delete Event (Trash icon) - Course Rep Only */}
+              {isCourseRep && (
+                <button
+                  onClick={() => {
+                    onDelete(event.id);
+                    onClose();
+                  }}
+                  className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-[20px] hover:bg-red-50/80 active:bg-red-100 text-left transition-colors cursor-pointer group"
+                >
+                  <div className="w-9 h-9 rounded-full bg-red-500/10 text-[#FF3B30] flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Trash2 className="w-[18px] h-[18px]" />
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-[15px] font-semibold text-[#FF3B30] block">
+                      Delete Event
+                    </span>
+                    <span className="text-[12px] text-red-400 block">
+                      Remove from schedule
+                    </span>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </motion.div>

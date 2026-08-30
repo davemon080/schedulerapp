@@ -52,6 +52,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       icon: LayoutDashboard,
     },
     {
+      id: 'semester' as AdminTab,
+      label: 'Semester Control',
+      icon: Sparkles,
+    },
+    {
       id: 'schedule' as AdminTab,
       label: 'Schedule & Classes',
       icon: Calendar,

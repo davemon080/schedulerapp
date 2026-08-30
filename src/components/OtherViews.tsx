@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, AlertCircle, FileText, CheckCircle2, Megaphone, BookMarked, FlaskConical, Award, Bell, Shield, ChevronRight, Camera, Image as ImageIcon, Check, Plus, LogOut, Mail, GraduationCap } from 'lucide-react';
+import { Clock, AlertCircle, FileText, CheckCircle2, Megaphone, BookMarked, FlaskConical, Award, Bell, Shield, ChevronRight, Camera, Image as ImageIcon, Check, Plus, LogOut, Mail, GraduationCap, Edit3, Trash2, MoreVertical } from 'lucide-react';
 import { AssignmentItem, UserSession, NotificationItem } from '../types';
 import {
   DeadlinesSkeleton,
@@ -8,6 +8,11 @@ import {
   ModulesSkeleton,
   ProfileSkeleton,
 } from './Skeletons';
+import { AddCourseModal, CourseFormData } from './AddCourseModal';
+import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
+import { CourseDetailView } from './CourseDetailView';
+import { getStudentActiveLevel, getStudentActiveSemester, normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
+import { DepartmentRecord } from '../admin/types';
 
 interface OtherViewProps {
   onBackToSchedule: () => void;
@@ -19,12 +24,25 @@ interface OtherViewProps {
   assignments?: AssignmentItem[];
   notifications?: NotificationItem[];
   courses?: any[];
+  availableDepartments?: DepartmentRecord[];
   onSelectAssignment?: (assignment: AssignmentItem) => void;
   onToggleCompleteAssignment?: (id: string) => void;
   onAddNewDeadline?: () => void;
   userSession?: UserSession | null;
   onLogout?: () => void;
   onNavigateToAdmin?: () => void;
+  isCourseRep?: boolean;
+  currentSemester?: string;
+  activeLevel?: number;
+  activeSemester?: string;
+  onAddCourse?: (courseData: CourseFormData) => Promise<boolean | void>;
+  onDeleteCourse?: (courseId: string) => Promise<boolean | void>;
+  onEditCourse?: (courseId: string, updates: Partial<CourseFormData>) => Promise<boolean | void>;
+  selectedCourseForDetails?: any | null;
+  onSelectCourse?: (course: any | null) => void;
+  onAddBroadcast?: (data: { title: string; message: string; priority?: 'urgent' | 'normal'; category?: string }) => Promise<boolean | void>;
+  onDeleteBroadcast?: (id: string) => Promise<boolean | void>;
+  onUpdateUserSession?: (updates: Partial<UserSession>) => Promise<void> | void;
 }
 
 const containerVariants = {
@@ -58,17 +76,61 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
   onSelectAssignment,
   onToggleCompleteAssignment,
   onAddNewDeadline,
+  isCourseRep = false,
+  userSession,
+  currentSemester = '1st Semester',
+  activeLevel: activeLevelProp,
+  activeSemester: activeSemesterProp,
 }) => {
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   if (isLoading) {
     return <DeadlinesSkeleton />;
   }
 
-  const pendingCount = assignments.filter((a) => !a.isCompleted).length;
-  const completedCount = assignments.filter((a) => a.isCompleted).length;
+  const effectiveCourseRep = isCourseRep || Boolean(userSession?.isCourseRep || userSession?.isAdmin);
 
-  const filteredAssignments = assignments.filter((a) => {
+  // Extract student details for level, department, semester filtering
+  const deptInfo = resolveStudentDepartmentId(userSession);
+  const deptId = deptInfo.id;
+
+  const activeLevel = activeLevelProp || getStudentActiveLevel(userSession);
+  const activeSemester = normalizeSemester(activeSemesterProp || getStudentActiveSemester(userSession, currentSemester));
+
+  // Filter assignments strictly matching student's department, level, and semester
+  const scopedAssignments = assignments.filter((a) => {
+    // 1. Department match
+    const aDeptId = a.department_id || '';
+    const cCode = (a.course || '').toUpperCase();
+    const matchesDept =
+      !aDeptId ||
+      aDeptId === 'dept-all' ||
+      aDeptId === deptId;
+
+    // 2. Strict Level match
+    const codeDigits = cCode.replace(/\D/g, '');
+    const codeLevel = codeDigits.length > 0 ? parseInt(codeDigits.slice(0, 1) + '00', 10) : 0;
+    const aLevel = typeof a.level === 'number' && a.level >= 100
+      ? a.level
+      : (codeLevel >= 100 && codeLevel <= 500 ? codeLevel : 100);
+    const matchesLevel = aLevel === activeLevel;
+
+    // 3. Strict Semester match
+    const aSem = a.semester ? normalizeSemester(a.semester) : activeSemester;
+    const matchesSemester = aSem === activeSemester;
+
+    // 4. Search query
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = !q || cCode.toLowerCase().includes(q) || a.title.toLowerCase().includes(q);
+
+    return matchesDept && matchesLevel && matchesSemester && matchesSearch;
+  });
+
+  const pendingCount = scopedAssignments.filter((a) => !a.isCompleted).length;
+  const completedCount = scopedAssignments.filter((a) => a.isCompleted).length;
+
+  const filteredAssignments = scopedAssignments.filter((a) => {
     if (filter === 'pending') return !a.isCompleted;
     if (filter === 'completed') return a.isCompleted;
     return true;
@@ -84,13 +146,18 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
       {/* Header Row */}
       <motion.div variants={itemVariants} className="flex items-center justify-between">
         <div>
-          <h2 className="text-[22px] font-bold text-[#1C1C1E] tracking-tight">Upcoming Deadlines</h2>
-          <p className="text-[12px] text-[#8E8E93]">
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-[20px] font-bold text-[#1C1C1E] tracking-tight">Deadline</h2>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 border border-blue-200/60 font-mono tracking-tight">
+              {activeLevel}L {activeSemester}
+            </span>
+          </div>
+          <p className="text-[12px] text-[#8E8E93] mt-0.5">
             {pendingCount} active {pendingCount === 1 ? 'task' : 'tasks'} requiring your attention
           </p>
         </div>
 
-        {onAddNewDeadline && (
+        {effectiveCourseRep && onAddNewDeadline && (
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={onAddNewDeadline}
@@ -113,7 +180,7 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
           }`}
         >
-          All ({assignments.length})
+          All ({scopedAssignments.length})
         </button>
         <button
           type="button"
@@ -226,8 +293,18 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
             <p className="text-[12px] text-slate-400">
               {filter === 'completed'
                 ? 'You have not completed any assignments yet.'
-                : 'All caught up! No pending assignments.'}
+                : `All caught up! No pending assignments for ${activeLevel}L ${activeSemester}.`}
             </p>
+            {effectiveCourseRep && onAddNewDeadline && filter !== 'completed' && (
+              <button
+                type="button"
+                onClick={onAddNewDeadline}
+                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-blue-600 text-white text-xs font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add First Deadline</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -235,31 +312,89 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
   );
 };
 
-export const BroadcastsView: React.FC<OtherViewProps> = ({ isLoading = false, notifications = [] }) => {
+export const BroadcastsView: React.FC<OtherViewProps> = ({
+  isLoading = false,
+  notifications = [],
+  userSession,
+  isCourseRep = false,
+  currentSemester = '1st Semester',
+  activeLevel: activeLevelProp,
+  activeSemester: activeSemesterProp,
+  onAddBroadcast,
+  onDeleteBroadcast,
+}) => {
+  const [filter, setFilter] = useState<'all' | 'urgent' | 'timetable' | 'academic'>('all');
+  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [postTitle, setPostTitle] = useState('');
+  const [postMessage, setPostMessage] = useState('');
+  const [postPriority, setPostPriority] = useState<'normal' | 'urgent'>('normal');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   if (isLoading) {
     return <BroadcastsSkeleton />;
   }
 
-  const broadcastItems = notifications && notifications.length > 0 ? notifications : [
-    {
-      id: 'b1',
-      sender: 'Department of Computer Science',
-      time: '2 hours ago',
-      title: 'CSC 101 Lab Practical Session',
-      message: 'All Year 1 students must attend the practical session in Software Lab 2 on Wednesday.',
-      isUnread: true,
-      type: 'alert' as const,
-    },
-    {
-      id: 'b2',
-      sender: 'Faculty of Science',
-      time: 'Yesterday',
-      title: 'Mid-Semester Timetable Adjustment',
-      message: 'Please review the updated lecture timetable in the departmental portal.',
-      isUnread: false,
-      type: 'info' as const,
-    },
-  ];
+  const effectiveCourseRep = isCourseRep || Boolean(userSession?.isCourseRep || userSession?.isAdmin);
+
+  // Extract student details for level, department, semester filtering
+  const deptInfo = resolveStudentDepartmentId(userSession);
+  const deptDisplayName = deptInfo.name;
+  const deptId = deptInfo.id;
+
+  const activeLevel = activeLevelProp || getStudentActiveLevel(userSession);
+  const activeSemester = normalizeSemester(activeSemesterProp || getStudentActiveSemester(userSession, currentSemester));
+
+  // Filter broadcast notifications strictly to student's department, level, and semester
+  const scopedBroadcasts = (notifications || []).filter((b: any) => {
+    // 1. Department match
+    const bDeptId = b.department_id || '';
+    const matchesDept =
+      !bDeptId ||
+      bDeptId === 'dept-all' ||
+      bDeptId === deptId;
+
+    // 2. Strict Level match
+    const bLevelNum = typeof b.level === 'number' ? b.level : (typeof b.level === 'string' ? parseInt(b.level.replace(/\D/g, ''), 10) : 0);
+    const isGeneralNotice = !b.level || b.level === 0 || b.level === 'all' || (b as any).targetLevel === 'all';
+    const matchesLevel = isGeneralNotice || bLevelNum === activeLevel;
+
+    // 3. Strict Semester match
+    const bSem = b.semester ? normalizeSemester(b.semester) : activeSemester;
+    const isGeneralSem = !b.semester || b.semester === 'all' || b.semester === 'both';
+    const matchesSemester = isGeneralSem || bSem === activeSemester;
+
+    return matchesDept && matchesLevel && matchesSemester;
+  });
+
+  const urgentCount = scopedBroadcasts.filter((b: any) => b.type === 'alert' || b.priority === 'urgent').length;
+  const timetableCount = scopedBroadcasts.filter((b: any) => (b.title + b.message).toLowerCase().includes('timetable') || (b.title + b.message).toLowerCase().includes('lecture') || (b.title + b.message).toLowerCase().includes('class')).length;
+  const academicCount = scopedBroadcasts.filter((b: any) => (b.title + b.message).toLowerCase().includes('exam') || (b.title + b.message).toLowerCase().includes('assignment') || (b.title + b.message).toLowerCase().includes('practical') || (b.title + b.message).toLowerCase().includes('lab')).length;
+
+  const filteredBroadcasts = scopedBroadcasts.filter((b: any) => {
+    if (filter === 'urgent') return b.type === 'alert' || b.priority === 'urgent';
+    if (filter === 'timetable') return (b.title + b.message).toLowerCase().includes('timetable') || (b.title + b.message).toLowerCase().includes('lecture') || (b.title + b.message).toLowerCase().includes('class');
+    if (filter === 'academic') return (b.title + b.message).toLowerCase().includes('exam') || (b.title + b.message).toLowerCase().includes('assignment') || (b.title + b.message).toLowerCase().includes('practical') || (b.title + b.message).toLowerCase().includes('lab');
+    return true;
+  });
+
+  const handlePostSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!postTitle.trim() || !postMessage.trim() || !onAddBroadcast) return;
+    setIsSubmitting(true);
+    try {
+      await onAddBroadcast({
+        title: postTitle.trim(),
+        message: postMessage.trim(),
+        priority: postPriority,
+      });
+      setPostTitle('');
+      setPostMessage('');
+      setPostPriority('normal');
+      setIsPostModalOpen(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <motion.div
@@ -269,103 +404,295 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({ isLoading = false, no
       className="space-y-4 pb-24"
     >
       <motion.div variants={itemVariants} className="flex items-center justify-between">
-        <h2 className="text-[22px] font-bold text-[#1C1C1E] tracking-tight">Faculty Broadcasts</h2>
-        <span className="text-[12px] font-medium text-[#8E8E93]">Live Feed</span>
+        <div>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-[20px] font-bold text-[#1C1C1E] tracking-tight">Broadcast</h2>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-600 border border-blue-200/60 font-mono tracking-tight">
+              {activeLevel}L {activeSemester}
+            </span>
+          </div>
+          <p className="text-[12px] text-[#8E8E93] mt-0.5">
+            Official announcements from {deptDisplayName}
+          </p>
+        </div>
+
+        {effectiveCourseRep && onAddBroadcast && (
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setIsPostModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#007AFF] text-white text-[12.5px] font-bold shadow-[0_4px_16px_rgba(0,122,255,0.28)] hover:bg-[#0062cc] transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Post</span>
+          </motion.button>
+        )}
       </motion.div>
 
+      {/* Filter Tabs */}
+      <motion.div variants={itemVariants} className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <button
+          type="button"
+          onClick={() => setFilter('all')}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+            filter === 'all'
+              ? 'bg-[#1C1C1E] text-white shadow-2xs'
+              : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
+          }`}
+        >
+          All ({scopedBroadcasts.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter('urgent')}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+            filter === 'urgent'
+              ? 'bg-rose-600 text-white shadow-2xs'
+              : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
+          }`}
+        >
+          Urgent ({urgentCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter('timetable')}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+            filter === 'timetable'
+              ? 'bg-indigo-600 text-white shadow-2xs'
+              : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
+          }`}
+        >
+          Timetable ({timetableCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter('academic')}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+            filter === 'academic'
+              ? 'bg-emerald-600 text-white shadow-2xs'
+              : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
+          }`}
+        >
+          Academic ({academicCount})
+        </button>
+      </motion.div>
+
+      {/* Broadcasts List */}
       <div className="space-y-3">
-        {broadcastItems.map((b: any) => (
-          <motion.div
-            key={b.id}
-            variants={itemVariants}
-            whileHover={{ y: -2 }}
-            className="glass-container rounded-[24px] p-5 space-y-2 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 transition-shadow duration-200 hover:shadow-[0_8px_28px_rgba(0,0,0,0.06)]"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Megaphone className="w-4 h-4 text-[#007AFF]" />
-                <span className="text-[13px] font-bold text-[#1C1C1E]">{b.sender || 'Faculty Admin'}</span>
-              </div>
-              <span className="text-[11px] text-[#8E8E93]">{b.time || 'Today'}</span>
-            </div>
-            <h4 className="text-[15px] font-bold text-[#1C1C1E]">{b.title}</h4>
-            <p className="text-[13px] text-slate-600 leading-relaxed">{b.message || b.body}</p>
-          </motion.div>
-        ))}
+        {filteredBroadcasts.length > 0 ? (
+          filteredBroadcasts.map((b: any) => {
+            const isUrgent = b.type === 'alert' || b.priority === 'urgent';
+            return (
+              <motion.div
+                key={b.id}
+                variants={itemVariants}
+                whileHover={{ y: -2 }}
+                className={`glass-container rounded-[24px] p-5 space-y-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border transition-all duration-200 hover:shadow-[0_8px_28px_rgba(0,0,0,0.06)] ${
+                  isUrgent ? 'border-rose-200/80 bg-rose-50/15' : 'border-white/80'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isUrgent ? 'bg-rose-500/15 text-rose-600' : 'bg-blue-500/15 text-blue-600'}`}>
+                      <Megaphone className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[13px] font-bold text-[#1C1C1E]">{b.sender || b.author || 'Department Rep'}</span>
+                    {isUrgent && (
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                        Urgent
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-[#8E8E93]">{b.time || 'Today'}</span>
+                    {effectiveCourseRep && onDeleteBroadcast && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteBroadcast(b.id)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        title="Delete Broadcast"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">{b.title}</h4>
+                <p className="text-[13px] text-slate-600 leading-relaxed whitespace-pre-line">{b.message || b.body}</p>
+              </motion.div>
+            );
+          })
+        ) : (
+          <div className="glass-container rounded-[24px] p-8 text-center border border-white/80 space-y-2">
+            <Megaphone className="w-8 h-8 mx-auto text-slate-300" />
+            <p className="text-[14px] font-semibold text-slate-700">No broadcasts found</p>
+            <p className="text-[12px] text-slate-400">
+              No notices published for {activeLevel}L {activeSemester} in this category yet.
+            </p>
+            {effectiveCourseRep && onAddBroadcast && (
+              <button
+                type="button"
+                onClick={() => setIsPostModalOpen(true)}
+                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-blue-600 text-white text-xs font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Post Announcement</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Course Rep Post Broadcast Modal */}
+      <AnimatePresence>
+        {isPostModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Megaphone className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Post Faculty Broadcast</h3>
+                    <p className="text-[11px] text-slate-400">For {activeLevel}L • {activeSemester}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPostModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handlePostSubmit} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Announcement Headline *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={postTitle}
+                    onChange={(e) => setPostTitle(e.target.value)}
+                    placeholder="e.g., Chemistry Lab Test Rescheduled"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Priority Level
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPostPriority('normal')}
+                      className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                        postPriority === 'normal'
+                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-xs'
+                          : 'border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      Normal Info
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPostPriority('urgent')}
+                      className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                        postPriority === 'urgent'
+                          ? 'bg-rose-50 border-rose-500 text-rose-700 shadow-xs'
+                          : 'border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100'
+                      }`}
+                    >
+                      Urgent Alert
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Broadcast Message *
+                  </label>
+                  <textarea
+                    required
+                    rows={4}
+                    value={postMessage}
+                    onChange={(e) => setPostMessage(e.target.value)}
+                    placeholder="Provide complete details, venue adjustments, instructions..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none resize-none leading-relaxed"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsPostModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Publishing...' : 'Publish Broadcast'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };
 
-export const ModulesView: React.FC<OtherViewProps> = ({ isLoading = false, courses = [], userSession }) => {
-  const [selectedSemester, setSelectedSemester] = useState<'1st Semester' | '2nd Semester' | 'all'>('1st Semester');
-  const [selectedCourseDetail, setSelectedCourseDetail] = useState<any | null>(null);
+export const ModulesView: React.FC<OtherViewProps> = ({
+  isLoading = false,
+  courses = [],
+  availableDepartments = [],
+  userSession,
+  isCourseRep = false,
+  onAddCourse,
+  onDeleteCourse,
+  onEditCourse,
+  currentSemester = '1st Semester',
+  activeLevel: activeLevelProp,
+  activeSemester: activeSemesterProp,
+  selectedCourseForDetails,
+  onSelectCourse,
+}) => {
+  const [internalSelectedCourse, setInternalSelectedCourse] = useState<any | null>(null);
+  const selectedCourseDetail = selectedCourseForDetails !== undefined ? selectedCourseForDetails : internalSelectedCourse;
+  const setSelectedCourseDetail = onSelectCourse || setInternalSelectedCourse;
 
-  // Determine student's department code/identifier & level
-  const studentMatric = userSession?.matricNumber || '';
-  const studentDeptRaw = userSession?.department || 'Department of Industrial Chemistry';
-  const studentDeptId = userSession?.department_id || '';
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingCourse, setEditingCourse] = useState<any | null>(null);
+  const [courseToDelete, setCourseToDelete] = useState<any | null>(null);
+  const [openMenuCourseId, setOpenMenuCourseId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const effectiveCourseRep = isCourseRep || Boolean(userSession?.isCourseRep || userSession?.isAdmin);
+
+  // Determine student's department code/identifier & level from session
+  const deptInfo = resolveStudentDepartmentId(userSession, availableDepartments);
+  const deptDisplayName = deptInfo.name;
+  const deptShortCode = deptInfo.code;
+  const deptId = deptInfo.id;
   
-  // Extract student level (e.g. 100, 200, etc.)
-  const rawLevel = userSession?.level || userSession?.yearLevel;
-  let parsedLevel = 100;
-  if (typeof rawLevel === 'number') {
-    parsedLevel = rawLevel;
-  } else if (typeof rawLevel === 'string') {
-    const p = parseInt(rawLevel.replace(/\D/g, ''), 10);
-    if (!isNaN(p) && p >= 100) parsedLevel = p;
-  }
-  const [activeLevel, setActiveLevel] = useState<number>(parsedLevel);
+  const activeLevel = activeLevelProp || getStudentActiveLevel(userSession);
+  const activeSemester = normalizeSemester(activeSemesterProp || getStudentActiveSemester(userSession, currentSemester));
 
-  // Normalize department tag
-  const isICH =
-    studentDeptId === 'dept-ich' ||
-    studentMatric.includes('ICH') ||
-    studentDeptRaw.toLowerCase().includes('industrial');
-  const isCHM =
-    !isICH &&
-    (studentDeptId === 'dept-chm' ||
-      studentMatric.includes('CHM') ||
-      studentDeptRaw.toLowerCase().includes('chemistry'));
-  const isCSC =
-    studentDeptId === 'dept-csc' ||
-    studentMatric.includes('CSC') ||
-    studentDeptRaw.toLowerCase().includes('computer');
-
-  const deptDisplayName = isICH
-    ? 'Department of Industrial Chemistry'
-    : isCHM
-    ? 'Department of Chemistry'
-    : isCSC
-    ? 'Department of Computer Science'
-    : studentDeptRaw;
-
-  const deptShortCode = isICH ? 'ICH' : isCHM ? 'CHM' : isCSC ? 'CSC' : 'DEPT';
-
-  // Filter courses for this student's department and level
-  const filteredCourses = courses.filter((crs: any) => {
-    // 1. Department match
-    const cDeptId = crs.department_id || '';
-    const cCode = (crs.courseCode || crs.code || '').toUpperCase();
-    const matchesDept =
-      (isICH && (cDeptId === 'dept-ich' || cCode.startsWith('ICH') || cCode.startsWith('CHM 101') || cCode.startsWith('PHY 101') || cCode.startsWith('MTH 101') || cCode.startsWith('GST 101') || cCode.startsWith('BIO 101') || cCode.startsWith('CHM 102') || cCode.startsWith('PHY 102') || cCode.startsWith('MTH 102') || cCode.startsWith('GST 102') || cCode.startsWith('CHM 104') || cCode.startsWith('CHM 211') || cCode.startsWith('CHM 221') || cCode.startsWith('CHM 232') || cCode.startsWith('CHM 292') || cCode.startsWith('CHM 341'))) ||
-      (isCHM && (cDeptId === 'dept-chm' || cCode.startsWith('CHM'))) ||
-      (isCSC && (cDeptId === 'dept-csc' || cCode.startsWith('CSC'))) ||
-      (!isICH && !isCHM && !isCSC && (cDeptId === studentDeptId || cDeptId === 'dept-ich'));
-
-    // 2. Level match
-    const crsLevel = crs.level || parseInt(cCode.replace(/\D/g, '').slice(0, 1) + '00', 10) || 100;
-    const matchesLevel = crsLevel === activeLevel;
-
-    // 3. Semester match
-    let matchesSemester = true;
-    if (selectedSemester !== 'all') {
-      const crsSem = (crs.semester || '1st Semester').toLowerCase();
-      matchesSemester = crsSem.includes(selectedSemester.toLowerCase().slice(0, 3));
-    }
-
-    return matchesDept && matchesLevel && matchesSemester;
-  });
+  // Filter courses strictly for this student's department, enrolled level, and active semester
+  const filteredCourses = filterCoursesForStudentScope(courses, deptId, activeLevel, activeSemester);
 
   // Calculate total units
   const totalUnits = filteredCourses.reduce((acc: number, curr: any) => {
@@ -373,8 +700,53 @@ export const ModulesView: React.FC<OtherViewProps> = ({ isLoading = false, cours
     return acc + u;
   }, 0);
 
+  const handleSaveCourse = async (courseData: CourseFormData) => {
+    if (editingCourse && onEditCourse) {
+      await onEditCourse(editingCourse.id, courseData);
+      setSelectedCourseDetail({ ...editingCourse, ...courseData });
+      setEditingCourse(null);
+    } else if (onAddCourse) {
+      await onAddCourse(courseData);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!courseToDelete || !onDeleteCourse) return;
+    setIsDeleting(true);
+    try {
+      await onDeleteCourse(courseToDelete.id);
+      setSelectedCourseDetail(null);
+      setCourseToDelete(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (isLoading) {
     return <ModulesSkeleton />;
+  }
+
+  // If a course is selected, display the comprehensive Course Detail View (PDF & Video tabs)
+  if (selectedCourseDetail) {
+    return (
+      <CourseDetailView
+        course={selectedCourseDetail}
+        onBack={() => setSelectedCourseDetail(null)}
+        isCourseRep={effectiveCourseRep}
+        userSession={userSession}
+        onEditCourse={(course) => {
+          setEditingCourse(course);
+          setIsAddModalOpen(true);
+        }}
+        onDeleteCourse={(course) => setCourseToDelete(course)}
+        onCourseUpdated={(updated) => {
+          setSelectedCourseDetail(updated);
+          if (onEditCourse) {
+            onEditCourse(updated.id, updated);
+          }
+        }}
+      />
+    );
   }
 
   return (
@@ -384,235 +756,204 @@ export const ModulesView: React.FC<OtherViewProps> = ({ isLoading = false, cours
       animate="visible"
       className="space-y-4 pb-24"
     >
-      {/* Department & Level Confinement Header Card */}
-      <motion.div
-        variants={itemVariants}
-        className="glass-container rounded-[26px] p-5 border border-white/80 shadow-[0_4px_24px_rgba(0,0,0,0.03)] space-y-3"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-bold text-[11px] border border-blue-400/20">
-                {deptShortCode} Catalog
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[11px]">
-                {activeLevel}L
-              </span>
-            </div>
-            <h3 className="text-[17px] font-bold text-slate-900 leading-snug">
-              {deptDisplayName}
-            </h3>
-            <p className="text-[12px] text-slate-500">
-              Courses are confined to your enrolled department and academic level.
-            </p>
-          </div>
-
-          <div className="text-right shrink-0 bg-blue-50/70 border border-blue-200/50 rounded-2xl px-3 py-2">
-            <span className="text-[10px] uppercase font-bold text-blue-600 tracking-wider block">Load</span>
-            <span className="text-[18px] font-extrabold text-blue-700">{totalUnits}</span>
-            <span className="text-[10px] text-blue-600 block font-medium">Units</span>
-          </div>
-        </div>
-
-        {/* Level Switcher Selector */}
-        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
-          <span className="text-[11px] font-semibold text-slate-400 shrink-0">Level:</span>
-          <div className="flex items-center gap-1.5">
-            {[100, 200, 300, 400].map((lvl) => (
-              <button
-                key={lvl}
-                onClick={() => setActiveLevel(lvl)}
-                className={`px-3 py-1 rounded-xl text-[12px] font-bold transition-all ${
-                  activeLevel === lvl
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {lvl}L
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Semester Filter Pills */}
-        <div className="flex items-center gap-1.5 pt-1">
-          <button
-            onClick={() => setSelectedSemester('1st Semester')}
-            className={`flex-1 py-1.5 px-3 rounded-xl text-[12px] font-bold transition-all text-center ${
-              selectedSemester === '1st Semester'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-slate-100/90 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            1st Semester
-          </button>
-          <button
-            onClick={() => setSelectedSemester('2nd Semester')}
-            className={`flex-1 py-1.5 px-3 rounded-xl text-[12px] font-bold transition-all text-center ${
-              selectedSemester === '2nd Semester'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-slate-100/90 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            2nd Semester
-          </button>
-          <button
-            onClick={() => setSelectedSemester('all')}
-            className={`py-1.5 px-3 rounded-xl text-[12px] font-bold transition-all ${
-              selectedSemester === 'all'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-slate-100/90 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            All
-          </button>
-        </div>
-      </motion.div>
-
-      {/* Courses List */}
+      {/* Registered Modules List Header with Course Rep Plus Button */}
       <motion.div variants={itemVariants} className="flex items-center justify-between px-1">
-        <h2 className="text-[18px] font-bold text-[#1C1C1E] tracking-tight">
-          Registered Courses
-        </h2>
-        <span className="text-[12px] font-semibold text-slate-500 bg-white/80 px-2.5 py-0.5 rounded-full border border-slate-200/60">
-          {filteredCourses.length} Course{filteredCourses.length === 1 ? '' : 's'}
-        </span>
+        <div className="flex items-center gap-2">
+          <h2 className="text-[18px] font-bold text-[#1C1C1E] tracking-tight">
+            Registered Modules
+          </h2>
+          <span className="text-[11.5px] font-bold text-slate-500 bg-white/90 px-2.5 py-0.5 rounded-full border border-slate-200/70 shadow-2xs">
+            {filteredCourses.length}
+          </span>
+        </div>
+
+        {/* Plus Button: Displayed ONLY for Course Rep */}
+        {effectiveCourseRep && (
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.02 }}
+            onClick={() => {
+              setEditingCourse(null);
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#007AFF] text-white text-[12.5px] font-bold shadow-[0_4px_16px_rgba(0,122,255,0.28)] hover:bg-[#0062cc] transition-all cursor-pointer"
+            title="Add Course for Department"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>Add Course</span>
+          </motion.button>
+        )}
       </motion.div>
 
       <div className="grid grid-cols-1 gap-3">
         {filteredCourses.length === 0 ? (
           <motion.div
             variants={itemVariants}
-            className="glass-container rounded-[24px] p-8 text-center space-y-2 border border-white/80"
+            className="glass-container rounded-[26px] p-8 text-center space-y-2.5 border border-white/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)]"
           >
             <BookMarked className="w-10 h-10 text-slate-300 mx-auto" />
-            <h4 className="text-[15px] font-bold text-slate-800">No courses listed for {activeLevel}L {selectedSemester}</h4>
+            <h4 className="text-[15px] font-bold text-slate-800">
+              No courses registered for {activeLevel}L {activeSemester}
+            </h4>
             <p className="text-[12px] text-slate-500 max-w-xs mx-auto">
-              No modules are registered under this department and semester. Try selecting another semester or contact your course rep.
+              {effectiveCourseRep
+                ? `Click the "+ Add Course" button above to add official courses for ${activeSemester}.`
+                : `No modules have been posted yet for ${activeSemester}. Contact your course representative.`}
             </p>
+            {effectiveCourseRep && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingCourse(null);
+                  setIsAddModalOpen(true);
+                }}
+                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-blue-600 text-white text-xs font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add First Course</span>
+              </button>
+            )}
           </motion.div>
         ) : (
-          filteredCourses.map((mod: any) => (
-            <motion.div
-              key={mod.id || mod.courseCode || mod.code}
-              variants={itemVariants}
-              whileHover={{ y: -2 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setSelectedCourseDetail(mod)}
-              className="glass-container rounded-[22px] p-4 flex items-center justify-between shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 transition-all cursor-pointer group"
-            >
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-11 h-11 rounded-[16px] bg-blue-500/10 border border-blue-300/30 flex items-center justify-center text-[#007AFF] font-bold text-[14px] shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                  <BookMarked className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-[13px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-                      {mod.courseCode || mod.code}
-                    </span>
-                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                      {mod.units ? `${mod.units} Units` : '3 Units'}
-                    </span>
+          filteredCourses.map((mod: any) => {
+            const courseId = mod.id || mod.courseCode || mod.code;
+            const isMenuOpen = openMenuCourseId === courseId;
+
+            return (
+              <motion.div
+                key={courseId}
+                variants={itemVariants}
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSelectedCourseDetail(mod)}
+                className="glass-container rounded-[22px] p-4 flex items-center justify-between shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 transition-all cursor-pointer group hover:border-blue-200 relative"
+              >
+                <div className="flex items-center gap-3.5 min-w-0 pr-2">
+                  <div className="w-11 h-11 rounded-[16px] bg-blue-500/10 border border-blue-300/30 flex items-center justify-center text-[#007AFF] font-bold text-[14px] shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                    <BookMarked className="w-5 h-5" />
                   </div>
-                  <h4 className="text-[14px] font-bold text-[#1C1C1E] truncate mt-1">
-                    {mod.title || mod.name}
-                  </h4>
-                  <p className="text-[11px] text-[#8E8E93] truncate mt-0.5">
-                    {mod.description || `${mod.semester || '1st Semester'} • ${activeLevel}L Core Module`}
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-[13px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/50">
+                        {mod.courseCode || mod.code}
+                      </span>
+                      <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                        {mod.units ? `${mod.units} Units` : '3 Units'}
+                      </span>
+                      <span className="text-[10.5px] font-medium text-slate-400">
+                        {mod.semester || '1st Semester'}
+                      </span>
+                    </div>
+                    <h4 className="text-[14.5px] font-bold text-[#1C1C1E] truncate mt-1">
+                      {mod.title || mod.name}
+                    </h4>
+                    <p className="text-[11.5px] text-[#8E8E93] truncate mt-0.5">
+                      {mod.description || `${deptDisplayName} • ${activeLevel}L Module`}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 ml-2 group-hover:text-blue-600 transition-colors" />
-            </motion.div>
-          ))
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {effectiveCourseRep && (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenuCourseId(isMenuOpen ? null : courseId);
+                        }}
+                        className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                        title="Course actions"
+                        aria-label="Course options"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+
+                      <AnimatePresence>
+                        {isMenuOpen && (
+                          <>
+                            <div 
+                              className="fixed inset-0 z-40" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuCourseId(null);
+                              }} 
+                            />
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.9, y: 5 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.9, y: 5 }}
+                              className="absolute right-0 top-10 w-36 bg-white rounded-2xl shadow-xl border border-slate-200/80 p-1.5 z-50 flex flex-col gap-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuCourseId(null);
+                                  setEditingCourse(mod);
+                                  setIsAddModalOpen(true);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-[12.5px] font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-colors text-left"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-blue-500" />
+                                <span>Edit Course</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuCourseId(null);
+                                  setCourseToDelete(mod);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-[12.5px] font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors text-left"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                <span>Delete Course</span>
+                              </button>
+                            </motion.div>
+                          </>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+
+                  <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 group-hover:text-blue-600 transition-colors" />
+                </div>
+              </motion.div>
+            );
+          })
         )}
       </div>
 
-      {/* Course Detail Modal */}
-      <AnimatePresence>
-        {selectedCourseDetail && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-mono font-bold text-xs border border-blue-200">
-                    {selectedCourseDetail.courseCode || selectedCourseDetail.code}
-                  </span>
-                  <h3 className="text-lg font-bold text-slate-900 mt-2">
-                    {selectedCourseDetail.title || selectedCourseDetail.name}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setSelectedCourseDetail(null)}
-                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold text-sm"
-                >
-                  &times;
-                </button>
-              </div>
+      {/* Add / Edit Course Modal for Course Rep */}
+      <AddCourseModal
+        isOpen={isAddModalOpen}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setEditingCourse(null);
+        }}
+        onSave={handleSaveCourse}
+        departmentName={deptDisplayName}
+        departmentId={deptId}
+        currentLevel={activeLevel}
+        initialSemester={activeSemester}
+        editingCourse={editingCourse}
+        availableDepartments={availableDepartments}
+      />
 
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-slate-400 block text-[10px] font-bold uppercase">Credit Units</span>
-                  <span className="font-bold text-slate-800 text-sm">
-                    {selectedCourseDetail.units ? `${selectedCourseDetail.units} Units` : '3 Units'}
-                  </span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-slate-400 block text-[10px] font-bold uppercase">Semester</span>
-                  <span className="font-bold text-slate-800 text-sm">
-                    {selectedCourseDetail.semester || '1st Semester'}
-                  </span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-slate-400 block text-[10px] font-bold uppercase">Academic Level</span>
-                  <span className="font-bold text-slate-800 text-sm">
-                    {selectedCourseDetail.level ? `${selectedCourseDetail.level}L` : `${activeLevel}L`}
-                  </span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-slate-400 block text-[10px] font-bold uppercase">Department</span>
-                  <span className="font-bold text-slate-800 text-sm truncate block">
-                    {deptShortCode}
-                  </span>
-                </div>
-              </div>
-
-              {selectedCourseDetail.description && (
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Course Syllabus / Overview</h4>
-                  <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/80 p-3.5 rounded-xl border border-slate-100">
-                    {selectedCourseDetail.description}
-                  </p>
-                </div>
-              )}
-
-              {selectedCourseDetail.pdfurl && (
-                <a
-                  href={selectedCourseDetail.pdfurl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-blue-600 text-white text-xs font-bold shadow-md hover:bg-blue-700 transition-colors"
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>Download / View Official Syllabus PDF</span>
-                </a>
-              )}
-
-              <button
-                onClick={() => setSelectedCourseDetail(null)}
-                className="w-full py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 transition-colors"
-              >
-                Close Course Overview
-              </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Confirmation Modal for Deletion */}
+      <ConfirmDeleteModal
+        isOpen={!!courseToDelete}
+        title="Delete Course Module"
+        itemName={courseToDelete ? `${courseToDelete.courseCode || courseToDelete.code || 'Course'} - ${courseToDelete.title || courseToDelete.name || ''}` : ''}
+        itemType="course module"
+        description="Are you sure you want to delete this course module? This will remove it from the department curriculum."
+        confirmLabel="Delete Module"
+        isDeleting={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onClose={() => setCourseToDelete(null)}
+      />
     </motion.div>
   );
 };
@@ -626,9 +967,14 @@ export const ProfileView: React.FC<OtherViewProps> = ({
   userSession,
   onLogout,
   onNavigateToAdmin,
+  currentSemester = '1st Semester 2025/2026',
+  activeLevel: activeLevelProp,
+  activeSemester: activeSemesterProp,
+  onUpdateUserSession,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isUpdatingLevel, setIsUpdatingLevel] = useState(false);
 
   if (isLoading) {
     return <ProfileSkeleton />;
@@ -638,7 +984,10 @@ export const ProfileView: React.FC<OtherViewProps> = ({
   const studentDepartment = userSession?.department || 'Department of Industrial Chemistry';
   const studentMatric = userSession?.matricNumber || 'CSC/2026/001';
   const studentEmail = userSession?.email || 'student@university.edu';
-  const studentYearLevel = userSession?.yearLevel || '100 Level';
+  
+  const activeLevel = activeLevelProp || getStudentActiveLevel(userSession);
+  const studentYearLevel = `${activeLevel} Level`;
+  const studentCurrentSemester = normalizeSemester(activeSemesterProp || getStudentActiveSemester(userSession, currentSemester));
 
   const getInitials = (name: string) => {
     if (!name || name.trim().length === 0) return 'ST';
@@ -666,6 +1015,33 @@ export const ProfileView: React.FC<OtherViewProps> = ({
     setShowLogoutConfirm(false);
     if (onLogout) {
       onLogout();
+    }
+  };
+
+  const handleLevelChange = async (targetLevel: number) => {
+    if (targetLevel === activeLevel || !onUpdateUserSession) return;
+    setIsUpdatingLevel(true);
+    try {
+      await onUpdateUserSession({
+        level: targetLevel,
+        yearLevel: `${targetLevel} Level`,
+        year_level: `${targetLevel} Level`,
+      } as any);
+    } finally {
+      setIsUpdatingLevel(false);
+    }
+  };
+
+  const handleSemesterChange = async (targetSem: string) => {
+    if (!onUpdateUserSession) return;
+    setIsUpdatingLevel(true);
+    try {
+      await onUpdateUserSession({
+        semester: targetSem,
+        current_semester: targetSem,
+      } as any);
+    } finally {
+      setIsUpdatingLevel(false);
     }
   };
 
@@ -757,7 +1133,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
         </p>
 
         <div className="mt-4 flex flex-wrap justify-center items-center gap-2">
-          <span className="text-[12px] font-semibold text-[#007AFF] bg-blue-50/90 px-3.5 py-1 rounded-full border border-blue-200/60 shadow-2xs">
+          <span className="text-[12px] font-bold text-[#007AFF] bg-blue-50/90 px-3.5 py-1 rounded-full border border-blue-200/60 shadow-2xs font-mono">
             {studentYearLevel}
           </span>
           {(userSession?.isCourseRep || (userSession as any)?.iscourserep) && (
@@ -770,6 +1146,73 @@ export const ProfileView: React.FC<OtherViewProps> = ({
               <span>✓</span> Free Semester Access
             </span>
           )}
+        </div>
+      </motion.div>
+
+      {/* Academic Level & Progression Selector Card */}
+      <motion.div
+        variants={itemVariants}
+        className="glass-container rounded-[26px] p-4.5 space-y-3 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <GraduationCap className="w-5 h-5 text-blue-600" />
+            <h4 className="text-[14.5px] font-bold text-[#1C1C1E]">Academic Level &amp; Progression</h4>
+          </div>
+          <span className="text-[11.5px] font-extrabold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200/50">
+            {activeLevel}L Active
+          </span>
+        </div>
+
+        <p className="text-[12px] text-slate-500">
+          Switch or promote your level to automatically update your Schedule, Deadlines, Broadcasts, and Course Modules:
+        </p>
+
+        {/* Level Switcher Chips (100L - 500L) */}
+        <div className="grid grid-cols-5 gap-1.5 pt-1">
+          {[100, 200, 300, 400, 500].map((lvl) => {
+            const isCurrent = lvl === activeLevel;
+            return (
+              <button
+                key={`lvl-chip-${lvl}`}
+                type="button"
+                disabled={isUpdatingLevel}
+                onClick={() => handleLevelChange(lvl)}
+                className={`py-2 px-1 rounded-xl text-center font-bold text-[12px] transition-all cursor-pointer ${
+                  isCurrent
+                    ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-600/30 scale-[1.02]'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs'
+                }`}
+              >
+                {lvl}L
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Semester Selection */}
+        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+          <span className="text-[12px] font-medium text-slate-600">Active Semester:</span>
+          <div className="flex gap-1.5">
+            {['1st Semester', '2nd Semester'].map((sem) => {
+              const isCurrent = studentCurrentSemester === sem;
+              return (
+                <button
+                  key={`sem-btn-${sem}`}
+                  type="button"
+                  disabled={isUpdatingLevel}
+                  onClick={() => handleSemesterChange(sem)}
+                  className={`py-1 px-2.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                    isCurrent
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {sem}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </motion.div>
 
@@ -787,14 +1230,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
         </div>
         <div className="flex items-center justify-between py-1 border-b border-black/5">
           <span className="text-[#1C1C1E] font-medium">Current Semester</span>
-          <span className="text-[#8E8E93]">First Semester 2026/2027</span>
-        </div>
-        <div className="flex items-center justify-between py-1 border-b border-black/5">
-          <span className="text-[#1C1C1E] font-medium">Database Sync</span>
-          <span className="text-emerald-600 font-semibold text-[12.5px] flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Firebase Cloud Firestore</span>
-          </span>
+          <span className="text-[#007AFF] font-bold">{studentCurrentSemester}</span>
         </div>
         <div className="flex items-center justify-between py-1">
           <span className="text-[#1C1C1E] font-medium">Level Advisor</span>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EventItem } from '../types';
 import { X, Check, Clock, MapPin, Tag } from 'lucide-react';
+import { normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
 
 interface EventEditModalProps {
   isOpen: boolean;
@@ -9,6 +10,9 @@ interface EventEditModalProps {
   selectedDayKey: string;
   onClose: () => void;
   onSave: (event: EventItem) => void;
+  courses?: any[];
+  currentSemester?: string;
+  userSession?: any;
 }
 
 export const EventEditModal: React.FC<EventEditModalProps> = ({
@@ -17,6 +21,9 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
   selectedDayKey,
   onClose,
   onSave,
+  courses = [],
+  currentSemester = '1st Semester',
+  userSession,
 }) => {
   const [course, setCourse] = useState('');
   const [title, setTitle] = useState('');
@@ -25,6 +32,33 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
   const [tagInput, setTagInput] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [isPostponed, setIsPostponed] = useState(false);
+
+  // Determine student's active department, level and semester
+  const studentMatric = userSession?.matricNumber || '';
+  const studentDeptRaw = userSession?.department || 'Department of Industrial Chemistry';
+  const studentDeptId = userSession?.department_id || '';
+
+  const rawLevel = userSession?.level || userSession?.yearLevel;
+  let activeLevel = 100;
+  if (typeof rawLevel === 'number') {
+    activeLevel = rawLevel;
+  } else if (typeof rawLevel === 'string') {
+    const p = parseInt(rawLevel.replace(/\D/g, ''), 10);
+    if (!isNaN(p) && p >= 100) activeLevel = p;
+  }
+
+  const activeSemester = normalizeSemester(
+    (userSession as any)?.semester ||
+    (userSession as any)?.current_semester ||
+    (userSession as any)?.academicSemester ||
+    currentSemester
+  );
+
+  const deptInfo = resolveStudentDepartmentId(userSession);
+  const deptId = deptInfo.id;
+
+  // Filter semester courses strictly by student department, level, and semester
+  const semesterCourses = filterCoursesForStudentScope(courses, deptId, activeLevel, activeSemester);
 
   useEffect(() => {
     if (event) {
@@ -35,8 +69,10 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
       setTags(event.tags || ['Tutorial', 'Physical Class']);
       setIsPostponed(Boolean(event.isPostponed));
     } else {
-      setCourse('');
-      setTitle('');
+      const initialCourse = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : '';
+      const initialTitle = semesterCourses.length > 0 ? (semesterCourses[0].title || semesterCourses[0].name) : '';
+      setCourse(initialCourse);
+      setTitle(initialTitle);
       setTime('09:00 AM - 11:00 AM');
       setLocation('Lecture Theatre 1');
       setTags(['Tutorial', 'Physical Class']);
@@ -46,9 +82,21 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleSelectCourse = (selectedCode: string) => {
+    setCourse(selectedCode);
+    const matched = semesterCourses.find(
+      (c) => (c.courseCode || c.code)?.toUpperCase() === selectedCode.toUpperCase()
+    );
+    if (matched && (!title || title.trim() === '' || semesterCourses.some((c) => (c.title || c.name) === title))) {
+      setTitle(matched.title || matched.name || '');
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!course.trim() || !title.trim()) return;
+
+    const resolvedDeptId = deptId || 'dept-ich';
 
     const savedEvent: EventItem = {
       id: event?.id || `evt-${Date.now()}`,
@@ -60,6 +108,9 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
       tags: tags.length > 0 ? tags : ['Tutorial', 'Physical Class'],
       isPostponed,
       dayKey: event?.dayKey || selectedDayKey,
+      department_id: resolvedDeptId,
+      level: activeLevel,
+      semester: activeSemester,
     };
 
     onSave(savedEvent);
@@ -121,21 +172,54 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Course Code */}
+              {/* Course Code Dropdown */}
               <div>
-                <label className="block text-[12px] font-semibold text-[#1C1C1E] mb-1">
-                  Course Code
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="e.g. PHY102, CHM101"
-                    value={course}
-                    onChange={(e) => setCourse(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-[16px] bg-white/70 backdrop-blur-md border border-white/80 text-[#1C1C1E] text-[14px] font-medium focus:outline-none focus:ring-2 focus:ring-[#007AFF] shadow-xs transition-all"
-                    required
-                  />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[12px] font-semibold text-[#1C1C1E]">
+                    Course Code ({activeSemester}) <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    {semesterCourses.length} courses registered
+                  </span>
                 </div>
+                
+                {semesterCourses.length > 0 ? (
+                  <div className="relative">
+                    <select
+                      value={course}
+                      onChange={(e) => handleSelectCourse(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-[16px] bg-white/80 backdrop-blur-md border border-slate-200/90 text-[#1C1C1E] text-[13.5px] font-semibold focus:outline-none focus:ring-2 focus:ring-[#007AFF] shadow-xs cursor-pointer appearance-none transition-all"
+                      required
+                    >
+                      <option value="" disabled>-- Select Registered Course --</option>
+                      {semesterCourses.map((crs: any) => {
+                        const code = crs.courseCode || crs.code;
+                        const cTitle = crs.title || crs.name;
+                        return (
+                          <option key={crs.id || code} value={code}>
+                            {code} — {cTitle}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500">
+                      <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                        <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path>
+                      </svg>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="e.g. ICH 101, CHM 101"
+                      value={course}
+                      onChange={(e) => setCourse(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-[16px] bg-white/70 backdrop-blur-md border border-white/80 text-[#1C1C1E] text-[14px] font-medium focus:outline-none focus:ring-2 focus:ring-[#007AFF] shadow-xs transition-all"
+                      required
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Course Title */}

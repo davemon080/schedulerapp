@@ -19,7 +19,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { detectDepartmentFromMatric, fetchDepartments, getStudentDepartmentInfo } from '../lib/dbService';
+import { detectDepartmentFromMatric, fetchDepartments, getStudentDepartmentInfo, correctAllStudentsTo100LFirstSemester, correctAllStudentsTo100LSecondSemester } from '../lib/dbService';
 import { StudentDetailsModal } from './StudentDetailsModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
@@ -290,6 +290,24 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     };
   };
 
+  const [isAligning, setIsAligning] = useState<boolean>(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  const handleAlignAllStudents = async () => {
+    setIsAligning(true);
+    try {
+      const res = await correctAllStudentsTo100LFirstSemester();
+      if (res.success) {
+        setSyncNotice(`Synced ${res.totalUpdated} student(s) to 2025/2026 1st Semester 100L.`);
+        setTimeout(() => setSyncNotice(null), 4000);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAligning(false);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Top Banner */}
@@ -306,7 +324,17 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          <button
+            onClick={handleAlignAllStudents}
+            disabled={isAligning}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-[12.5px] font-semibold transition-colors cursor-pointer border border-blue-200/60"
+            title="Set all students to 2025/2026 1st Semester 100L in Firestore"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+            <span>{isAligning ? 'Syncing...' : 'Align 100L 1st Sem'}</span>
+          </button>
+
           <button
             onClick={exportStudentsCSV}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[12.5px] font-semibold transition-colors cursor-pointer"
@@ -324,6 +352,13 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
           </button>
         </div>
       </div>
+
+      {syncNotice && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-xs font-semibold text-blue-800 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+          <span>{syncNotice}</span>
+        </div>
+      )}
 
       {/* Department Filter Bar & Quick Selectors */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">

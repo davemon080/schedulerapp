@@ -41,6 +41,9 @@ export interface AssignmentItem {
   submissionType?: string;
   instructor?: string;
   notes?: string;
+  department_id?: string;
+  level?: number;
+  semester?: string;
 }
 
 export type NavigationTab = 'Schedule' | 'Deadlines' | 'Broadcasts' | 'Modules' | 'Profile' | 'Notifications';
@@ -55,6 +58,7 @@ export interface UserSession {
   department_id?: string;
   faculty?: string;
   yearLevel?: string;
+  year_level?: string;
   level?: number;
   profileImage?: string;
   profile_pic_url?: string;
@@ -63,6 +67,10 @@ export interface UserSession {
   is_payed?: boolean;
   is_paid?: boolean;
   hasFreeAccess?: boolean;
+  semester?: string;
+  current_semester?: string;
+  session?: string;
+  academic_session?: string;
   isLoggedIn: boolean;
 }
 
@@ -77,4 +85,10 @@ export interface NotificationItem {
   type?: 'alert' | 'info' | 'success' | 'activity';
   category?: 'schedule' | 'profile' | 'deadline' | 'system';
   timestamp?: number;
+  department_id?: string;
+  level?: number | string;
+  semester?: string;
+  author?: string;
+  sender?: string;
+  priority?: 'urgent' | 'normal';
 }

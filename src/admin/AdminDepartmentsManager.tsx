@@ -40,6 +40,7 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
     name: '',
     code: '',
     level: 100,
+    yearsOfStudy: 4,
   });
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -73,16 +74,19 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
       name: '',
       code: '',
       level: 100,
+      yearsOfStudy: 4,
     });
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (dept: DepartmentRecord) => {
     setEditingDept(dept);
+    const duration = dept.yearsOfStudy || dept.duration_years || dept.durationYears || (dept.maxLevel ? Math.floor(dept.maxLevel / 100) : 4);
     setFormData({
       name: dept.name,
       code: dept.code,
       level: dept.level || 100,
+      yearsOfStudy: duration,
     });
     setIsModalOpen(true);
   };
@@ -94,12 +98,20 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
       return;
     }
 
+    const durationYears = formData.yearsOfStudy || 4;
+    const maxLevel = durationYears * 100;
+
     setIsSubmitting(true);
     if (editingDept) {
       const ok = await updateDepartment(editingDept.id, {
         name: formData.name.trim(),
         code: formData.code.trim().toUpperCase(),
         level: formData.level,
+        yearsOfStudy: durationYears,
+        duration_years: durationYears,
+        durationYears: durationYears,
+        maxLevel: maxLevel,
+        max_level: maxLevel,
       });
       if (ok) {
         showToast('Department updated successfully');
@@ -109,6 +121,11 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
           name: formData.name.trim(),
           code: formData.code.trim().toUpperCase(),
           level: formData.level,
+          yearsOfStudy: durationYears,
+          duration_years: durationYears,
+          durationYears: durationYears,
+          maxLevel: maxLevel,
+          max_level: maxLevel,
         } : d));
         await loadData();
         onDepartmentChanged?.();
@@ -120,9 +137,12 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
         name: formData.name.trim(),
         code: formData.code.trim().toUpperCase(),
         level: formData.level,
+        yearsOfStudy: durationYears,
+        duration_years: durationYears,
+        maxLevel: maxLevel,
       });
       if (created) {
-        showToast(`Department "${created.name}" created`);
+        showToast(`Department "${created.name}" created (${durationYears} Years • Up to ${maxLevel}L)`);
         setIsModalOpen(false);
         setDepartments(prev => [...prev.filter(d => d.id !== created.id), created]);
         await loadData();
@@ -262,78 +282,96 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
             </button>
           </div>
         ) : (
-          filteredDepts.map((dept) => (
-            <div
-              key={dept.id}
-              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
-            >
-              <div>
-                <div className="flex items-start justify-between">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm tracking-tight border border-blue-100">
-                    {dept.code}
+          filteredDepts.map((dept) => {
+            const dur = dept.yearsOfStudy || dept.duration_years || dept.durationYears || (dept.maxLevel ? Math.floor(dept.maxLevel / 100) : 4);
+            const maxLvl = dept.maxLevel || dept.max_level || dur * 100;
+            return (
+              <div
+                key={dept.id}
+                className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
+              >
+                <div>
+                  <div className="flex items-start justify-between">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm tracking-tight border border-blue-100">
+                      {dept.code}
+                    </div>
+                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleOpenEditModal(dept)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                        title="Edit Department"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setDeletingDept(dept)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Delete Department"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleOpenEditModal(dept)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                      title="Edit Department"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeletingDept(dept)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                      title="Delete Department"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+
+                  <div className="mt-3">
+                    <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{dept.name}</h4>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs text-slate-500">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 font-mono text-[11px] text-slate-700 font-bold">
+                        Code: {dept.code}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-[11px] border border-blue-100">
+                        {dur} Years of Study ({maxLvl}L)
+                      </span>
+                    </div>
+
+                    {/* Progress levels chips */}
+                    <div className="flex items-center gap-1 mt-2.5">
+                      {Array.from({ length: dur }).map((_, idx) => (
+                        <span
+                          key={idx}
+                          className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/60"
+                        >
+                          {(idx + 1) * 100}L
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-3">
-                  <h4 className="text-sm font-bold text-slate-900 line-clamp-1">{dept.name}</h4>
-                  <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
-                    <span className="px-2 py-0.5 rounded-md bg-slate-100 font-mono text-[11px] text-slate-700">
-                      Code: {dept.code}
-                    </span>
-                    <span>•</span>
-                    <span className="font-medium text-slate-600">
-                      {dept.level ? `${dept.level} Level` : 'All Levels'}
-                    </span>
-                  </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="font-mono truncate max-w-[150px]" title={dept.id}>
+                    ID: {dept.id.substring(0, 8)}...
+                  </span>
+                  <span className="text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                    Active Curriculum
+                  </span>
                 </div>
               </div>
-
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                <span className="font-mono truncate max-w-[160px]" title={dept.id}>
-                  ID: {dept.id.substring(0, 8)}...
-                </span>
-                <span className="text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded">
-                  Active
-                </span>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
       {/* Create / Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">
-                {editingDept ? 'Edit Department' : 'Create Department'}
-              </h3>
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  {editingDept ? 'Edit Department' : 'Create Department'}
+                </h3>
+              </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Department Name *
@@ -341,58 +379,79 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Department of Industrial Chemistry"
+                  placeholder="e.g. Department of Pharmacy / Industrial Chemistry"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className="w-full px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Department Code * (Used in Matric No.)
+                    Department Code *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. ICH or CHM"
+                    placeholder="e.g. PHA, ICH, CSC"
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl uppercase font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl uppercase font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-blue-700"
                   />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">Used in student matric numbers</span>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Academic Level
+                    Years of Study *
                   </label>
                   <select
-                    value={formData.level}
-                    onChange={(e) => setFormData({ ...formData, level: parseInt(e.target.value, 10) })}
-                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    value={formData.yearsOfStudy}
+                    onChange={(e) => setFormData({ ...formData, yearsOfStudy: parseInt(e.target.value, 10) })}
+                    className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold text-slate-800 cursor-pointer"
                   >
-                    <option value={100}>100 Level</option>
-                    <option value={200}>200 Level</option>
-                    <option value={300}>300 Level</option>
-                    <option value={400}>400 Level</option>
-                    <option value={500}>500 Level</option>
+                    <option value={3}>3 Years (Diploma / Direct Entry • 100L-300L)</option>
+                    <option value={4}>4 Years (Standard Degree • 100L-400L)</option>
+                    <option value={5}>5 Years (Engineering / Tech / Pharmacy • 100L-500L)</option>
+                    <option value={6}>6 Years (Medicine / Vet • 100L-600L)</option>
                   </select>
                 </div>
               </div>
 
-              <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
+              {/* Dynamic Supported Level Preview */}
+              <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-200/70 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-blue-900">Curriculum Progression Preview:</span>
+                  <span className="font-extrabold text-blue-700">Up to {(formData.yearsOfStudy || 4) * 100} Level</span>
+                </div>
+                <div className="flex gap-1.5">
+                  {Array.from({ length: formData.yearsOfStudy || 4 }).map((_, idx) => (
+                    <span
+                      key={idx}
+                      className="flex-1 py-1 text-center font-bold text-[11px] rounded-lg bg-white text-blue-700 border border-blue-200/80 shadow-2xs"
+                    >
+                      {(idx + 1) * 100}L
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[10px] text-blue-600/90 leading-tight">
+                  Students enrolled in this department will automatically progress up to {(formData.yearsOfStudy || 4) * 100}L before graduating.
+                </p>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
+                  className="px-5 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   {isSubmitting ? (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />

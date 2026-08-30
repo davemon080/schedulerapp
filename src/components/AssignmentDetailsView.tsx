@@ -30,6 +30,7 @@ interface AssignmentDetailsViewProps {
   onDelete: (id: string) => void;
   onAddImages: (id: string, newImages: string[]) => void;
   onDeleteImage: (id: string, imageIndex: number) => void;
+  isCourseRep?: boolean;
 }
 
 export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
@@ -40,6 +41,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
   onDelete,
   onAddImages,
   onDeleteImage,
+  isCourseRep = false,
 }) => {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
@@ -96,25 +98,27 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
           <span>Deadlines</span>
         </motion.button>
 
-        <div className="flex items-center gap-2">
-          <motion.button
-            whileTap={{ scale: 0.94 }}
-            onClick={() => onEdit(assignment)}
-            className="p-2 rounded-full bg-white/70 hover:bg-white text-slate-700 border border-white/90 shadow-2xs transition-all cursor-pointer"
-            title="Edit assignment"
-          >
-            <Edit3 className="w-4 h-4" />
-          </motion.button>
+        {isCourseRep && (
+          <div className="flex items-center gap-2">
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={() => onEdit(assignment)}
+              className="p-2 rounded-full bg-white/70 hover:bg-white text-slate-700 border border-white/90 shadow-2xs transition-all cursor-pointer"
+              title="Edit assignment"
+            >
+              <Edit3 className="w-4 h-4" />
+            </motion.button>
 
-          <motion.button
-            whileTap={{ scale: 0.94 }}
-            onClick={() => setIsConfirmDeleteOpen(true)}
-            className="p-2 rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer"
-            title="Delete assignment"
-          >
-            <Trash2 className="w-4 h-4" />
-          </motion.button>
-        </div>
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={() => setIsConfirmDeleteOpen(true)}
+              className="p-2 rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer"
+              title="Delete assignment"
+            >
+              <Trash2 className="w-4 h-4" />
+            </motion.button>
+          </div>
+        )}
       </div>
 
       {/* Main Assignment Banner Card */}

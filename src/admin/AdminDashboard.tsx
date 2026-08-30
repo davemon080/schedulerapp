@@ -10,12 +10,12 @@ import { AdminDepartmentsManager } from './AdminDepartmentsManager';
 import { AdminCoursesManager } from './AdminCoursesManager';
 import { AdminStudentsManager } from './AdminStudentsManager';
 import { AdminFeedbackManager } from './AdminFeedbackManager';
+import { AdminSemesterManager } from './AdminSemesterManager';
 import { AdminDatabaseViewer } from './AdminDatabaseViewer';
 import { AdminSettings } from './AdminSettings';
 import { DesktopOnlyNotice } from './DesktopOnlyNotice';
 import { AdminTab, AdminUser, StudentProfileRecord, DepartmentRecord } from './types';
 import { EventItem, AssignmentItem, NotificationItem } from '../types';
-import { INITIAL_EVENTS, INITIAL_ASSIGNMENTS, NOTIFICATIONS } from '../data/mockData';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2 } from 'lucide-react';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -39,11 +39,18 @@ import {
   fetchDepartments,
   fetchCourses,
   fetchFeedbackList,
+  fetchCurrentSemester,
+  normalizeSemester,
   subscribeToRealtimeDatabase,
+  isMockEvent,
+  isMockAssignment,
+  isMockNotification,
+  purgeMockScheduleDeadlinesAndBroadcasts,
 } from '../lib/dbService';
 
 const VALID_TABS: AdminTab[] = [
   'overview',
+  'semester',
   'schedule',
   'assignments',
   'announcements',
@@ -107,19 +114,25 @@ interface AdminDashboardProps {
   initialEvents?: EventItem[];
   initialAssignments?: AssignmentItem[];
   initialNotifications?: NotificationItem[];
+  currentSemester?: string;
+  academicSession?: string;
   onGlobalSyncEvents?: (events: EventItem[]) => void;
   onGlobalSyncAssignments?: (assignments: AssignmentItem[]) => void;
   onGlobalSyncNotifications?: (notifs: NotificationItem[]) => void;
+  onGlobalSyncSemester?: (semester: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBackToStudentPortal,
-  initialEvents = INITIAL_EVENTS,
-  initialAssignments = INITIAL_ASSIGNMENTS,
-  initialNotifications = NOTIFICATIONS,
+  initialEvents = [],
+  initialAssignments = [],
+  initialNotifications = [],
+  currentSemester: initialSemesterProp = '1st Semester',
+  academicSession: initialSessionProp = '2025/2026',
   onGlobalSyncEvents,
   onGlobalSyncAssignments,
   onGlobalSyncNotifications,
+  onGlobalSyncSemester,
 }) => {
   // Admin Session State
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
@@ -131,6 +144,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return null;
   });
+
+  const [currentSemester, setCurrentSemester] = useState<string>(initialSemesterProp);
+  const [academicSession, setAcademicSession] = useState<string>(initialSessionProp);
+
+  // Sync prop changes into state
+  useEffect(() => {
+    if (initialSemesterProp) {
+      setCurrentSemester(normalizeSemester(initialSemesterProp));
+    }
+  }, [initialSemesterProp]);
+
+  useEffect(() => {
+    if (initialSessionProp) {
+      setAcademicSession(initialSessionProp);
+    }
+  }, [initialSessionProp]);
 
   const [activeTab, setActiveTabState] = useState<AdminTab>(() => getInitialAdminTab());
 
@@ -172,16 +201,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isAddNotifModalOpen, setIsAddNotifModalOpen] = useState(false);
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
 
-  // Core Data State
+  // Core Data State - strictly genuine database records only
   const [events, setEvents] = useState<EventItem[]>(() => {
     try {
       const cached = localStorage.getItem('university_admin_events');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((e: any) => !isMockEvent(e?.id));
       }
     } catch (e) {}
-    return initialEvents;
+    return initialEvents.filter((e) => !isMockEvent(e?.id));
   });
 
   const [assignments, setAssignments] = useState<AssignmentItem[]>(() => {
@@ -189,10 +218,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const cached = localStorage.getItem('university_admin_assignments');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((a: any) => !isMockAssignment(a?.id));
       }
     } catch (e) {}
-    return initialAssignments;
+    return initialAssignments.filter((a) => !isMockAssignment(a?.id));
   });
 
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
@@ -200,10 +229,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const cached = localStorage.getItem('university_admin_notifications');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed.filter((n: any) => !isMockNotification(n?.id));
       }
     } catch (e) {}
-    return initialNotifications;
+    return initialNotifications.filter((n) => !isMockNotification(n?.id));
   });
 
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
@@ -278,6 +307,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const syncEventsRef = useRef(onGlobalSyncEvents);
   const syncAssignmentsRef = useRef(onGlobalSyncAssignments);
   const syncNotifsRef = useRef(onGlobalSyncNotifications);
+  const syncSemesterRef = useRef(onGlobalSyncSemester);
 
   useEffect(() => {
     syncEventsRef.current = onGlobalSyncEvents;
@@ -290,6 +320,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   useEffect(() => {
     syncNotifsRef.current = onGlobalSyncNotifications;
   }, [onGlobalSyncNotifications]);
+
+  useEffect(() => {
+    syncSemesterRef.current = onGlobalSyncSemester;
+  }, [onGlobalSyncSemester]);
 
   // Real-time Firestore Live Subscription
   useEffect(() => {
@@ -331,6 +365,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       onFeedback: (fbs) => {
         if (fbs) setFeedbackCount(fbs.length);
       },
+      onCurrentSemester: (semCode) => {
+        if (semCode) {
+          const parsed = normalizeSemester(semCode);
+          setCurrentSemester(parsed);
+          const sMatch = semCode.match(/\d{4}\/\d{4}/);
+          if (sMatch) setAcademicSession(sMatch[0]);
+          syncSemesterRef.current?.(parsed);
+        }
+      },
       onStatusChange: (status) => {
         setIsRealtimeConnected(status === 'connected');
       },
@@ -346,7 +389,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      const [dbEvents, dbAssigns, dbNotifs, dbStudents, depts, courses, fbs] = await Promise.all([
+      // Purge any mock items from Firestore
+      purgeMockScheduleDeadlinesAndBroadcasts().catch(() => {});
+
+      const [dbEvents, dbAssigns, dbNotifs, dbStudents, depts, courses, fbs, semDoc] = await Promise.all([
         fetchScheduleActivities(),
         fetchAssignments(),
         fetchAnnouncementsAndNotifications(),
@@ -354,24 +400,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         fetchDepartments(),
         fetchCourses(),
         fetchFeedbackList(),
+        fetchCurrentSemester(),
       ]);
 
-      if (dbEvents && dbEvents.length > 0) {
+      if (dbEvents) {
         setEvents(dbEvents);
         syncEventsRef.current?.(dbEvents);
       }
 
-      if (dbAssigns && dbAssigns.length > 0) {
+      if (dbAssigns) {
         setAssignments(dbAssigns);
         syncAssignmentsRef.current?.(dbAssigns);
       }
 
-      if (dbNotifs && dbNotifs.length > 0) {
+      if (dbNotifs) {
         setNotifications(dbNotifs);
         syncNotifsRef.current?.(dbNotifs);
       }
 
-      if (dbStudents && dbStudents.length > 0) {
+      if (dbStudents) {
         setStudents(dbStudents);
       }
 
@@ -381,6 +428,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
       if (courses) setCourseCount(courses.length);
       if (fbs) setFeedbackCount(fbs.length);
+
+      if (semDoc?.semester_code) {
+        const parsed = normalizeSemester(semDoc.semester_code);
+        setCurrentSemester(parsed);
+        const sMatch = semDoc.semester_code.match(/\d{4}\/\d{4}/);
+        if (sMatch) setAcademicSession(sMatch[0]);
+        syncSemesterRef.current?.(parsed);
+      }
 
       showToast('Database synchronized with Firebase Cloud Firestore');
     } catch (err) {
@@ -670,6 +725,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             onQuickAdd={handleHeaderQuickAdd}
             quickAddLabel={getQuickAddLabel(activeTab)}
             adminUser={adminUser}
+            currentSemester={currentSemester}
+            academicSession={academicSession}
+            onNavigateToSemesterTab={() => setActiveTab('semester')}
           />
 
           {/* View Switcher */}
@@ -688,10 +746,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               />
             )}
 
+            {activeTab === 'semester' && (
+              <AdminSemesterManager
+                onSemesterChanged={(newCode) => {
+                  if (newCode) {
+                    const parsed = normalizeSemester(newCode);
+                    setCurrentSemester(parsed);
+                    const sMatch = newCode.match(/\d{4}\/\d{4}/);
+                    if (sMatch) setAcademicSession(sMatch[0]);
+                    syncSemesterRef.current?.(parsed);
+                  }
+                  handleManualSync();
+                }}
+              />
+            )}
+
             {activeTab === 'schedule' && (
               <AdminScheduleManager
                 events={events}
+                departments={departments}
                 searchQuery={searchQuery}
+                currentSemester={currentSemester}
                 onAddEvent={handleAddEvent}
                 onUpdateEvent={handleUpdateEvent}
                 onDeleteEvent={handleDeleteEvent}
@@ -703,7 +778,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {activeTab === 'assignments' && (
               <AdminAssignmentsManager
                 assignments={assignments}
+                departments={departments}
                 searchQuery={searchQuery}
+                currentSemester={currentSemester}
                 onAddAssignment={handleAddAssignment}
                 onUpdateAssignment={handleUpdateAssignment}
                 onDeleteAssignment={handleDeleteAssignment}
@@ -715,6 +792,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {activeTab === 'announcements' && (
               <AdminAnnouncementsManager
                 notifications={notifications}
+                departments={departments}
                 searchQuery={searchQuery}
                 onAddNotification={handleAddNotification}
                 onUpdateNotification={handleUpdateNotification}

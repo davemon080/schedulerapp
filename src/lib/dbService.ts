@@ -19,15 +19,26 @@ import {
   StudentProfileRecord, 
   DepartmentRecord, 
   CourseRecord, 
+  CourseMaterialPdf,
+  CourseMaterialVideo,
   ActivityRecord, 
   DeadlineRecord, 
   AnnouncementRecord, 
   FeedbackRecord, 
   CurrentSemesterRecord 
 } from '../admin/types';
-import { INITIAL_EVENTS, INITIAL_ASSIGNMENTS, NOTIFICATIONS } from '../data/mockData';
 
-export type { DepartmentRecord, CourseRecord, ActivityRecord, DeadlineRecord, AnnouncementRecord, FeedbackRecord, CurrentSemesterRecord };
+export type { 
+  DepartmentRecord, 
+  CourseRecord, 
+  CourseMaterialPdf, 
+  CourseMaterialVideo, 
+  ActivityRecord, 
+  DeadlineRecord, 
+  AnnouncementRecord, 
+  FeedbackRecord, 
+  CurrentSemesterRecord 
+};
 
 export enum OperationType {
   CREATE = 'create',
@@ -458,11 +469,19 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
     if (!snap.empty) {
       const depts = snap.docs.map((docSnap) => {
         const d = docSnap.data();
+        const durationYears = d.yearsOfStudy || d.duration_years || d.durationYears || (d.maxLevel ? Math.floor(d.maxLevel / 100) : 4);
+        const maxLevel = d.maxLevel || d.max_level || (durationYears * 100);
         return {
           id: docSnap.id,
           name: d.name || 'Department of Industrial Chemistry',
           code: d.code || 'ICH',
           level: d.level || 100,
+          yearsOfStudy: durationYears,
+          duration_years: durationYears,
+          durationYears: durationYears,
+          maxLevel: maxLevel,
+          max_level: maxLevel,
+          faculty: d.faculty || 'Faculty of Physical Sciences',
           created_at: d.created_at || new Date().toISOString(),
         } as DepartmentRecord;
       });
@@ -477,6 +496,12 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
         name: 'Department of Industrial Chemistry',
         code: 'ICH',
         level: 100,
+        yearsOfStudy: 4,
+        duration_years: 4,
+        durationYears: 4,
+        maxLevel: 400,
+        max_level: 400,
+        faculty: 'Faculty of Physical Sciences',
         created_at: new Date().toISOString(),
       },
       {
@@ -484,6 +509,12 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
         name: 'Department of Chemistry',
         code: 'CHM',
         level: 100,
+        yearsOfStudy: 4,
+        duration_years: 4,
+        durationYears: 4,
+        maxLevel: 400,
+        max_level: 400,
+        faculty: 'Faculty of Physical Sciences',
         created_at: new Date().toISOString(),
       },
       {
@@ -491,6 +522,12 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
         name: 'Department of Computer Science',
         code: 'CSC',
         level: 100,
+        yearsOfStudy: 4,
+        duration_years: 4,
+        durationYears: 4,
+        maxLevel: 400,
+        max_level: 400,
+        faculty: 'Faculty of Physical Sciences',
         created_at: new Date().toISOString(),
       },
       {
@@ -498,6 +535,12 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
         name: 'Department of Biochemistry',
         code: 'BCH',
         level: 100,
+        yearsOfStudy: 4,
+        duration_years: 4,
+        durationYears: 4,
+        maxLevel: 400,
+        max_level: 400,
+        faculty: 'Faculty of Biological Sciences',
         created_at: new Date().toISOString(),
       },
       {
@@ -505,6 +548,12 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
         name: 'Department of Microbiology',
         code: 'MCB',
         level: 100,
+        yearsOfStudy: 4,
+        duration_years: 4,
+        durationYears: 4,
+        maxLevel: 400,
+        max_level: 400,
+        faculty: 'Faculty of Biological Sciences',
         created_at: new Date().toISOString(),
       },
     ];
@@ -520,12 +569,28 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
   }
 }
 
-export async function createDepartment(data: { name: string; code: string; level?: number }): Promise<DepartmentRecord | null> {
+export async function createDepartment(data: {
+  name: string;
+  code: string;
+  level?: number;
+  yearsOfStudy?: number;
+  duration_years?: number;
+  maxLevel?: number;
+  faculty?: string;
+}): Promise<DepartmentRecord | null> {
   try {
+    const years = data.yearsOfStudy || data.duration_years || 4;
+    const maxLvl = data.maxLevel || (years * 100);
     const payload = {
       name: data.name.trim(),
       code: data.code.trim().toUpperCase(),
       level: data.level || 100,
+      yearsOfStudy: years,
+      duration_years: years,
+      durationYears: years,
+      maxLevel: maxLvl,
+      max_level: maxLvl,
+      faculty: data.faculty || 'Faculty of Physical Sciences',
       created_at: new Date().toISOString(),
     };
     const docRef = await addDoc(collection(db, 'departments'), payload);
@@ -710,39 +775,272 @@ export const COMPREHENSIVE_SEEDED_COURSES: CourseRecord[] = [
   { id: 'csc-404', courseCode: 'CSC 404', title: 'IT Entrepreneurship & Professional Ethics', description: 'Tech startups, venture capital, intellectual property, software licensing and digital ethics.', department_id: 'dept-csc', units: 2, level: 400, semester: '2nd Semester' },
 ];
 
+export function isMockPdf(pdf: CourseMaterialPdf): boolean {
+  if (!pdf || !pdf.pdfUrl) return true;
+  const url = (pdf.pdfUrl || '').toLowerCase();
+  const fn = (pdf.fileName || '').toLowerCase();
+  const title = (pdf.title || '').toLowerCase();
+  if (
+    url.includes('dummy.pdf') ||
+    url.includes('w3.org') ||
+    url.includes('example.com') ||
+    fn.includes('dummy.pdf') ||
+    title.includes('dummy')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function isMockVideo(video: CourseMaterialVideo): boolean {
+  if (!video || !video.videoUrl) return true;
+  const url = (video.videoUrl || '').toLowerCase();
+  const mockIds = [
+    '0h40xzxmwio',
+    'k3rrl9j2f4',
+    'fnk_zzamoss',
+    'jnl6u0hz_kk',
+    'b1t41q3xrm8',
+    'ihnzx_gd83q',
+    '8jlox1hd3_o',
+    'zojov-2oz0e',
+    '8ilzkri08kk',
+    'qf03u6u17yq',
+    'dqw4w9wgxcq',
+  ];
+  if (mockIds.some((id) => url.includes(id))) return true;
+  if (url.includes('example.com') || url.includes('placeholder')) return true;
+  return false;
+}
+
+// Mock ID definitions for schedule, deadlines, and broadcasts to ensure ONLY genuine database items are loaded
+const MOCK_EVENT_IDS = new Set([
+  'evt-1', 'evt-2', 'evt-3', 'evt-4', 'evt-5',
+  'evt-102', 'evt-chm102', 'evt-mth102', 'evt-phy102', 'evt-chm104', 'evt-gst102',
+  'evt-201', 'evt-202', 'evt-203', 'evt-204', 'evt-205'
+]);
+
+const MOCK_ASSIGNMENT_IDS = new Set([
+  'asn-1', 'asn-2', 'asn-3',
+  'asn-102-1', 'asn-102-2', 'asn-102-3',
+  'asn-201', 'asn-202', 'asn-203'
+]);
+
+const MOCK_NOTIFICATION_IDS = new Set([
+  'notif-1', 'notif-2',
+  'notif-102-1', 'notif-102-2',
+  'notif-201', 'notif-202', 'notif-gen'
+]);
+
+export function isMockEvent(id?: string): boolean {
+  if (!id) return false;
+  return MOCK_EVENT_IDS.has(id) || id.startsWith('evt-mock-');
+}
+
+export function isMockAssignment(id?: string): boolean {
+  if (!id) return false;
+  return MOCK_ASSIGNMENT_IDS.has(id) || id.startsWith('asn-mock-');
+}
+
+export function isMockNotification(id?: string): boolean {
+  if (!id) return false;
+  return MOCK_NOTIFICATION_IDS.has(id) || id.startsWith('notif-mock-');
+}
+
+/**
+ * Purges any lingering seeded mock documents from the Firestore database for activities, deadlines, announcements, and notifications.
+ */
+export async function purgeMockScheduleDeadlinesAndBroadcasts(): Promise<{
+  deletedEvents: number;
+  deletedAssignments: number;
+  deletedAnnouncements: number;
+  deletedNotifications: number;
+}> {
+  let deletedEvents = 0;
+  let deletedAssignments = 0;
+  let deletedAnnouncements = 0;
+  let deletedNotifications = 0;
+
+  try {
+    // 1. Purge mock activities
+    const actSnap = await getDocs(collection(db, 'activities'));
+    for (const docSnap of actSnap.docs) {
+      if (isMockEvent(docSnap.id)) {
+        await deleteDoc(doc(db, 'activities', docSnap.id));
+        deletedEvents++;
+      }
+    }
+
+    // 2. Purge mock deadlines
+    const deadSnap = await getDocs(collection(db, 'deadlines'));
+    for (const docSnap of deadSnap.docs) {
+      if (isMockAssignment(docSnap.id)) {
+        await deleteDoc(doc(db, 'deadlines', docSnap.id));
+        deletedAssignments++;
+      }
+    }
+
+    // 3. Purge mock announcements
+    const annSnap = await getDocs(collection(db, 'announcements'));
+    for (const docSnap of annSnap.docs) {
+      if (isMockNotification(docSnap.id)) {
+        await deleteDoc(doc(db, 'announcements', docSnap.id));
+        deletedAnnouncements++;
+      }
+    }
+
+    // 4. Purge mock notifications
+    const notifSnap = await getDocs(collection(db, 'notifications'));
+    for (const docSnap of notifSnap.docs) {
+      if (isMockNotification(docSnap.id)) {
+        await deleteDoc(doc(db, 'notifications', docSnap.id));
+        deletedNotifications++;
+      }
+    }
+  } catch (error) {
+    console.warn('Error purging mock records:', error);
+  }
+
+  return {
+    deletedEvents,
+    deletedAssignments,
+    deletedAnnouncements,
+    deletedNotifications,
+  };
+}
+
+export function filterRealPdfs(pdfs?: CourseMaterialPdf[]): CourseMaterialPdf[] {
+  if (!Array.isArray(pdfs)) return [];
+  return pdfs.filter((p) => !isMockPdf(p));
+}
+
+export function filterRealVideos(videos?: CourseMaterialVideo[]): CourseMaterialVideo[] {
+  if (!Array.isArray(videos)) return [];
+  return videos.filter((v) => !isMockVideo(v));
+}
+
+export function generateDefaultMaterials(_courseCode: string, _title: string) {
+  // Empty materials by default - no mock PDFs or mock videos
+  const pdfModules: CourseMaterialPdf[] = [];
+  const videoModules: CourseMaterialVideo[] = [];
+  return { pdfModules, videoModules };
+}
+
+export async function purgeAllMockMaterials(): Promise<number> {
+  let cleanedCount = 0;
+  try {
+    const snap = await getDocs(collection(db, 'courses'));
+    if (!snap.empty) {
+      for (const dSnap of snap.docs) {
+        const d = dSnap.data();
+        const rawPdfs = Array.isArray(d.pdfModules) ? d.pdfModules : [];
+        const rawVideos = Array.isArray(d.videoModules) ? d.videoModules : [];
+        
+        const realPdfs = filterRealPdfs(rawPdfs);
+        const realVideos = filterRealVideos(rawVideos);
+        
+        if (realPdfs.length !== rawPdfs.length || realVideos.length !== rawVideos.length || (d.pdfurl && (d.pdfurl.includes('dummy') || d.pdfurl.includes('w3.org')))) {
+          await updateDoc(doc(db, 'courses', dSnap.id), {
+            pdfModules: realPdfs,
+            videoModules: realVideos,
+            pdfurl: d.pdfurl && (d.pdfurl.includes('dummy') || d.pdfurl.includes('w3.org')) ? '' : (d.pdfurl || ''),
+          });
+          cleanedCount++;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Error purging mock materials from courses:', err);
+  }
+  return cleanedCount;
+}
+
 export async function fetchCourses(): Promise<CourseRecord[]> {
   try {
     const snap = await getDocs(collection(db, 'courses'));
     if (!snap.empty) {
       return snap.docs.map((dSnap) => {
         const d = dSnap.data();
+        const code = d.courseCode || 'ICH 101';
+        const title = d.title || 'Course Title';
+
+        const rawPdfs: CourseMaterialPdf[] = Array.isArray(d.pdfModules)
+          ? d.pdfModules
+          : Array.isArray(d.pdfMaterials)
+          ? d.pdfMaterials
+          : [];
+        const rawVideos: CourseMaterialVideo[] = Array.isArray(d.videoModules)
+          ? d.videoModules
+          : Array.isArray(d.videoMaterials)
+          ? d.videoMaterials
+          : [];
+
+        const realPdfs = filterRealPdfs(rawPdfs);
+        const realVideos = filterRealVideos(rawVideos);
+
         return {
           id: dSnap.id,
-          courseCode: d.courseCode || 'ICH 101',
-          title: d.title || 'Course Title',
+          courseCode: code,
+          title: title,
           description: d.description || '',
           department_id: d.department_id || 'dept-ich',
           units: d.units || 3,
           semester: d.semester || '1st Semester',
-          pdfurl: d.pdfurl || undefined,
+          pdfurl: d.pdfurl && !d.pdfurl.includes('dummy.pdf') ? d.pdfurl : undefined,
           level: d.level || 100,
+          pdfModules: realPdfs,
+          videoModules: realVideos,
           created_at: d.created_at || new Date().toISOString(),
         } as CourseRecord;
       });
     }
 
-    // Seed comprehensive course offerings across departments, levels, and semesters
+    // Seed comprehensive course offerings across departments, levels, and semesters with clean empty materials
     for (const crs of COMPREHENSIVE_SEEDED_COURSES) {
       await setDoc(doc(db, 'courses', crs.id), {
         ...crs,
+        pdfModules: [],
+        videoModules: [],
         created_at: new Date().toISOString(),
       });
     }
-    return COMPREHENSIVE_SEEDED_COURSES;
+    return COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
+      ...crs,
+      pdfModules: [],
+      videoModules: [],
+    }));
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'courses');
-    return COMPREHENSIVE_SEEDED_COURSES;
+    return COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
+      ...crs,
+      pdfModules: [],
+      videoModules: [],
+    }));
   }
+}
+
+/**
+ * Normalizes any semester string (e.g., '1st Semester 2025/2026', 'First Semester', '2nd Semester 2025/2026', '2nd Semester')
+ * strictly into '1st Semester' | '2nd Semester' without false-matching academic session years (e.g. 2025/2026).
+ */
+export function normalizeSemester(semString?: string | null): '1st Semester' | '2nd Semester' {
+  if (!semString) return '1st Semester';
+  const clean = semString.toLowerCase().trim();
+
+  // Specifically check for 2nd / second semester indicators
+  if (
+    clean.includes('2nd') ||
+    clean.includes('second') ||
+    clean.startsWith('2nd') ||
+    clean.startsWith('second') ||
+    /^2(nd)?\s*sem/i.test(clean) ||
+    clean === '2nd semester' ||
+    clean === 'second semester'
+  ) {
+    return '2nd Semester';
+  }
+
+  return '1st Semester';
 }
 
 /**
@@ -799,13 +1097,22 @@ export function filterCoursesForStudent(
   }
 
   return courses.filter((c) => {
-    // Check Department: Match either department_id or courseCode prefix or department_name
-    const matchesDept =
-      c.department_id === targetDeptId ||
-      c.courseCode?.toUpperCase().startsWith(targetDeptCode) ||
-      (targetDeptCode === 'ICH' && (c.department_id === 'dept-ich' || c.courseCode?.startsWith('ICH') || c.courseCode?.startsWith('CHM101') || c.courseCode?.startsWith('PHY102') || c.courseCode?.startsWith('MTH102') || c.courseCode?.startsWith('GST101') || c.courseCode?.startsWith('BIO101'))) ||
-      (targetDeptCode === 'CHM' && (c.department_id === 'dept-chm' || c.courseCode?.startsWith('CHM'))) ||
-      (targetDeptCode === 'CSC' && (c.department_id === 'dept-csc' || c.courseCode?.startsWith('CSC')));
+    // Check Department: Strictly match department_id if present
+    let matchesDept = false;
+    if (c.department_id) {
+      matchesDept = c.department_id === targetDeptId;
+    } else {
+      const cUpper = (c.courseCode || '').toUpperCase();
+      if (targetDeptCode === 'ICH') {
+        matchesDept = cUpper.startsWith('ICH');
+      } else if (targetDeptCode === 'CHM') {
+        matchesDept = cUpper.startsWith('CHM') && !cUpper.startsWith('ICH');
+      } else if (targetDeptCode === 'CSC') {
+        matchesDept = cUpper.startsWith('CSC');
+      } else {
+        matchesDept = cUpper.startsWith(targetDeptCode);
+      }
+    }
 
     // Check Academic Level (100, 200, 300, 400, etc.)
     const courseLevelNum = c.level || parseInt(c.courseCode.replace(/\D/g, '').slice(0, 1) + '00', 10) || 100;
@@ -814,9 +1121,9 @@ export function filterCoursesForStudent(
     // Check Semester (1st Semester, 2nd Semester, or all)
     let matchesSemester = true;
     if (semester && semester !== 'all') {
-      const semA = c.semester?.toLowerCase().replace(/\s/g, '') || '1stsemester';
-      const semB = semester.toLowerCase().replace(/\s/g, '');
-      matchesSemester = semA.includes(semB) || semB.includes(semA) || semA.startsWith(semB.slice(0, 3));
+      const reqSem = normalizeSemester(semester);
+      const courseSem = normalizeSemester(c.semester);
+      matchesSemester = reqSem === courseSem;
     }
 
     return matchesDept && matchesLevel && matchesSemester;
@@ -870,6 +1177,78 @@ export async function updateCourse(id: string, updates: Partial<CourseRecord>): 
   }
 }
 
+export async function addCoursePdfModule(courseId: string, pdf: CourseMaterialPdf): Promise<CourseRecord | null> {
+  try {
+    const docRef = doc(db, 'courses', courseId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    const currentData = snap.data();
+    const currentPdfs: CourseMaterialPdf[] = Array.isArray(currentData.pdfModules) ? currentData.pdfModules : [];
+    const updatedPdfs = [pdf, ...currentPdfs.filter((p) => p.id !== pdf.id)];
+    
+    await updateDoc(docRef, { pdfModules: updatedPdfs });
+    const refreshed = await getDoc(docRef);
+    return { id: refreshed.id, ...refreshed.data() } as CourseRecord;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `courses/${courseId}/pdfModules`);
+    return null;
+  }
+}
+
+export async function deleteCoursePdfModule(courseId: string, pdfId: string): Promise<CourseRecord | null> {
+  try {
+    const docRef = doc(db, 'courses', courseId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    const currentData = snap.data();
+    const currentPdfs: CourseMaterialPdf[] = Array.isArray(currentData.pdfModules) ? currentData.pdfModules : [];
+    const updatedPdfs = currentPdfs.filter((p) => p.id !== pdfId);
+    
+    await updateDoc(docRef, { pdfModules: updatedPdfs });
+    const refreshed = await getDoc(docRef);
+    return { id: refreshed.id, ...refreshed.data() } as CourseRecord;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `courses/${courseId}/pdfModules`);
+    return null;
+  }
+}
+
+export async function addCourseVideoModule(courseId: string, video: CourseMaterialVideo): Promise<CourseRecord | null> {
+  try {
+    const docRef = doc(db, 'courses', courseId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    const currentData = snap.data();
+    const currentVideos: CourseMaterialVideo[] = Array.isArray(currentData.videoModules) ? currentData.videoModules : [];
+    const updatedVideos = [video, ...currentVideos.filter((v) => v.id !== video.id)];
+    
+    await updateDoc(docRef, { videoModules: updatedVideos });
+    const refreshed = await getDoc(docRef);
+    return { id: refreshed.id, ...refreshed.data() } as CourseRecord;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `courses/${courseId}/videoModules`);
+    return null;
+  }
+}
+
+export async function deleteCourseVideoModule(courseId: string, videoId: string): Promise<CourseRecord | null> {
+  try {
+    const docRef = doc(db, 'courses', courseId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    const currentData = snap.data();
+    const currentVideos: CourseMaterialVideo[] = Array.isArray(currentData.videoModules) ? currentData.videoModules : [];
+    const updatedVideos = currentVideos.filter((v) => v.id !== videoId);
+    
+    await updateDoc(docRef, { videoModules: updatedVideos });
+    const refreshed = await getDoc(docRef);
+    return { id: refreshed.id, ...refreshed.data() } as CourseRecord;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `courses/${courseId}/videoModules`);
+    return null;
+  }
+}
+
 export async function deleteCourse(id: string): Promise<boolean> {
   try {
     await deleteDoc(doc(db, 'courses', id));
@@ -885,61 +1264,40 @@ export async function fetchScheduleActivities(): Promise<EventItem[]> {
   try {
     const snap = await getDocs(collection(db, 'activities'));
     if (!snap.empty) {
-      return snap.docs.map((dSnap) => {
-        const row = dSnap.data();
-        const startTime = row.startTime || '08:00:00';
-        const endTime = row.endTime || '10:00:00';
-        const dayKey = mapDbDayToDayKey(row.day);
-        const status = (row.status || 'active').toLowerCase();
-        const isPostponed = status === 'postponed';
+      return snap.docs
+        .filter((dSnap) => !isMockEvent(dSnap.id))
+        .map((dSnap) => {
+          const row = dSnap.data();
+          const startTime = row.startTime || '08:00:00';
+          const endTime = row.endTime || '10:00:00';
+          const dayKey = mapDbDayToDayKey(row.day);
+          const status = (row.status || 'active').toLowerCase();
+          const isPostponed = status === 'postponed';
 
-        return {
-          id: dSnap.id,
-          course: row.courseCode || 'GEN101',
-          title: row.title || 'Lecture',
-          time: formatTimeRange(startTime, endTime),
-          location: row.venue || 'Lecture Hall',
-          views: `${Math.floor(Math.random() * 40) + 15} views`,
-          tags: [row.type || 'Lecture', 'Physical Class'],
-          isPostponed,
-          instructor: row.lecturer || 'Faculty Lecturer',
-          dayKey,
-          colorAccent: getCourseAccentColor(row.courseCode || 'GEN'),
-          notes: row.notes || undefined,
-          department_id: row.department_id,
-          level: row.level || 100,
-          semester: row.semester || '1st Semester',
-        };
-      });
+          return {
+            id: dSnap.id,
+            course: row.courseCode || 'GEN101',
+            title: row.title || 'Lecture',
+            time: formatTimeRange(startTime, endTime),
+            location: row.venue || 'Lecture Hall',
+            views: `${Math.floor(Math.random() * 40) + 15} views`,
+            tags: [row.type || 'Lecture', 'Physical Class'],
+            isPostponed,
+            instructor: row.lecturer || 'Faculty Lecturer',
+            dayKey,
+            colorAccent: getCourseAccentColor(row.courseCode || 'GEN'),
+            notes: row.notes || undefined,
+            department_id: row.department_id,
+            level: row.level || 100,
+            semester: row.semester || '1st Semester',
+          };
+        });
     }
 
-    const seeded: EventItem[] = [];
-    for (const evt of INITIAL_EVENTS) {
-      const { startTime, endTime } = parseTimeRange(evt.time);
-      const day = mapDayKeyToDbDay(evt.dayKey);
-      const actPayload = {
-        courseCode: evt.course,
-        title: evt.title,
-        type: evt.tags?.[0] || 'Lecture',
-        day,
-        startTime,
-        endTime,
-        venue: evt.location,
-        lecturer: evt.instructor || 'Faculty Lecturer',
-        department_id: 'dept-cs-100',
-        status: evt.isPostponed ? 'postponed' : 'active',
-        notes: '',
-        level: 100,
-        semester: '1st Semester',
-        created_at: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'activities', evt.id), actPayload);
-      seeded.push(evt);
-    }
-    return seeded;
+    return [];
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'activities');
-    return INITIAL_EVENTS;
+    return [];
   }
 }
 
@@ -1037,47 +1395,38 @@ export async function fetchAssignments(): Promise<AssignmentItem[]> {
   try {
     const snap = await getDocs(collection(db, 'deadlines'));
     if (!snap.empty) {
-      return snap.docs.map((dSnap) => {
-        const row = dSnap.data();
-        return {
-          id: dSnap.id,
-          course: row.courseCode || 'GEN101',
-          title: row.title || 'Assignment',
-          dueDate: row.dueDate || 'Oct 24, 2026',
-          dueTime: row.dueTime || '11:59 PM',
-          priority: (row.priority as 'High' | 'Medium' | 'Low') || 'High',
-          isCompleted: row.isCompleted ?? false,
-          images: row.images || [],
-          description: row.description || '',
-          instructor: row.instructor || undefined,
-          notes: row.notes || undefined,
-        };
-      });
+      return snap.docs
+        .filter((dSnap) => !isMockAssignment(dSnap.id))
+        .map((dSnap) => {
+          const row = dSnap.data();
+          const cCode = row.courseCode || 'GEN101';
+          const codeDigits = cCode.replace(/\D/g, '');
+          const codeLevel = codeDigits.length > 0 ? parseInt(codeDigits.slice(0, 1) + '00', 10) : 100;
+          const resolvedLevel = typeof row.level === 'number' && row.level >= 100 ? row.level : (codeLevel >= 100 ? codeLevel : 100);
+
+          return {
+            id: dSnap.id,
+            course: cCode,
+            title: row.title || 'Assignment',
+            dueDate: row.dueDate || 'Oct 24, 2026',
+            dueTime: row.dueTime || '11:59 PM',
+            priority: (row.priority as 'High' | 'Medium' | 'Low') || 'High',
+            isCompleted: row.isCompleted ?? false,
+            images: row.images || [],
+            description: row.description || '',
+            instructor: row.instructor || undefined,
+            notes: row.notes || undefined,
+            department_id: row.department_id || 'dept-ich',
+            level: resolvedLevel,
+            semester: row.semester || '1st Semester',
+          };
+        });
     }
 
-    const seeded: AssignmentItem[] = [];
-    for (const asgn of INITIAL_ASSIGNMENTS) {
-      const deadPayload = {
-        courseCode: asgn.course,
-        title: asgn.title,
-        dueDate: asgn.dueDate,
-        dueTime: asgn.dueTime || '11:59 PM',
-        description: asgn.description || '',
-        department_id: 'dept-cs-100',
-        isCompleted: asgn.isCompleted,
-        images: asgn.images || [],
-        priority: asgn.priority,
-        level: 100,
-        semester: '1st Semester',
-        created_at: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'deadlines', asgn.id), deadPayload);
-      seeded.push(asgn);
-    }
-    return seeded;
+    return [];
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'deadlines');
-    return INITIAL_ASSIGNMENTS;
+    return [];
   }
 }
 
@@ -1111,6 +1460,9 @@ export async function createAssignment(assignment: Omit<AssignmentItem, 'id'> & 
       isCompleted: payload.isCompleted,
       images: payload.images,
       description: payload.description,
+      department_id: payload.department_id,
+      level: payload.level,
+      semester: payload.semester,
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, 'deadlines');
@@ -1129,6 +1481,7 @@ export async function updateAssignment(id: string, fields: Partial<AssignmentIte
     if (fields.isCompleted !== undefined) payload.isCompleted = fields.isCompleted;
     if (fields.images !== undefined) payload.images = fields.images;
     if (fields.priority !== undefined) payload.priority = fields.priority;
+    if (fields.department_id) payload.department_id = fields.department_id;
     if (fields.level) payload.level = fields.level;
     if (fields.semester) payload.semester = fields.semester;
 
@@ -1162,6 +1515,7 @@ export async function fetchAnnouncementsAndNotifications(): Promise<Notification
 
     if (!annSnap.empty) {
       annSnap.forEach((dSnap) => {
+        if (isMockNotification(dSnap.id)) return;
         const d = dSnap.data();
         items.push({
           id: dSnap.id,
@@ -1171,12 +1525,19 @@ export async function fetchAnnouncementsAndNotifications(): Promise<Notification
           isUnread: true,
           type: d.priority === 'urgent' ? 'alert' : 'info',
           category: 'system',
+          department_id: d.department_id || 'dept-ich',
+          level: d.level !== undefined ? d.level : 100,
+          semester: d.semester || '1st Semester',
+          author: d.author || 'Department Admin',
+          sender: d.author || 'Department Admin',
+          priority: d.priority || 'normal',
         });
       });
     }
 
     if (!notifSnap.empty) {
       notifSnap.forEach((dSnap) => {
+        if (isMockNotification(dSnap.id)) return;
         const d = dSnap.data();
         items.push({
           id: dSnap.id,
@@ -1186,28 +1547,19 @@ export async function fetchAnnouncementsAndNotifications(): Promise<Notification
           isUnread: d.isRead !== true,
           type: d.type === 'timetable' ? 'alert' : 'info',
           category: 'schedule',
+          department_id: d.department_id || 'dept-ich',
+          level: d.level !== undefined ? d.level : 100,
+          semester: d.semester || '1st Semester',
+          author: d.author || 'Timetable Coordinator',
+          sender: d.author || 'Timetable Coordinator',
         });
       });
     }
 
-    if (items.length > 0) return items;
-
-    for (const notif of NOTIFICATIONS) {
-      await setDoc(doc(db, 'announcements', notif.id), {
-        title: notif.title,
-        body: notif.message,
-        priority: notif.type === 'alert' ? 'urgent' : 'normal',
-        author: 'Department of Computer Science',
-        department_id: 'dept-cs-100',
-        level: 100,
-        semester: '1st Semester',
-        createdat: new Date().toISOString(),
-      });
-    }
-    return NOTIFICATIONS;
+    return items;
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'announcements');
-    return NOTIFICATIONS;
+    return [];
   }
 }
 
@@ -1289,6 +1641,7 @@ export async function fetchStudents(): Promise<StudentProfileRecord[]> {
           ? d.department
           : detected.department;
         const resolvedDeptId = d.department_id || detected.department_id;
+        const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
 
         return {
           id: dSnap.id,
@@ -1296,6 +1649,7 @@ export async function fetchStudents(): Promise<StudentProfileRecord[]> {
           email: d.email || '',
           matric_number: rawMatric,
           matricNumber: rawMatric,
+          password: d.password || d.portal_password,
           full_name: d.full_name || d.fullName || d.name || 'Student',
           name: d.full_name || d.fullName || d.name || 'Student',
           department_id: resolvedDeptId,
@@ -1307,6 +1661,9 @@ export async function fetchStudents(): Promise<StudentProfileRecord[]> {
           isAdmin: Boolean(d.isadmin || d.isAdmin),
           iscourserep: Boolean(d.iscourserep || d.isCourseRep),
           isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
+          profile_pic_url: picUrl,
+          profileImage: picUrl,
+          photoURL: picUrl,
           created_at: d.created_at || d.createdAt,
         } as StudentProfileRecord;
       });
@@ -1331,6 +1688,7 @@ export async function fetchStudentByAuthUid(uid: string): Promise<StudentProfile
         ? d.department
         : detected.department;
       const resolvedDeptId = d.department_id || detected.department_id;
+      const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
 
       return {
         id: snap.id,
@@ -1349,6 +1707,9 @@ export async function fetchStudentByAuthUid(uid: string): Promise<StudentProfile
         isAdmin: Boolean(d.isadmin || d.isAdmin),
         iscourserep: Boolean(d.iscourserep || d.isCourseRep),
         isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
+        profile_pic_url: picUrl,
+        profileImage: picUrl,
+        photoURL: picUrl,
         created_at: d.created_at || d.createdAt,
       } as StudentProfileRecord;
     }
@@ -1374,6 +1735,7 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
         const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
           ? d.department
           : detected.department;
+        const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
 
         return {
           id: directDoc.id,
@@ -1388,6 +1750,9 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
           level: d.level || 100,
           isadmin: Boolean(d.isadmin || d.isAdmin),
           iscourserep: Boolean(d.iscourserep || d.isCourseRep),
+          profile_pic_url: picUrl,
+          profileImage: picUrl,
+          photoURL: picUrl,
         } as StudentProfileRecord;
       }
     } catch {}
@@ -1403,6 +1768,7 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
       const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
         ? d.department
         : detected.department;
+      const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
 
       return {
         id: dSnap.id,
@@ -1417,6 +1783,9 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
         level: d.level || 100,
         isadmin: Boolean(d.isadmin || d.isAdmin),
         iscourserep: Boolean(d.iscourserep || d.isCourseRep),
+        profile_pic_url: picUrl,
+        profileImage: picUrl,
+        photoURL: picUrl,
       } as StudentProfileRecord;
     }
 
@@ -1431,6 +1800,7 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
       const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
         ? d.department
         : detected.department;
+      const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
 
       return {
         id: dSnap.id,
@@ -1445,6 +1815,9 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
         level: d.level || 100,
         isadmin: Boolean(d.isadmin || d.isAdmin),
         iscourserep: Boolean(d.iscourserep || d.isCourseRep),
+        profile_pic_url: picUrl,
+        profileImage: picUrl,
+        photoURL: picUrl,
       } as StudentProfileRecord;
     }
 
@@ -1497,9 +1870,14 @@ export async function createStudentUser(student: StudentProfileRecord): Promise<
 
 export async function updateStudentUser(identifier: string, updates: Partial<StudentProfileRecord>): Promise<boolean> {
   try {
+    if (!identifier) return false;
+    const cleanId = identifier.trim();
+    const cleanEmail = cleanId.toLowerCase();
+    const cleanMatric = cleanId.toUpperCase();
+
     // 1. Try by docId / UID
     try {
-      const docRef = doc(db, 'users', identifier);
+      const docRef = doc(db, 'users', cleanId);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         await updateDoc(docRef, { ...updates, updated_at: new Date().toISOString() });
@@ -1508,14 +1886,25 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
     } catch {}
 
     // 2. Try by email query
-    const q = query(collection(db, 'users'), where('email', '==', identifier.toLowerCase().trim()));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      await updateDoc(doc(db, 'users', snap.docs[0].id), { ...updates, updated_at: new Date().toISOString() });
+    const qEmail = query(collection(db, 'users'), where('email', '==', cleanEmail));
+    const snapEmail = await getDocs(qEmail);
+    if (!snapEmail.empty) {
+      await updateDoc(doc(db, 'users', snapEmail.docs[0].id), { ...updates, updated_at: new Date().toISOString() });
       return true;
     }
 
-    return false;
+    // 3. Try by matric query
+    const qMatric = query(collection(db, 'users'), where('matric_number', '==', cleanMatric));
+    const snapMatric = await getDocs(qMatric);
+    if (!snapMatric.empty) {
+      await updateDoc(doc(db, 'users', snapMatric.docs[0].id), { ...updates, updated_at: new Date().toISOString() });
+      return true;
+    }
+
+    // 4. If doc doesn't exist yet, create with setDoc
+    const docRef = doc(db, 'users', cleanId);
+    await setDoc(docRef, { ...updates, id: cleanId, uid: cleanId, email: cleanEmail, updated_at: new Date().toISOString() }, { merge: true });
+    return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `users/${identifier}`);
     return false;
@@ -1617,7 +2006,7 @@ export async function deleteFeedback(id: string): Promise<boolean> {
 
 export const deleteFeedbackItem = deleteFeedback;
 
-// =================== 8. CURRENT SEMESTER API ===================
+// =================== 8. CURRENT SEMESTER & ACADEMIC PROGRESSION API ===================
 export async function fetchCurrentSemester(): Promise<CurrentSemesterRecord | null> {
   try {
     const snap = await getDocs(collection(db, 'current_semester'));
@@ -1648,15 +2037,539 @@ export async function fetchCurrentSemester(): Promise<CurrentSemesterRecord | nu
 
 export async function updateCurrentSemester(semester_code: string): Promise<boolean> {
   try {
+    const sem = normalizeSemester(semester_code);
+    const sessionMatch = semester_code.match(/\d{4}\/\d{4}/);
+    const academic_session = sessionMatch ? sessionMatch[0] : '2025/2026';
+
     await setDoc(doc(db, 'current_semester', 'sem-active'), {
       semester_code,
+      semester: sem,
+      academic_session,
       is_active: true,
       updated_at: new Date().toISOString(),
-    });
+    }, { merge: true });
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, 'current_semester/sem-active');
     return false;
+  }
+}
+
+/**
+ * Corrects and aligns all students in the database to 2025/2026 session, 1st Semester, 100 Level.
+ * Directly updates all user documents in Firestore 'users' collection and current_semester record.
+ */
+export async function correctAllStudentsTo100LFirstSemester(): Promise<{
+  success: boolean;
+  totalUpdated: number;
+  semesterUpdated: boolean;
+  details: Array<{ id: string; matric: string; name: string; department: string; level: number; semester: string }>;
+}> {
+  try {
+    // 1. Update Current Semester in Firestore
+    await setDoc(doc(db, 'current_semester', 'sem-active'), {
+      id: 'sem-active',
+      semester_code: '1st Semester 2025/2026',
+      is_active: true,
+      academic_session: '2025/2026',
+      semester: '1st Semester',
+      updated_at: new Date().toISOString(),
+    }, { merge: true });
+
+    // 2. Fetch and update all users in the 'users' collection
+    const [usersSnap, deptsSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      fetchDepartments(),
+    ]);
+
+    const details: Array<{ id: string; matric: string; name: string; department: string; level: number; semester: string }> = [];
+    let totalUpdated = 0;
+
+    if (!usersSnap.empty) {
+      for (const docSnap of usersSnap.docs) {
+        const d = docSnap.data();
+        const rawMatric = d.matric_number || d.matricNumber || '2025/PS/ICH/0001';
+        const detected = detectDepartmentFromMatric(rawMatric, deptsSnap);
+        const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
+          ? d.department
+          : detected.department;
+        const resolvedDeptId = d.department_id || detected.department_id;
+
+        const updates = {
+          level: 100,
+          year_level: '100 Level',
+          yearLevel: '100 Level',
+          semester: '1st Semester',
+          current_semester: '1st Semester',
+          academic_session: '2025/2026',
+          session: '2025/2026',
+          status: 'active',
+          department: resolvedDept,
+          department_id: resolvedDeptId,
+          matric_number: rawMatric,
+          matricNumber: rawMatric,
+          is_payed: true,
+          is_paid: true,
+          updated_at: new Date().toISOString(),
+        };
+
+        await setDoc(doc(db, 'users', docSnap.id), updates, { merge: true });
+        totalUpdated++;
+        details.push({
+          id: docSnap.id,
+          matric: rawMatric,
+          name: d.full_name || d.fullName || d.name || 'Student',
+          department: resolvedDept,
+          level: 100,
+          semester: '1st Semester',
+        });
+      }
+    }
+
+    return {
+      success: true,
+      totalUpdated,
+      semesterUpdated: true,
+      details,
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'users/batch-correct-100l-sem1');
+    return {
+      success: false,
+      totalUpdated: 0,
+      semesterUpdated: false,
+      details: [],
+    };
+  }
+}
+
+/**
+ * Corrects and aligns all students in the database to 2025/2026 session, 2nd Semester, 100 Level.
+ * Directly updates all user documents in Firestore 'users' collection and current_semester record.
+ */
+export async function correctAllStudentsTo100LSecondSemester(): Promise<{
+  success: boolean;
+  totalUpdated: number;
+  semesterUpdated: boolean;
+  details: Array<{ id: string; matric: string; name: string; department: string; level: number; semester: string }>;
+}> {
+  try {
+    // 1. Update Current Semester in Firestore
+    await setDoc(doc(db, 'current_semester', 'sem-active'), {
+      id: 'sem-active',
+      semester_code: '2nd Semester 2025/2026',
+      is_active: true,
+      academic_session: '2025/2026',
+      semester: '2nd Semester',
+      updated_at: new Date().toISOString(),
+    }, { merge: true });
+
+    // 2. Fetch and update all users in the 'users' collection
+    const [usersSnap, deptsSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      fetchDepartments(),
+    ]);
+
+    const details: Array<{ id: string; matric: string; name: string; department: string; level: number; semester: string }> = [];
+    let totalUpdated = 0;
+
+    if (!usersSnap.empty) {
+      for (const docSnap of usersSnap.docs) {
+        const d = docSnap.data();
+        const rawMatric = d.matric_number || d.matricNumber || '2025/PS/ICH/0001';
+        const detected = detectDepartmentFromMatric(rawMatric, deptsSnap);
+        const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
+          ? d.department
+          : detected.department;
+        const resolvedDeptId = d.department_id || detected.department_id;
+
+        const updates = {
+          level: 100,
+          year_level: '100 Level',
+          yearLevel: '100 Level',
+          semester: '2nd Semester',
+          current_semester: '2nd Semester',
+          academic_session: '2025/2026',
+          session: '2025/2026',
+          status: 'active',
+          department: resolvedDept,
+          department_id: resolvedDeptId,
+          matric_number: rawMatric,
+          matricNumber: rawMatric,
+          is_payed: true,
+          is_paid: true,
+          updated_at: new Date().toISOString(),
+        };
+
+        await setDoc(doc(db, 'users', docSnap.id), updates, { merge: true });
+        totalUpdated++;
+        details.push({
+          id: docSnap.id,
+          matric: rawMatric,
+          name: d.full_name || d.fullName || d.name || 'Student',
+          department: resolvedDept,
+          level: 100,
+          semester: '2nd Semester',
+        });
+      }
+    }
+
+    return {
+      success: true,
+      totalUpdated,
+      semesterUpdated: true,
+      details,
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'users/batch-correct-100l-sem2');
+    return {
+      success: false,
+      totalUpdated: 0,
+      semesterUpdated: false,
+      details: [],
+    };
+  }
+}
+
+/**
+ * Automatically promotes all active students to their next academic level.
+ * Respects each student's department duration / years of study (e.g. 400L for 4-year, 500L for 5-year, 600L for 6-year).
+ * - 100L -> 200L
+ * - 200L -> 300L
+ * - 300L -> 400L
+ * - 400L -> 500L (for 5-year and 6-year programmes) OR Graduated (for 4-year programmes)
+ * - 500L -> 600L (for 6-year programmes) OR Graduated (for 5-year programmes)
+ */
+export async function promoteStudentsToNextAcademicLevel(): Promise<{ success: boolean; count: number; breakdown: Record<string, number> }> {
+  try {
+    const [snap, deptsSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'departments')),
+    ]);
+
+    const departmentsList: DepartmentRecord[] = !deptsSnap.empty
+      ? deptsSnap.docs.map((d) => {
+          const data = d.data();
+          const dur = data.yearsOfStudy || data.duration_years || data.durationYears || (data.maxLevel ? Math.floor(data.maxLevel / 100) : 4);
+          return {
+            id: d.id,
+            name: data.name,
+            code: data.code,
+            yearsOfStudy: dur,
+            maxLevel: data.maxLevel || (dur * 100),
+          } as DepartmentRecord;
+        })
+      : cachedDepartmentsList;
+
+    let count = 0;
+    const breakdown: Record<string, number> = {
+      '100L -> 200L': 0,
+      '200L -> 300L': 0,
+      '300L -> 400L': 0,
+      '400L -> 500L': 0,
+      '500L -> Graduated': 0,
+      '400L -> Graduated': 0,
+    };
+
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data();
+      if (data.status === 'graduated') continue;
+
+      const rawLevel = data.level || (data.year_level ? parseInt(data.year_level.replace(/\D/g, ''), 10) : 100) || 100;
+      const deptInfo = getStudentDepartmentInfo(data, departmentsList);
+      const matchedDept = departmentsList.find((d) => d.id === deptInfo.id || d.code === deptInfo.code);
+      const maxLevel = matchedDept?.maxLevel || (matchedDept?.yearsOfStudy ? matchedDept.yearsOfStudy * 100 : 400);
+
+      let nextLevel = rawLevel;
+      let nextYearLevelStr = `${rawLevel} Level`;
+      let status = data.status || 'active';
+
+      if (rawLevel === 100) {
+        nextLevel = 200;
+        nextYearLevelStr = '200 Level';
+        breakdown['100L -> 200L']++;
+      } else if (rawLevel === 200) {
+        nextLevel = 300;
+        nextYearLevelStr = '300 Level';
+        breakdown['200L -> 300L']++;
+      } else if (rawLevel === 300) {
+        nextLevel = 400;
+        nextYearLevelStr = '400 Level';
+        breakdown['300L -> 400L']++;
+      } else if (rawLevel === 400) {
+        if (maxLevel >= 500) {
+          nextLevel = 500;
+          nextYearLevelStr = '500 Level';
+          breakdown['400L -> 500L']++;
+        } else {
+          nextLevel = 400;
+          nextYearLevelStr = 'Graduated (Alumni)';
+          status = 'graduated';
+          breakdown['400L -> Graduated']++;
+        }
+      } else if (rawLevel >= 500) {
+        if (maxLevel >= 600 && rawLevel === 500) {
+          nextLevel = 600;
+          nextYearLevelStr = '600 Level';
+        } else {
+          nextLevel = 500;
+          nextYearLevelStr = 'Graduated (Alumni)';
+          status = 'graduated';
+          breakdown['500L -> Graduated']++;
+        }
+      }
+
+      await updateDoc(doc(db, 'users', docSnap.id), {
+        level: nextLevel,
+        year_level: nextYearLevelStr,
+        yearLevel: nextYearLevelStr,
+        status: status,
+        updated_at: new Date().toISOString(),
+      });
+      count++;
+    }
+
+    return { success: true, count, breakdown };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'users/batch-promote');
+    return { success: false, count: 0, breakdown: {} };
+  }
+}
+
+/**
+ * Automated Student Level Processor:
+ * Analyzes students' matriculation numbers (e.g. 2025/PS/ICH/0001, 2024/CSC/012, 2022/ENG/050),
+ * resolves their department duration (e.g. 4 years vs 5 years), and computes their exact current
+ * academic level (100L, 200L, 300L, 400L, 500L, Graduated) aligned with the active academic session.
+ */
+export async function runAutomatedStudentLevelProcessor(
+  targetSession?: string
+): Promise<{
+  success: boolean;
+  totalStudents: number;
+  alignedCount: number;
+  breakdown: Record<string, number>;
+  details: Array<{
+    matric: string;
+    name: string;
+    department: string;
+    entryYear: number;
+    computedLevel: string;
+    maxLevel: number;
+  }>;
+}> {
+  try {
+    const [usersSnap, deptsSnap, curSem] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'departments')),
+      fetchCurrentSemester(),
+    ]);
+
+    const activeSessionStr = targetSession || curSem?.semester_code?.split(' ')?.[2] || '2025/2026';
+    const sessionStartYear = parseInt(activeSessionStr.split('/')?.[0] || '2025', 10);
+
+    const departmentsList: DepartmentRecord[] = !deptsSnap.empty
+      ? deptsSnap.docs.map((d) => {
+          const data = d.data();
+          const dur = data.yearsOfStudy || data.duration_years || data.durationYears || (data.maxLevel ? Math.floor(data.maxLevel / 100) : 4);
+          return {
+            id: d.id,
+            name: data.name,
+            code: data.code,
+            yearsOfStudy: dur,
+            maxLevel: data.maxLevel || (dur * 100),
+          } as DepartmentRecord;
+        })
+      : cachedDepartmentsList;
+
+    let alignedCount = 0;
+    const breakdown: Record<string, number> = {
+      '100 Level': 0,
+      '200 Level': 0,
+      '300 Level': 0,
+      '400 Level': 0,
+      '500 Level': 0,
+      'Graduated': 0,
+    };
+    const details: Array<{
+      matric: string;
+      name: string;
+      department: string;
+      entryYear: number;
+      computedLevel: string;
+      maxLevel: number;
+    }> = [];
+
+    for (const docSnap of usersSnap.docs) {
+      const data = docSnap.data();
+      const matric = (data.matric_number || data.matricNumber || '').trim().toUpperCase();
+      const studentName = data.full_name || data.fullName || data.name || 'Student';
+
+      // 1. Extract entry year from matriculation pattern (e.g. 2025/PS/ICH/0001, 2024-CSC-001, 2023/12345)
+      let entryYear = sessionStartYear;
+      const yearMatch = matric.match(/\b(20\d{2})\b/);
+      if (yearMatch) {
+        entryYear = parseInt(yearMatch[1], 10);
+      }
+
+      // 2. Resolve department and maximum years of study
+      const deptInfo = getStudentDepartmentInfo(data, departmentsList);
+      const matchedDept = departmentsList.find((d) => d.id === deptInfo.id || d.code === deptInfo.code);
+      const durationYears = matchedDept?.yearsOfStudy || matchedDept?.duration_years || 4;
+      const maxLevel = matchedDept?.maxLevel || durationYears * 100;
+
+      // 3. Compute level based on difference between active session and admission year
+      const yearsDiff = Math.max(0, sessionStartYear - entryYear);
+      let computedNumericLevel = (1 + yearsDiff) * 100;
+      let computedLevelStr = `${computedNumericLevel} Level`;
+      let status = 'active';
+
+      if (computedNumericLevel > maxLevel) {
+        computedLevelStr = 'Graduated (Alumni)';
+        status = 'graduated';
+        breakdown['Graduated']++;
+      } else {
+        if (computedNumericLevel === 100) breakdown['100 Level']++;
+        else if (computedNumericLevel === 200) breakdown['200 Level']++;
+        else if (computedNumericLevel === 300) breakdown['300 Level']++;
+        else if (computedNumericLevel === 400) breakdown['400 Level']++;
+        else if (computedNumericLevel === 500) breakdown['500 Level']++;
+        else breakdown['Graduated']++;
+      }
+
+      // 4. Update Firestore with computed level and verified department info
+      await updateDoc(doc(db, 'users', docSnap.id), {
+        level: computedNumericLevel > maxLevel ? maxLevel : computedNumericLevel,
+        year_level: computedLevelStr,
+        yearLevel: computedLevelStr,
+        status: status,
+        department: deptInfo.name,
+        department_id: deptInfo.id,
+        updated_at: new Date().toISOString(),
+      });
+
+      alignedCount++;
+      details.push({
+        matric: matric || 'N/A',
+        name: studentName,
+        department: deptInfo.name,
+        entryYear,
+        computedLevel: computedLevelStr,
+        maxLevel,
+      });
+    }
+
+    return {
+      success: true,
+      totalStudents: usersSnap.docs.length,
+      alignedCount,
+      breakdown,
+      details,
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'users/auto-level-processor');
+    return {
+      success: false,
+      totalStudents: 0,
+      alignedCount: 0,
+      breakdown: {},
+      details: [],
+    };
+  }
+}
+
+/**
+ * Rewinds active students back to their previous academic level (e.g. if admin rewound a whole session).
+ * - 400L / Graduated -> 300L
+ * - 300L -> 200L
+ * - 200L -> 100L
+ */
+export async function demoteStudentsToPreviousAcademicLevel(): Promise<{ success: boolean; count: number }> {
+  try {
+    const snap = await getDocs(collection(db, 'users'));
+    let count = 0;
+
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data();
+      const rawLevel = data.level || (data.year_level ? parseInt(data.year_level.replace(/\D/g, ''), 10) : 100) || 100;
+      
+      let prevLevel = Math.max(100, rawLevel - 100);
+      let prevYearLevelStr = `${prevLevel} Level`;
+
+      await updateDoc(doc(db, 'users', docSnap.id), {
+        level: prevLevel,
+        year_level: prevYearLevelStr,
+        yearLevel: prevYearLevelStr,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      });
+      count++;
+    }
+
+    return { success: true, count };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'users/batch-demote');
+    return { success: false, count: 0 };
+  }
+}
+
+/**
+ * Comprehensive semester transition engine. Handles:
+ * 1. Advancing or rewinding current semester
+ * 2. Auto-promoting students when advancing beyond 2nd Semester into a new academic year
+ * 3. Optional demotion when rewinding academic years
+ */
+export async function transitionAcademicSemester(
+  targetSemesterCode: string,
+  options?: {
+    promoteStudents?: boolean;
+    demoteStudents?: boolean;
+  }
+): Promise<{ success: boolean; promotedCount?: number; demotedCount?: number }> {
+  try {
+    const semUpdated = await updateCurrentSemester(targetSemesterCode);
+    if (!semUpdated) return { success: false };
+
+    const sem = normalizeSemester(targetSemesterCode);
+    const sessionMatch = targetSemesterCode.match(/\d{4}\/\d{4}/);
+    const academic_session = sessionMatch ? sessionMatch[0] : '2025/2026';
+
+    let promotedCount = 0;
+    let demotedCount = 0;
+
+    if (options?.promoteStudents) {
+      const promoRes = await promoteStudentsToNextAcademicLevel();
+      promotedCount = promoRes.count;
+    } else if (options?.demoteStudents) {
+      const demoRes = await demoteStudentsToPreviousAcademicLevel();
+      demotedCount = demoRes.count;
+    }
+
+    // Synchronize all active students' semester and session fields
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      if (!usersSnap.empty) {
+        const updatePromises = usersSnap.docs.map((uDoc) => {
+          const uData = uDoc.data();
+          if (uData.status === 'graduated') return Promise.resolve();
+          return updateDoc(doc(db, 'users', uDoc.id), {
+            semester: sem,
+            current_semester: sem,
+            academic_session,
+            session: academic_session,
+            updated_at: new Date().toISOString(),
+          });
+        });
+        await Promise.all(updatePromises);
+      }
+    } catch (uErr) {
+      console.warn('Student sync during semester transition:', uErr);
+    }
+
+    return { success: true, promotedCount, demotedCount };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'current_semester/transition');
+    return { success: false };
   }
 }
 
@@ -1669,6 +2582,7 @@ export interface RealtimeSubscriptionCallbacks {
   onDepartments?: (departments: DepartmentRecord[]) => void;
   onCourses?: (courses: CourseRecord[]) => void;
   onFeedback?: (feedback: FeedbackRecord[]) => void;
+  onCurrentSemester?: (semesterCode: string) => void;
   onStatusChange?: (status: 'connected' | 'reconnecting' | 'error') => void;
 }
 
@@ -1682,31 +2596,33 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
         onSnapshot(
           collection(db, 'activities'),
           (snap) => {
-            const events: EventItem[] = snap.docs.map((dSnap) => {
-              const row = dSnap.data();
-              const startTime = row.startTime || '08:00:00';
-              const endTime = row.endTime || '10:00:00';
-              const dayKey = mapDbDayToDayKey(row.day);
-              const isPostponed = (row.status || 'active').toLowerCase() === 'postponed';
+            const events: EventItem[] = snap.docs
+              .filter((dSnap) => !isMockEvent(dSnap.id))
+              .map((dSnap) => {
+                const row = dSnap.data();
+                const startTime = row.startTime || '08:00:00';
+                const endTime = row.endTime || '10:00:00';
+                const dayKey = mapDbDayToDayKey(row.day);
+                const isPostponed = (row.status || 'active').toLowerCase() === 'postponed';
 
-              return {
-                id: dSnap.id,
-                course: row.courseCode || 'GEN101',
-                title: row.title || 'Lecture',
-                time: formatTimeRange(startTime, endTime),
-                location: row.venue || 'Lecture Hall',
-                views: `${Math.floor(Math.random() * 40) + 15} views`,
-                tags: [row.type || 'Lecture', 'Physical Class'],
-                isPostponed,
-                instructor: row.lecturer || 'Faculty Lecturer',
-                dayKey,
-                colorAccent: getCourseAccentColor(row.courseCode || 'GEN'),
-                notes: row.notes || undefined,
-                department_id: row.department_id,
-                level: row.level || 100,
-                semester: row.semester || '1st Semester',
-              };
-            });
+                return {
+                  id: dSnap.id,
+                  course: row.courseCode || 'GEN101',
+                  title: row.title || 'Lecture',
+                  time: formatTimeRange(startTime, endTime),
+                  location: row.venue || 'Lecture Hall',
+                  views: `${Math.floor(Math.random() * 40) + 15} views`,
+                  tags: [row.type || 'Lecture', 'Physical Class'],
+                  isPostponed,
+                  instructor: row.lecturer || 'Faculty Lecturer',
+                  dayKey,
+                  colorAccent: getCourseAccentColor(row.courseCode || 'GEN'),
+                  notes: row.notes || undefined,
+                  department_id: row.department_id,
+                  level: row.level || 100,
+                  semester: row.semester || '1st Semester',
+                };
+              });
             callbacks.onEvents?.(events);
             callbacks.onStatusChange?.('connected');
           },
@@ -1724,22 +2640,32 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
         onSnapshot(
           collection(db, 'deadlines'),
           (snap) => {
-            const assignments: AssignmentItem[] = snap.docs.map((dSnap) => {
-              const row = dSnap.data();
-              return {
-                id: dSnap.id,
-                course: row.courseCode || 'GEN101',
-                title: row.title || 'Assignment',
-                dueDate: row.dueDate || 'Oct 24, 2026',
-                dueTime: row.dueTime || '11:59 PM',
-                priority: (row.priority as 'High' | 'Medium' | 'Low') || 'High',
-                isCompleted: row.isCompleted ?? false,
-                images: row.images || [],
-                description: row.description || '',
-                instructor: row.instructor || undefined,
-                notes: row.notes || undefined,
-              };
-            });
+            const assignments: AssignmentItem[] = snap.docs
+              .filter((dSnap) => !isMockAssignment(dSnap.id))
+              .map((dSnap) => {
+                const row = dSnap.data();
+                const cCode = row.courseCode || 'GEN101';
+                const codeDigits = cCode.replace(/\D/g, '');
+                const codeLevel = codeDigits.length > 0 ? parseInt(codeDigits.slice(0, 1) + '00', 10) : 100;
+                const resolvedLevel = typeof row.level === 'number' && row.level >= 100 ? row.level : (codeLevel >= 100 ? codeLevel : 100);
+
+                return {
+                  id: dSnap.id,
+                  course: cCode,
+                  title: row.title || 'Assignment',
+                  dueDate: row.dueDate || 'Oct 24, 2026',
+                  dueTime: row.dueTime || '11:59 PM',
+                  priority: (row.priority as 'High' | 'Medium' | 'Low') || 'High',
+                  isCompleted: row.isCompleted ?? false,
+                  images: row.images || [],
+                  description: row.description || '',
+                  instructor: row.instructor || undefined,
+                  notes: row.notes || undefined,
+                  department_id: row.department_id || 'dept-ich',
+                  level: resolvedLevel,
+                  semester: row.semester || '1st Semester',
+                };
+              });
             callbacks.onAssignments?.(assignments);
           },
           (err) => {
@@ -1755,18 +2681,26 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
         onSnapshot(
           collection(db, 'announcements'),
           (snap) => {
-            const notifications: NotificationItem[] = snap.docs.map((dSnap) => {
-              const d = dSnap.data();
-              return {
-                id: dSnap.id,
-                title: d.title || 'Official Announcement',
-                message: d.body || '',
-                time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
-                isUnread: true,
-                type: d.priority === 'urgent' ? 'alert' : 'info',
-                category: 'system',
-              };
-            });
+            const notifications: NotificationItem[] = snap.docs
+              .filter((dSnap) => !isMockNotification(dSnap.id))
+              .map((dSnap) => {
+                const d = dSnap.data();
+                return {
+                  id: dSnap.id,
+                  title: d.title || 'Official Announcement',
+                  message: d.body || '',
+                  time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+                  isUnread: true,
+                  type: d.priority === 'urgent' ? 'alert' : 'info',
+                  category: 'system',
+                  department_id: d.department_id || 'dept-ich',
+                  level: d.level !== undefined ? d.level : 100,
+                  semester: d.semester || '1st Semester',
+                  author: d.author || 'Department Admin',
+                  sender: d.author || 'Department Admin',
+                  priority: d.priority || 'normal',
+                };
+              });
             callbacks.onNotifications?.(notifications);
           },
           (err) => {
@@ -1790,6 +2724,7 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
                 ? d.department
                 : detected.department;
               const resolvedDeptId = d.department_id || detected.department_id;
+              const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
 
               return {
                 id: dSnap.id,
@@ -1808,6 +2743,9 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
                 isAdmin: Boolean(d.isadmin || d.isAdmin),
                 iscourserep: Boolean(d.iscourserep || d.isCourseRep),
                 isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
+                profile_pic_url: picUrl,
+                profileImage: picUrl,
+                photoURL: picUrl,
                 created_at: d.created_at || d.createdAt,
               };
             });
@@ -1845,7 +2783,7 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
       );
     }
 
-    // 6. Courses
+    // 6. Courses with PDF & Video Modules Aligned
     if (callbacks.onCourses) {
       unsubscribes.push(
         onSnapshot(
@@ -1853,16 +2791,22 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
           (snap) => {
             const courses: CourseRecord[] = snap.docs.map((dSnap) => {
               const d = dSnap.data();
+              const code = d.courseCode || 'ICH 101';
+              const title = d.title || 'Course Title';
+              const defaults = generateDefaultMaterials(code, title);
+
               return {
                 id: dSnap.id,
-                courseCode: d.courseCode || 'ICH101',
-                title: d.title || 'Course Title',
+                courseCode: code,
+                title: title,
                 description: d.description || '',
                 department_id: d.department_id || 'dept-ich',
                 units: d.units || 3,
                 semester: d.semester || '1st Semester',
-                pdfurl: d.pdfurl || '',
+                pdfurl: d.pdfurl || undefined,
                 level: d.level || 100,
+                pdfModules: Array.isArray(d.pdfModules) && d.pdfModules.length > 0 ? d.pdfModules : defaults.pdfModules,
+                videoModules: Array.isArray(d.videoModules) && d.videoModules.length > 0 ? d.videoModules : defaults.videoModules,
                 created_at: d.created_at || new Date().toISOString(),
               };
             });
@@ -1895,6 +2839,25 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
           },
           (err) => {
             handleFirestoreError(err, OperationType.GET, 'feedback');
+          }
+        )
+      );
+    }
+
+    // 8. Current Semester
+    if (callbacks.onCurrentSemester) {
+      unsubscribes.push(
+        onSnapshot(
+          collection(db, 'current_semester'),
+          (snap) => {
+            if (!snap.empty) {
+              const active = snap.docs.find((d) => d.data().is_active === true) || snap.docs[0];
+              const code = active.data().semester_code || '1st Semester';
+              callbacks.onCurrentSemester?.(code);
+            }
+          },
+          (err) => {
+            handleFirestoreError(err, OperationType.GET, 'current_semester');
           }
         )
       );

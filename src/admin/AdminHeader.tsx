@@ -8,7 +8,9 @@ import {
   ExternalLink,
   ChevronRight,
   User as UserIcon,
-  Shield
+  Shield,
+  Sparkles,
+  CalendarDays
 } from 'lucide-react';
 import { AdminTab, AdminUser } from './types';
 
@@ -22,6 +24,9 @@ interface AdminHeaderProps {
   onQuickAdd: () => void;
   quickAddLabel?: string;
   adminUser?: AdminUser | null;
+  currentSemester?: string;
+  academicSession?: string;
+  onNavigateToSemesterTab?: () => void;
 }
 
 export const AdminHeader: React.FC<AdminHeaderProps> = ({
@@ -34,6 +39,9 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   onQuickAdd,
   quickAddLabel = 'New Record',
   adminUser,
+  currentSemester = '1st Semester',
+  academicSession = '2025/2026',
+  onNavigateToSemesterTab,
 }) => {
   const getTabTitle = (tab: AdminTab) => {
     switch (tab) {
@@ -90,6 +98,18 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
           <span className={`w-1.5 h-1.5 rounded-full ${isRealtimeConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
           <span>{isRealtimeConnected ? 'Realtime Live' : 'Connecting...'}</span>
         </div>
+
+        {/* Active University Semester & Session Indicator Pill */}
+        <button
+          type="button"
+          onClick={onNavigateToSemesterTab}
+          className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50/90 text-blue-700 hover:bg-blue-100/90 border border-blue-200/80 shadow-2xs transition-all cursor-pointer group"
+          title={`Active University Term: ${currentSemester} (${academicSession}). Click to manage semester.`}
+        >
+          <Sparkles className="w-3 h-3 text-blue-600 group-hover:rotate-12 transition-transform" />
+          <span className="font-semibold">{currentSemester}</span>
+          <span className="text-blue-500/80 font-mono text-[10px]">({academicSession})</span>
+        </button>
       </div>
 
       {/* Center / Right controls */}

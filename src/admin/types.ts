@@ -14,6 +14,7 @@ export interface AdminUser {
 
 export type AdminTab = 
   | 'overview' 
+  | 'semester'
   | 'schedule' 
   | 'assignments' 
   | 'announcements' 
@@ -28,13 +29,49 @@ export interface DepartmentRecord {
   id: string;
   name: string;
   code: string;
-  level: number;
+  level?: number;
+  yearsOfStudy?: number;
+  duration_years?: number;
+  durationYears?: number;
+  maxLevel?: number;
+  max_level?: number;
+  faculty?: string;
   created_at?: string;
 }
+
+export interface CourseMaterialPdf {
+  id: string;
+  title: string;
+  topic?: string;
+  pdfUrl: string;
+  fileSize?: string;
+  fileName?: string;
+  uploadedAt?: string;
+  description?: string;
+}
+
+export type CoursePdfModule = CourseMaterialPdf;
+
+export interface CourseMaterialVideo {
+  id: string;
+  title: string;
+  topic?: string;
+  videoUrl: string;
+  duration?: string;
+  fileSize?: string;
+  fileName?: string;
+  videoType?: 'youtube' | 'uploaded';
+  lecturer?: string;
+  uploadedAt?: string;
+  description?: string;
+}
+
+export type CourseVideoModule = CourseMaterialVideo;
 
 export interface CourseRecord {
   id: string;
   courseCode: string;
+  code?: string;
   title: string;
   description?: string;
   department_id: string;
@@ -43,6 +80,10 @@ export interface CourseRecord {
   semester?: string;
   pdfurl?: string;
   level?: number;
+  pdfModules?: CourseMaterialPdf[];
+  pdfMaterials?: CourseMaterialPdf[];
+  videoModules?: CourseMaterialVideo[];
+  videoMaterials?: CourseMaterialVideo[];
   created_at?: string;
 }
 
@@ -110,6 +151,7 @@ export interface StudentProfileRecord {
   email: string;
   matric_number: string;
   matricNumber?: string;
+  password?: string;
   full_name: string;
   fullName?: string;
   name?: string;

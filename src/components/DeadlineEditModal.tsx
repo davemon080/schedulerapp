@@ -14,21 +14,26 @@ import {
   Tag,
   AlertCircle,
 } from 'lucide-react';
+import { normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
 
 interface DeadlineEditModalProps {
   isOpen: boolean;
   assignment: AssignmentItem | null;
   onClose: () => void;
   onSave: (assignment: AssignmentItem) => void;
+  courses?: any[];
+  currentSemester?: string;
+  userSession?: any;
 }
-
-const COURSE_PRESETS = ['CHM101', 'PHY102', 'MTH102', 'GST101', 'GST111', 'CHM102', 'PHY104'];
 
 export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
   isOpen,
   assignment,
   onClose,
   onSave,
+  courses = [],
+  currentSemester = '1st Semester',
+  userSession,
 }) => {
   const [course, setCourse] = useState('');
   const [title, setTitle] = useState('');
@@ -45,6 +50,33 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
   const [tags, setTags] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Determine student's active department, level and semester
+  const studentMatric = userSession?.matricNumber || '';
+  const studentDeptRaw = userSession?.department || 'Department of Industrial Chemistry';
+  const studentDeptId = userSession?.department_id || '';
+
+  const rawLevel = userSession?.level || userSession?.yearLevel;
+  let activeLevel = 100;
+  if (typeof rawLevel === 'number') {
+    activeLevel = rawLevel;
+  } else if (typeof rawLevel === 'string') {
+    const p = parseInt(rawLevel.replace(/\D/g, ''), 10);
+    if (!isNaN(p) && p >= 100) activeLevel = p;
+  }
+
+  const activeSemester = normalizeSemester(
+    (userSession as any)?.semester ||
+    (userSession as any)?.current_semester ||
+    (userSession as any)?.academicSemester ||
+    currentSemester
+  );
+
+  const deptInfo = resolveStudentDepartmentId(userSession);
+  const deptId = deptInfo.id;
+
+  // Filter semester courses strictly by student department, level, and semester
+  const semesterCourses = filterCoursesForStudentScope(courses, deptId, activeLevel, activeSemester);
+
   useEffect(() => {
     if (assignment) {
       setCourse(assignment.course);
@@ -60,7 +92,8 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
       setImages(assignment.images || []);
       setTags(assignment.tags || ['Assignment']);
     } else {
-      setCourse('CHM101');
+      const initialCourse = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : '';
+      setCourse(initialCourse);
       setTitle('');
       setDueDate('Friday, Oct 21');
       setDueTime('11:59 PM');
@@ -74,6 +107,16 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
       setTags(['Assignment', 'Individual']);
     }
   }, [assignment, isOpen]);
+
+  const handleSelectCourse = (selectedCode: string) => {
+    setCourse(selectedCode);
+    const matched = semesterCourses.find(
+      (c) => (c.courseCode || c.code)?.toUpperCase() === selectedCode.toUpperCase()
+    );
+    if (matched && (!title || title.trim() === '')) {
+      setTitle(`${matched.courseCode || matched.code}: Assignment 1`);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -113,6 +156,8 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
     e.preventDefault();
     if (!course.trim() || !title.trim()) return;
 
+    const resolvedDeptId = deptId || 'dept-ich';
+
     const savedAssignment: AssignmentItem = {
       id: assignment?.id || `asn-${Date.now()}`,
       course: course.trim().toUpperCase(),
@@ -129,6 +174,9 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
       notes: notes.trim(),
       tags: tags.length > 0 ? tags : ['Assignment'],
       images,
+      department_id: resolvedDeptId,
+      level: activeLevel,
+      semester: activeSemester,
     };
 
     onSave(savedAssignment);
@@ -181,35 +229,52 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4 pt-4">
-              {/* Course Selection */}
+              {/* Course Selection Dropdown */}
               <div>
-                <label className="block text-[12px] font-semibold text-[#1C1C1E] mb-1.5">
-                  Course Code <span className="text-red-500">*</span>
-                </label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {COURSE_PRESETS.map((c) => (
-                    <button
-                      type="button"
-                      key={c}
-                      onClick={() => setCourse(c)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
-                        course.toUpperCase() === c
-                          ? 'bg-[#007AFF] text-white shadow-2xs'
-                          : 'bg-white/70 hover:bg-white text-slate-600 border border-slate-200'
-                      }`}
-                    >
-                      {c}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[12px] font-semibold text-[#1C1C1E]">
+                    Course Code ({activeSemester}) <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    {semesterCourses.length} courses registered
+                  </span>
                 </div>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. CHM101 or MTH102"
-                  value={course}
-                  onChange={(e) => setCourse(e.target.value.toUpperCase())}
-                  className="w-full px-3.5 py-2.5 rounded-[18px] bg-white/70 border border-slate-200 text-[13px] text-[#1C1C1E] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30 focus:border-[#007AFF] transition-all"
-                />
+
+                {semesterCourses.length > 0 ? (
+                  <div className="relative">
+                    <select
+                      value={course}
+                      onChange={(e) => handleSelectCourse(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-[18px] bg-white/85 border border-slate-200 text-[13px] text-[#1C1C1E] font-semibold focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30 focus:border-[#007AFF] shadow-xs cursor-pointer appearance-none transition-all"
+                      required
+                    >
+                      <option value="" disabled>-- Select Registered Course --</option>
+                      {semesterCourses.map((crs: any) => {
+                        const code = crs.courseCode || crs.code;
+                        const cTitle = crs.title || crs.name;
+                        return (
+                          <option key={crs.id || code} value={code}>
+                            {code} — {cTitle}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500">
+                      <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                        <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path>
+                      </svg>
+                    </div>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. ICH 101 or CHM 101"
+                    value={course}
+                    onChange={(e) => setCourse(e.target.value.toUpperCase())}
+                    className="w-full px-3.5 py-2.5 rounded-[18px] bg-white/70 border border-slate-200 text-[13px] text-[#1C1C1E] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30 focus:border-[#007AFF] transition-all"
+                  />
+                )}
               </div>
 
               {/* Title */}

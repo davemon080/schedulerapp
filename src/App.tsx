@@ -10,10 +10,11 @@ import { SplashScreen } from './components/SplashScreen';
 import { NotificationsView } from './components/NotificationsView';
 import { DeadlinesView, BroadcastsView, ModulesView, ProfileView } from './components/OtherViews';
 import { AssignmentDetailsView } from './components/AssignmentDetailsView';
+import { CourseDetailView } from './components/CourseDetailView';
 import { DeadlineEditModal } from './components/DeadlineEditModal';
 import { LoginPage } from './components/LoginPage';
 import { AdminDashboard } from './admin/AdminDashboard';
-import { INITIAL_DAYS, INITIAL_EVENTS, INITIAL_ASSIGNMENTS, NOTIFICATIONS } from './data/mockData';
+import { INITIAL_DAYS } from './data/mockData';
 import { AssignmentItem, EventItem, NavigationTab, NotificationItem, UserSession } from './types';
 import { Plus, Check, CheckCheck, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -28,10 +29,23 @@ import {
   updateAssignment,
   deleteAssignment,
   fetchAnnouncementsAndNotifications,
+  createAnnouncement,
+  deleteAnnouncement,
   fetchCourses,
+  createCourse,
+  updateCourse,
+  deleteCourse,
+  updateStudentUser,
+  fetchCurrentSemester,
+  fetchDepartments,
   subscribeToRealtimeDatabase,
+  normalizeSemester,
+  correctAllStudentsTo100LSecondSemester,
+  purgeMockScheduleDeadlinesAndBroadcasts,
 } from './lib/dbService';
-import { CourseRecord } from './admin/types';
+import { CourseRecord, DepartmentRecord } from './admin/types';
+import { CourseFormData } from './components/AddCourseModal';
+import { getStudentActiveLevel, getStudentActiveSemester } from './lib/academicScope';
 
 export default function App() {
   const checkIsAdminRoute = () => {
@@ -65,10 +79,12 @@ export default function App() {
 
   const [days, setDays] = useState(INITIAL_DAYS);
   const [selectedDayId, setSelectedDayId] = useState<string>('WED 19');
-  const [events, setEvents] = useState<EventItem[]>(INITIAL_EVENTS);
-  const [assignments, setAssignments] = useState<AssignmentItem[]>(INITIAL_ASSIGNMENTS);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(NOTIFICATIONS);
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [courses, setCourses] = useState<CourseRecord[]>([]);
+  const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
+  const [currentSemester, setCurrentSemester] = useState<string>('1st Semester');
   const [activeTab, setActiveTab] = useState<NavigationTab>('Schedule');
   const [showSplash, setShowSplash] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
@@ -78,13 +94,30 @@ export default function App() {
     try {
       const saved = localStorage.getItem('university_schedule_user');
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        return {
+          ...parsed,
+          level: parsed.level || 100,
+          year_level: parsed.year_level || `${parsed.level || 100} Level`,
+          yearLevel: parsed.yearLevel || `${parsed.level || 100} Level`,
+          semester: parsed.semester || '1st Semester',
+          current_semester: parsed.current_semester || '1st Semester',
+          session: parsed.session || '2025/2026',
+          academic_session: parsed.academic_session || '2025/2026',
+        };
       }
     } catch (e) {
       console.error(e);
     }
     return null;
   });
+
+  const isCourseRep = Boolean(
+    userSession?.isCourseRep ||
+    userSession?.isAdmin ||
+    (userSession as any)?.iscourserep ||
+    (userSession as any)?.isadmin
+  );
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -119,24 +152,49 @@ export default function App() {
   // Sync Student Portal with Firebase Firestore
   const syncStudentPortalData = useCallback(async () => {
     try {
-      const [dbEvents, dbAssigns, dbNotifs, dbCourses] = await Promise.all([
+      // Purge any lingering mock schedule/deadline/broadcast records from Firestore
+      purgeMockScheduleDeadlinesAndBroadcasts().catch(() => {});
+
+      const [dbEvents, dbAssigns, dbNotifs, dbCourses, dbSem, dbDepts] = await Promise.all([
         fetchScheduleActivities(),
         fetchAssignments(),
         fetchAnnouncementsAndNotifications(),
         fetchCourses(),
+        fetchCurrentSemester(),
+        fetchDepartments(),
       ]);
 
-      if (dbEvents && dbEvents.length > 0) {
+      if (dbEvents) {
         setEvents(dbEvents);
       }
-      if (dbAssigns && dbAssigns.length > 0) {
+      if (dbAssigns) {
         setAssignments(dbAssigns);
       }
-      if (dbNotifs && dbNotifs.length > 0) {
+      if (dbNotifs) {
         setNotifications(dbNotifs);
       }
-      if (dbCourses && dbCourses.length > 0) {
+      if (dbCourses) {
         setCourses(dbCourses);
+      }
+      if (dbDepts && Array.isArray(dbDepts)) {
+        setDepartments(dbDepts);
+      }
+      if (dbSem?.semester_code) {
+        const parsed = normalizeSemester(dbSem.semester_code);
+        setCurrentSemester(parsed);
+        setUserSession((prev) => {
+          if (!prev) return null;
+          if (prev.semester === parsed && prev.current_semester === parsed) return prev;
+          const updated = {
+            ...prev,
+            semester: parsed,
+            current_semester: parsed,
+          };
+          try {
+            localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
       }
     } catch (err) {
       console.warn('Student portal sync notice:', err);
@@ -147,19 +205,136 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = subscribeToRealtimeDatabase({
       onEvents: (dbEvents) => {
-        if (dbEvents && dbEvents.length > 0) setEvents(dbEvents);
+        if (dbEvents) setEvents(dbEvents);
       },
       onAssignments: (dbAssigns) => {
-        if (dbAssigns && dbAssigns.length > 0) setAssignments(dbAssigns);
+        if (dbAssigns) setAssignments(dbAssigns);
       },
       onNotifications: (dbNotifs) => {
-        if (dbNotifs && dbNotifs.length > 0) setNotifications(dbNotifs);
+        if (dbNotifs) setNotifications(dbNotifs);
+      },
+      onCourses: (dbCourses) => {
+        if (dbCourses) setCourses(dbCourses);
+      },
+      onCurrentSemester: (code) => {
+        if (code) {
+          const parsed = normalizeSemester(code);
+          setCurrentSemester(parsed);
+          setUserSession((prev) => {
+            if (!prev) return null;
+            if (prev.semester === parsed && prev.current_semester === parsed) return prev;
+            const updated = {
+              ...prev,
+              semester: parsed,
+              current_semester: parsed,
+            };
+            try {
+              localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
+        }
+      },
+      onStudents: (allStudents) => {
+        if (userSession && allStudents && allStudents.length > 0) {
+          const currentMatric = (userSession.matricNumber || '').toUpperCase().trim();
+          const currentEmail = (userSession.email || '').toLowerCase().trim();
+          const currentUid = userSession.uid || userSession.id || '';
+
+          const matched = allStudents.find((s) => {
+            const sMatric = (s.matric_number || s.matricNumber || '').toUpperCase().trim();
+            const sEmail = (s.email || '').toLowerCase().trim();
+            const sUid = s.uid || s.id || '';
+            return (currentUid && sUid === currentUid) || (currentMatric && sMatric === currentMatric) || (currentEmail && sEmail === currentEmail);
+          });
+
+          if (matched) {
+            const matchLevel = getStudentActiveLevel(matched);
+            const matchYearLevel = `${matchLevel} Level`;
+            const matchDept = matched.department || userSession.department;
+            const matchDeptId = matched.department_id || userSession.department_id;
+            const matchCourseRep = Boolean(matched.iscourserep || matched.isCourseRep);
+            const matchAdmin = Boolean(matched.isadmin || matched.isAdmin);
+            const matchSemester = getStudentActiveSemester(matched, currentSemester);
+
+            if (
+              userSession.level !== matchLevel ||
+              userSession.yearLevel !== matchYearLevel ||
+              userSession.department !== matchDept ||
+              userSession.isCourseRep !== matchCourseRep ||
+              userSession.isAdmin !== matchAdmin
+            ) {
+              const syncedSession: UserSession = {
+                ...userSession,
+                level: matchLevel,
+                year_level: matchYearLevel,
+                yearLevel: matchYearLevel,
+                semester: matchSemester,
+                current_semester: matchSemester,
+                department: matchDept,
+                department_id: matchDeptId,
+                isCourseRep: matchCourseRep,
+                isAdmin: matchAdmin,
+              };
+              setUserSession(syncedSession);
+              try {
+                localStorage.setItem('university_schedule_user', JSON.stringify(syncedSession));
+              } catch (e) {}
+            }
+          }
+        }
       },
     });
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [userSession]);
+
+  const handleUpdateUserSession = async (updates: Partial<UserSession>) => {
+    if (!userSession) return;
+    const updated: UserSession = {
+      ...userSession,
+      ...updates,
+    };
+    if (updates.level) {
+      updated.level = updates.level;
+      updated.yearLevel = `${updates.level} Level`;
+      updated.year_level = `${updates.level} Level`;
+    }
+    if (updates.semester) {
+      updated.semester = updates.semester;
+      updated.current_semester = updates.semester;
+      setCurrentSemester(updates.semester);
+    }
+    setUserSession(updated);
+    try {
+      localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+    const studentId = userSession.uid || userSession.id || userSession.matricNumber || userSession.email;
+    if (studentId) {
+      try {
+        await updateStudentUser(studentId, {
+          ...updates,
+          level: updates.level,
+          year_level: updates.level ? `${updates.level} Level` : undefined,
+          yearLevel: updates.level ? `${updates.level} Level` : undefined,
+          semester: updates.semester,
+          current_semester: updates.semester,
+        } as any);
+      } catch (err) {
+        console.warn('Could not persist student profile update to Firestore:', err);
+      }
+    }
+    if (updates.level && updates.semester) {
+      showToast(`Updated to ${updates.level}L • ${updates.semester}!`);
+    } else if (updates.level) {
+      showToast(`Level updated to ${updates.level}L!`);
+    } else if (updates.semester) {
+      showToast(`Semester switched to ${updates.semester}!`);
+    }
+  };
 
   const handleGlobalSyncEvents = useCallback((updated: EventItem[]) => {
     setEvents(updated);
@@ -234,6 +409,9 @@ export default function App() {
   const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<AssignmentItem | null>(null);
 
+  // Modules & Course Details State
+  const [selectedCourseForDetails, setSelectedCourseForDetails] = useState<any | null>(null);
+
   // Menu & Bottom Drawer States
   const [selectedEventForMenu, setSelectedEventForMenu] = useState<EventItem | null>(null);
   const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
@@ -241,18 +419,72 @@ export default function App() {
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
+  // Student academic scope extraction for unified schedule, deadlines, and broadcasts
+  const studentMatric = userSession?.matricNumber || '';
+  const studentDeptRaw = userSession?.department || 'Department of Industrial Chemistry';
+  const studentDeptId = userSession?.department_id || '';
+
+  const activeLevel = getStudentActiveLevel(userSession);
+  const activeSemester = normalizeSemester(getStudentActiveSemester(userSession, currentSemester));
+
+  const isICH =
+    studentDeptId === 'dept-ich' ||
+    studentMatric.includes('ICH') ||
+    studentDeptRaw.toLowerCase().includes('industrial');
+  const isCHM =
+    !isICH &&
+    (studentDeptId === 'dept-chm' ||
+      studentMatric.includes('CHM') ||
+      studentDeptRaw.toLowerCase().includes('chemistry'));
+  const isCSC =
+    studentDeptId === 'dept-csc' ||
+    studentMatric.includes('CSC') ||
+    studentDeptRaw.toLowerCase().includes('computer');
+
+  const deptId = isICH ? 'dept-ich' : isCHM ? 'dept-chm' : isCSC ? 'dept-csc' : studentDeptId || 'dept-ich';
+
+  // Filter events strictly matching student's department, level, and semester
+  const filteredEvents = useMemo(() => {
+    return events.filter((e) => {
+      // 1. Department match
+      const eDeptId = e.department_id || '';
+      const cCode = (e.course || '').toUpperCase();
+      const matchesDept =
+        !eDeptId ||
+        eDeptId === 'dept-all' ||
+        (isICH && (eDeptId === 'dept-ich' || cCode.startsWith('ICH') || cCode.startsWith('CHM') || cCode.startsWith('PHY') || cCode.startsWith('MTH') || cCode.startsWith('GST') || cCode.startsWith('BIO'))) ||
+        (isCHM && (eDeptId === 'dept-chm' || cCode.startsWith('CHM'))) ||
+        (isCSC && (eDeptId === 'dept-csc' || cCode.startsWith('CSC'))) ||
+        (!isICH && !isCHM && !isCSC && (eDeptId === studentDeptId || eDeptId === 'dept-ich'));
+
+      // 2. Strict Level match
+      const codeDigits = cCode.replace(/\D/g, '');
+      const codeLevel = codeDigits.length > 0 ? parseInt(codeDigits.slice(0, 1) + '00', 10) : 0;
+      const eLevel = typeof e.level === 'number' && e.level >= 100
+        ? e.level
+        : (codeLevel >= 100 && codeLevel <= 500 ? codeLevel : 100);
+      const matchesLevel = eLevel === activeLevel;
+
+      // 3. Strict Semester match
+      const eSem = e.semester ? normalizeSemester(e.semester) : activeSemester;
+      const matchesSemester = eSem === activeSemester;
+
+      return matchesDept && matchesLevel && matchesSemester;
+    });
+  }, [events, isICH, isCHM, isCSC, studentDeptId, activeLevel, activeSemester]);
+
   // Filter events for currently selected day
   const currentDayEvents = useMemo(() => {
-    return events.filter((e) => e.dayKey === selectedDayId);
-  }, [events, selectedDayId]);
+    return filteredEvents.filter((e) => e.dayKey === selectedDayId);
+  }, [filteredEvents, selectedDayId]);
 
   // Recalculate event counts on days
   const updatedDays = useMemo(() => {
     return days.map((day) => ({
       ...day,
-      eventsCount: events.filter((e) => e.dayKey === day.id).length,
+      eventsCount: filteredEvents.filter((e) => e.dayKey === day.id).length,
     }));
-  }, [days, events]);
+  }, [days, filteredEvents]);
 
   const unreadNotifCount = useMemo(() => {
     return notifications.filter((n) => n.isUnread).length;
@@ -381,8 +613,26 @@ export default function App() {
     setNotifications((prev) => prev.filter((n) => n.id !== notifId));
   };
 
-  const handleProfileImageUpload = (imageDataUrl: string) => {
-    setProfileImage(imageDataUrl || null);
+  const handleProfileImageUpload = async (imageDataUrl: string) => {
+    const val = imageDataUrl || null;
+    setProfileImage(val);
+
+    if (userSession) {
+      const userKey = userSession.email || userSession.matricNumber || userSession.id || (userSession as any).uid;
+      if (userKey) {
+        try {
+          // Persist directly to Firestore users collection
+          await updateStudentUser(userKey, {
+            profile_pic_url: imageDataUrl || '',
+            photoURL: imageDataUrl || '',
+          });
+        } catch (err) {
+          console.error('Error saving profile picture to database:', err);
+        }
+      }
+      setUserSession((prev) => (prev ? { ...prev, profile_pic_url: imageDataUrl || '', photoURL: imageDataUrl || '', profileImage: imageDataUrl || '' } : prev));
+    }
+
     try {
       if (userSession) {
         const userKey = userSession.email || userSession.matricNumber;
@@ -400,7 +650,7 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
-    showToast(imageDataUrl ? 'Profile picture updated!' : 'Profile picture reset');
+    showToast(imageDataUrl ? 'Profile picture updated & saved to database!' : 'Profile picture reset');
     addActivityNotification(
       'Profile Photo Changed',
       imageDataUrl
@@ -409,6 +659,65 @@ export default function App() {
       'profile',
       'info'
     );
+  };
+
+  // Course Rep Module / Course Management Handlers
+  const handleAddCourse = async (newCourseData: CourseFormData) => {
+    try {
+      const created = await createCourse(newCourseData);
+      if (created) {
+        setCourses((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+        showToast(`Module ${created.courseCode} added successfully!`);
+        addActivityNotification(
+          'Module Registered',
+          `${created.courseCode}: ${created.title} was registered for ${created.semester}.`,
+          'system',
+          'success'
+        );
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to add course:', err);
+      showToast('Failed to add module. Please try again.');
+    }
+    return false;
+  };
+
+  const handleEditCourse = async (courseId: string, updates: Partial<CourseFormData>) => {
+    try {
+      const updated = await updateCourse(courseId, updates);
+      if (updated) {
+        setCourses((prev) => prev.map((c) => (c.id === courseId ? updated : c)));
+        showToast(`Module ${updated.courseCode} updated successfully!`);
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to update course:', err);
+      showToast('Failed to update course');
+    }
+    return false;
+  };
+
+  const handleDeleteCourse = async (courseId: string) => {
+    try {
+      const target = courses.find((c) => c.id === courseId);
+      const success = await deleteCourse(courseId);
+      if (success) {
+        setCourses((prev) => prev.filter((c) => c.id !== courseId));
+        showToast(`Module ${target?.courseCode || ''} deleted`);
+        addActivityNotification(
+          'Module Removed',
+          `${target?.courseCode || 'Course'} was removed from the curriculum.`,
+          'system',
+          'info'
+        );
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to delete course:', err);
+      showToast('Failed to delete module');
+    }
+    return false;
   };
 
   const handleTriggerRefresh = async () => {
@@ -542,6 +851,60 @@ export default function App() {
     showToast('Image attachment removed');
   };
 
+  const handleCreateBroadcast = async (data: {
+    title: string;
+    message: string;
+    priority?: 'urgent' | 'normal';
+    category?: string;
+  }) => {
+    try {
+      const created = await createAnnouncement({
+        title: data.title,
+        message: data.message,
+        priority: data.priority,
+        author: userSession?.fullName || (isCourseRep ? 'Course Rep' : 'Faculty Admin'),
+        department_id: deptId,
+        level: activeLevel,
+        semester: activeSemester,
+      });
+      if (created) {
+        setNotifications((prev) => [created, ...prev.filter((n) => n.id !== created.id)]);
+        showToast('Broadcast published to students!');
+        addActivityNotification(
+          'Broadcast Published',
+          `Notice "${data.title}" was broadcasted to ${activeLevel}L students.`,
+          'system',
+          'success'
+        );
+        return true;
+      }
+    } catch (err) {
+      console.error('Error creating broadcast:', err);
+      showToast('Failed to publish broadcast');
+    }
+    return false;
+  };
+
+  const handleDeleteBroadcast = async (id: string) => {
+    try {
+      const target = notifications.find((n) => n.id === id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      showToast('Broadcast notice removed');
+      addActivityNotification(
+        'Broadcast Removed',
+        `Deleted broadcast: ${target?.title || ''}`,
+        'system',
+        'alert'
+      );
+      await deleteAnnouncement(id);
+      return true;
+    } catch (err) {
+      console.error('Error deleting broadcast:', err);
+      showToast('Failed to delete broadcast');
+    }
+    return false;
+  };
+
   const handleEditAssignmentModal = (assignment: AssignmentItem) => {
     setEditingAssignment(assignment);
     setIsDeadlineModalOpen(true);
@@ -625,9 +988,26 @@ export default function App() {
         initialEvents={events}
         initialAssignments={assignments}
         initialNotifications={notifications}
+        currentSemester={currentSemester}
         onGlobalSyncEvents={handleGlobalSyncEvents}
         onGlobalSyncAssignments={handleGlobalSyncAssignments}
         onGlobalSyncNotifications={handleGlobalSyncNotifications}
+        onGlobalSyncSemester={(newSem) => {
+          const parsed = normalizeSemester(newSem);
+          setCurrentSemester(parsed);
+          setUserSession((prev) => {
+            if (!prev) return null;
+            const updated = {
+              ...prev,
+              semester: parsed,
+              current_semester: parsed,
+            };
+            try {
+              localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
+        }}
       />
     );
   }
@@ -736,6 +1116,7 @@ export default function App() {
                           onDelete={handleDeleteAssignment}
                           onAddImages={handleAddImagesToAssignment}
                           onDeleteImage={handleDeleteAssignmentImage}
+                          isCourseRep={isCourseRep}
                         />
                       ) : (
                         <DeadlinesView
@@ -748,6 +1129,11 @@ export default function App() {
                             setIsDeadlineModalOpen(true);
                           }}
                           isLoading={isDataLoading}
+                          isCourseRep={isCourseRep}
+                          userSession={userSession}
+                          currentSemester={currentSemester}
+                          activeLevel={activeLevel}
+                          activeSemester={activeSemester}
                         />
                       )}
                     </motion.div>
@@ -765,24 +1151,58 @@ export default function App() {
                         onBackToSchedule={() => setActiveTab('Schedule')}
                         isLoading={isDataLoading}
                         notifications={notifications}
+                        userSession={userSession}
+                        isCourseRep={isCourseRep}
+                        currentSemester={currentSemester}
+                        activeLevel={activeLevel}
+                        activeSemester={activeSemester}
+                        onAddBroadcast={handleCreateBroadcast}
+                        onDeleteBroadcast={handleDeleteBroadcast}
                       />
                     </motion.div>
                   )}
 
                   {activeTab === 'Modules' && (
                     <motion.div
-                      key="tab-modules"
+                      key={selectedCourseForDetails ? `tab-course-detail-${selectedCourseForDetails.id}` : 'tab-modules'}
                       variants={pageVariants}
                       initial="initial"
                       animate="animate"
                       exit="exit"
                     >
-                      <ModulesView
-                        onBackToSchedule={() => setActiveTab('Schedule')}
-                        isLoading={isDataLoading}
-                        courses={courses}
-                        userSession={userSession}
-                      />
+                      {selectedCourseForDetails ? (
+                        <CourseDetailView
+                          course={selectedCourseForDetails}
+                          onBack={() => setSelectedCourseForDetails(null)}
+                          isCourseRep={isCourseRep}
+                          userSession={userSession}
+                          onDeleteCourse={(course) => {
+                            handleDeleteCourse(course.id);
+                            setSelectedCourseForDetails(null);
+                          }}
+                          onCourseUpdated={(updated) => {
+                            setSelectedCourseForDetails(updated);
+                            handleEditCourse(updated.id, updated);
+                          }}
+                        />
+                      ) : (
+                        <ModulesView
+                          onBackToSchedule={() => setActiveTab('Schedule')}
+                          isLoading={isDataLoading}
+                          courses={courses}
+                          availableDepartments={departments}
+                          userSession={userSession}
+                          isCourseRep={isCourseRep}
+                          currentSemester={currentSemester}
+                          activeLevel={activeLevel}
+                          activeSemester={activeSemester}
+                          selectedCourseForDetails={selectedCourseForDetails}
+                          onSelectCourse={(course) => setSelectedCourseForDetails(course)}
+                          onAddCourse={handleAddCourse}
+                          onDeleteCourse={handleDeleteCourse}
+                          onEditCourse={handleEditCourse}
+                        />
+                      )}
                     </motion.div>
                   )}
 
@@ -803,6 +1223,10 @@ export default function App() {
                         isLoading={isDataLoading}
                         userSession={userSession}
                         onLogout={handleLogout}
+                        currentSemester={currentSemester}
+                        activeLevel={activeLevel}
+                        activeSemester={activeSemester}
+                        onUpdateUserSession={handleUpdateUserSession}
                         onNavigateToAdmin={() => {
                           if (typeof window !== 'undefined') {
                             window.history.pushState(null, '', '/adminschedulerapp');
@@ -816,11 +1240,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Floating Action Button (FAB) */}
+            {/* Floating Action Button (FAB) - Strictly for Course Rep and not on Modules / Profile / Notifications */}
             <AnimatePresence>
-              {!isAnyDrawerOpen &&
+              {isCourseRep &&
+                !isAnyDrawerOpen &&
                 activeTab !== 'Profile' &&
                 activeTab !== 'Notifications' &&
+                activeTab !== 'Modules' &&
                 !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) && (
                   <div className="fixed bottom-[84px] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
                     <motion.button
@@ -844,7 +1270,9 @@ export default function App() {
 
             {/* Standalone Bottom Navigation Bar */}
             <AnimatePresence>
-              {activeTab !== 'Notifications' && !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) && (
+              {activeTab !== 'Notifications' &&
+                !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) &&
+                !(activeTab === 'Modules' && selectedCourseForDetails !== null) && (
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
                   animate={{
@@ -860,6 +1288,9 @@ export default function App() {
                     onSelectTab={(tab) => {
                       if (tab !== 'Deadlines') {
                         setSelectedAssignmentForDetails(null);
+                      }
+                      if (tab !== 'Modules') {
+                        setSelectedCourseForDetails(null);
                       }
                       setActiveTab(tab);
                     }}
@@ -923,6 +1354,7 @@ export default function App() {
               onDelete={handleDeleteEvent}
               onTogglePostponed={handleTogglePostponed}
               onShare={handleShareEvent}
+              isCourseRep={isCourseRep}
             />
 
             {/* Edit / Add Activity Modal */}
@@ -932,6 +1364,9 @@ export default function App() {
               selectedDayKey={selectedDayId}
               onClose={() => setIsEditModalOpen(false)}
               onSave={handleSaveEvent}
+              courses={courses}
+              currentSemester={currentSemester}
+              userSession={userSession}
             />
 
             {/* Add / Edit Deadline Modal */}
@@ -940,6 +1375,9 @@ export default function App() {
               assignment={editingAssignment}
               onClose={() => setIsDeadlineModalOpen(false)}
               onSave={handleSaveAssignment}
+              courses={courses}
+              currentSemester={currentSemester}
+              userSession={userSession}
             />
 
             {/* Monthly Calendar View */}
