@@ -14,6 +14,7 @@ export interface AdminUser {
 
 export type AdminTab = 
   | 'overview' 
+  | 'analytics'
   | 'semester'
   | 'schedule' 
   | 'assignments' 
@@ -64,6 +65,7 @@ export interface CourseMaterialVideo {
   lecturer?: string;
   uploadedAt?: string;
   description?: string;
+  thumbnailUrl?: string;
 }
 
 export type CourseVideoModule = CourseMaterialVideo;
@@ -152,6 +154,7 @@ export interface StudentProfileRecord {
   matric_number: string;
   matricNumber?: string;
   password?: string;
+  portal_password?: string;
   full_name: string;
   fullName?: string;
   name?: string;
@@ -164,6 +167,10 @@ export interface StudentProfileRecord {
   is_payed?: boolean;
   is_paid?: boolean;
   hasFreeAccess?: boolean;
+  wallet_balance?: number;
+  walletBalance?: number;
+  paid_semester?: string;
+  paid_at?: string;
   isadmin?: boolean;
   isAdmin?: boolean;
   iscourserep?: boolean;

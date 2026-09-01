@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // University schedule collections: allow read for authenticated/public viewers and write for scheduling and updates
+    // University schedule & curriculum collections
     match /departments/{departmentId} {
       allow read: if true;
       allow write: if true;
@@ -35,6 +35,24 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow write: if true;
+
+      // User transactions subcollection
+      match /transactions/{transactionId} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+
+    // Root wallet transactions & audit ledger
+    match /wallet_transactions/{transactionId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Semester access grants
+    match /semester_access/{accessId} {
+      allow read: if true;
+      allow write: if true;
     }
 
     match /feedback/{feedbackId} {
@@ -46,5 +64,22 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    match /admin_profiles/{adminId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Fallback document match
+    match /{document=**} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }
+

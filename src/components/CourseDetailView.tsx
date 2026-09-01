@@ -105,12 +105,27 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
   const videoModules: CourseMaterialVideo[] = currentCourse.videoModules || [];
 
   // Helper to extract YouTube video ID & embed URL
+  const extractYouTubeId = (url?: string): string | null => {
+    if (!url) return null;
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    return match ? match[1] : null;
+  };
+
+  const getVideoThumbnailUrl = (vid: CourseMaterialVideo): string | null => {
+    if (vid.thumbnailUrl) return vid.thumbnailUrl;
+    const ytId = extractYouTubeId(vid.videoUrl);
+    if (ytId) {
+      return `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+    }
+    return null;
+  };
+
   const getYouTubeEmbedUrl = (url: string) => {
     if (!url) return '';
     if (url.includes('embed/')) return url;
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-    if (match && match[1]) {
-      return `https://www.youtube.com/embed/${match[1]}?autoplay=1&rel=0`;
+    const ytId = extractYouTubeId(url);
+    if (ytId) {
+      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0`;
     }
     return url;
   };
@@ -477,78 +492,73 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-2.5">
+            <div className="grid grid-cols-1 gap-2">
               {pdfModules.map((pdf) => (
                 <div
                   key={pdf.id}
                   onClick={() => setViewingPdf(pdf)}
-                  className="glass-container rounded-[22px] p-4 border border-white/80 shadow-[0_4px_18px_rgba(0,0,0,0.02)] flex items-center justify-between gap-3 group hover:border-blue-200 transition-all cursor-pointer"
+                  className="glass-container rounded-[18px] p-2.5 sm:p-3 border border-white/80 shadow-[0_2px_12px_rgba(0,0,0,0.02)] flex items-center justify-between gap-2.5 group hover:border-blue-200 transition-all cursor-pointer"
                 >
-                  <div className="flex items-start gap-3.5 min-w-0">
-                    <div className="w-11 h-11 rounded-[16px] bg-rose-500/10 border border-rose-300/30 flex items-center justify-center text-rose-600 font-bold shrink-0 mt-0.5 group-hover:bg-rose-600 group-hover:text-white transition-colors">
-                      <FileText className="w-5 h-5" />
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-[13px] bg-rose-500/10 border border-rose-300/30 flex items-center justify-center text-rose-600 font-bold shrink-0 group-hover:bg-rose-600 group-hover:text-white transition-colors">
+                      <FileText className="w-4 h-4" />
                     </div>
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {pdf.topic && (
-                          <span className="text-[10.5px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/50">
+                          <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded-md border border-rose-200/50">
                             {pdf.topic}
                           </span>
                         )}
                         {pdf.fileSize && (
-                          <span className="text-[10.5px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">
                             {pdf.fileSize}
                           </span>
                         )}
                         {pdf.uploadedAt && (
-                          <span className="text-[10.5px] text-slate-400">
+                          <span className="text-[10px] text-slate-400">
                             • {pdf.uploadedAt}
                           </span>
                         )}
                       </div>
-                      <h4 className="text-[14px] font-bold text-slate-900 leading-snug group-hover:text-blue-600 transition-colors">
+                      <h4 className="text-[13px] font-bold text-slate-900 leading-snug group-hover:text-blue-600 transition-colors truncate max-w-[190px] sm:max-w-xs">
                         {pdf.title}
                       </h4>
                       {pdf.fileName && (
-                        <p className="text-[11px] font-mono text-slate-400 truncate">
+                        <p className="text-[10.5px] font-mono text-slate-400 truncate max-w-[180px] sm:max-w-xs">
                           📄 {pdf.fileName}
-                        </p>
-                      )}
-                      {pdf.description && (
-                        <p className="text-[11.5px] text-slate-500 line-clamp-2 leading-relaxed">
-                          {pdf.description}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       onClick={() => setViewingPdf(pdf)}
-                      className="p-2.5 rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors flex items-center justify-center shadow-2xs"
+                      className="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors flex items-center justify-center shadow-2xs"
                       title="Read PDF In-App"
                     >
-                      <Eye className="w-4 h-4" />
+                      <Eye className="w-3.5 h-3.5" />
                     </button>
                     <a
                       href={pdf.pdfUrl}
                       download={pdf.fileName || `${pdf.title}.pdf`}
                       target="_blank"
                       rel="noreferrer"
-                      className="p-2.5 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors flex items-center justify-center shadow-2xs"
+                      className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors flex items-center justify-center shadow-2xs"
                       title="Download PDF"
                     >
-                      <Download className="w-4 h-4" />
+                      <Download className="w-3.5 h-3.5" />
                     </a>
                     {effectiveCourseRep && (
                       <button
                         type="button"
                         onClick={() => setMaterialToDelete({ type: 'pdf', item: pdf })}
-                        className="p-2.5 rounded-xl bg-slate-100 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                        className="p-2 rounded-lg bg-slate-100 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
                         title="Delete PDF"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
@@ -571,131 +581,193 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {videoModules.map((vid) => (
-                <div
-                  key={vid.id}
-                  className="glass-container rounded-[24px] p-4 border border-white/80 shadow-[0_4px_18px_rgba(0,0,0,0.02)] space-y-3 group hover:border-blue-200 transition-all"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {videoModules.map((vid) => {
+                const thumbUrl = getVideoThumbnailUrl(vid);
+                return (
+                  <div
+                    key={vid.id}
+                    className="glass-container rounded-[24px] overflow-hidden border border-white/80 shadow-[0_4px_18px_rgba(0,0,0,0.03)] group hover:border-indigo-200 transition-all flex flex-col justify-between"
+                  >
+                    <div>
+                      {/* Video Thumbnail Banner Card */}
+                      <div
                         onClick={() => setPlayingVideo(vid)}
-                        className="w-12 h-12 rounded-[18px] bg-indigo-600 text-white flex items-center justify-center font-bold shrink-0 cursor-pointer shadow-md hover:scale-105 active:scale-95 transition-transform group-hover:bg-indigo-700"
+                        className="relative w-full aspect-video bg-slate-900 overflow-hidden cursor-pointer flex items-center justify-center group/thumb"
                       >
-                        <Play className="w-5 h-5 fill-white ml-0.5" />
-                      </div>
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {vid.topic && (
-                            <span className="text-[10.5px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200/50">
-                              {vid.topic}
+                        {thumbUrl ? (
+                          <img
+                            src={thumbUrl}
+                            alt={vid.title}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover/thumb:scale-105"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex flex-col items-center justify-center p-4 text-center relative overflow-hidden">
+                            <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px]" />
+                            <span className="text-xs font-mono font-bold uppercase tracking-wider text-indigo-400 mb-1">
+                              {currentCourse.courseCode} • Module
+                            </span>
+                            <span className="text-xs font-bold text-white/90 line-clamp-2 max-w-[200px]">
+                              {vid.title}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Dark Gradient Overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+
+                        {/* Centered Glowing Play Button */}
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="w-12 h-12 rounded-full bg-white/95 text-indigo-600 flex items-center justify-center shadow-xl shadow-black/40 group-hover/thumb:scale-110 group-hover/thumb:bg-indigo-600 group-hover/thumb:text-white transition-all">
+                            <Play className="w-5 h-5 fill-current ml-0.5" />
+                          </div>
+                        </div>
+
+                        {/* Top Badges */}
+                        <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none">
+                          {vid.videoType === 'youtube' ? (
+                            <span className="text-[10px] font-bold text-white bg-red-600/90 px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1 shadow-xs">
+                              <Youtube className="w-3 h-3" /> YouTube
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-white bg-indigo-600/90 px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1 shadow-xs">
+                              <Video className="w-3 h-3" /> Lecture MP4
                             </span>
                           )}
+
                           {vid.duration && (
-                            <span className="text-[10.5px] font-semibold text-slate-500 flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded">
-                              <Clock className="w-3 h-3 text-slate-400" />
+                            <span className="text-[10.5px] font-bold text-white bg-black/70 px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1 shadow-xs">
+                              <Clock className="w-3 h-3 text-slate-300" />
                               {vid.duration}
                             </span>
                           )}
-                          {vid.fileSize && vid.videoType === 'uploaded' && (
-                            <span className="text-[10.5px] font-semibold text-slate-400">
-                              • {vid.fileSize}
+                        </div>
+
+                        {/* Bottom Thumbnail Topic Strip */}
+                        {vid.topic && (
+                          <div className="absolute bottom-2 left-2.5 right-2.5 pointer-events-none">
+                            <span className="text-[11px] font-semibold text-white/90 drop-shadow truncate block">
+                              {vid.topic}
                             </span>
-                          )}
-                          {vid.videoType === 'youtube' && (
-                            <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                              <Youtube className="w-3 h-3 text-red-500" /> YouTube
-                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Video Details & Meta */}
+                      <div className="p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4
+                            onClick={() => setPlayingVideo(vid)}
+                            className="text-[14.5px] font-bold text-slate-900 leading-snug cursor-pointer hover:text-indigo-600 transition-colors line-clamp-2"
+                          >
+                            {vid.title}
+                          </h4>
+                          {effectiveCourseRep && (
+                            <button
+                              type="button"
+                              onClick={() => setMaterialToDelete({ type: 'video', item: vid })}
+                              className="p-1.5 rounded-xl bg-slate-100 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors shrink-0"
+                              title="Delete Video"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
-                        <h4 className="text-[14.5px] font-bold text-slate-900 leading-snug cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => setPlayingVideo(vid)}>
-                          {vid.title}
-                        </h4>
+
                         {vid.lecturer && (
                           <p className="text-[11.5px] text-slate-500 flex items-center gap-1">
                             <User className="w-3 h-3 text-slate-400" />
                             {vid.lecturer}
                           </p>
                         )}
+
+                        {vid.description && (
+                          <p className="text-[12px] text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 line-clamp-2">
+                            {vid.description}
+                          </p>
+                        )}
                       </div>
                     </div>
 
-                    {effectiveCourseRep && (
+                    {/* Footer Actions */}
+                    <div className="px-4 pb-3.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
                       <button
                         type="button"
-                        onClick={() => setMaterialToDelete({ type: 'video', item: vid })}
-                        className="p-2 rounded-xl bg-slate-100 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors shrink-0"
-                        title="Delete Video"
+                        onClick={() => setPlayingVideo(vid)}
+                        className="flex items-center gap-1.5 text-indigo-600 font-bold hover:text-indigo-700 cursor-pointer"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Play className="w-3.5 h-3.5 fill-indigo-600" />
+                        <span>Watch Now</span>
                       </button>
-                    )}
+
+                      <a
+                        href={vid.videoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-slate-400 hover:text-slate-700 flex items-center gap-1 text-[11px]"
+                      >
+                        <span>{vid.videoType === 'youtube' ? 'YouTube' : 'Direct Link'}</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
                   </div>
-
-                  {vid.description && (
-                    <p className="text-[12px] text-slate-600 bg-white/70 p-2.5 rounded-xl border border-slate-100">
-                      {vid.description}
-                    </p>
-                  )}
-
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-100/80 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setPlayingVideo(vid)}
-                      className="flex items-center gap-1.5 text-indigo-600 font-bold hover:text-indigo-700 cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-indigo-600" />
-                      <span>Watch In-App</span>
-                    </button>
-
-                    <a
-                      href={vid.videoUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-slate-400 hover:text-slate-700 flex items-center gap-1 text-[11px]"
-                    >
-                      <span>{vid.videoType === 'youtube' ? 'YouTube Link' : 'Direct Link'}</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* Upload PDF / Add Video Button at the BOTTOM of the page */}
-      <div className="pt-4">
-        {activeTab === 'pdf' ? (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            whileHover={{ scale: 1.01 }}
-            onClick={() => {
-              setPdfUploadMode('device');
-              setIsAddPdfOpen(true);
-            }}
-            className="w-full py-3.5 px-5 rounded-[22px] bg-[#007AFF] text-white font-bold text-[14px] flex items-center justify-center gap-2 shadow-[0_6px_24px_rgba(0,122,255,0.28)] hover:bg-[#0062cc] active:bg-[#0051a8] transition-all cursor-pointer"
-          >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
-            <span>Upload PDF</span>
-          </motion.button>
-        ) : (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            whileHover={{ scale: 1.01 }}
-            onClick={() => {
-              setVideoUploadMode('device');
-              setIsAddVideoOpen(true);
-            }}
-            className="w-full py-3.5 px-5 rounded-[22px] bg-indigo-600 text-white font-bold text-[14px] flex items-center justify-center gap-2 shadow-[0_6px_24px_rgba(79,70,229,0.28)] hover:bg-indigo-700 active:bg-indigo-800 transition-all cursor-pointer"
-          >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
-            <span>Add Video</span>
-          </motion.button>
+      {/* Floating Hovering Plus Button for PDF Modules at Bottom Right */}
+      <AnimatePresence>
+        {activeTab === 'pdf' && effectiveCourseRep && !isAddPdfOpen && !viewingPdf && (
+          <div className="fixed bottom-6 inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
+            <motion.button
+              key="floating-add-pdf-btn"
+              initial={{ scale: 0, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0, opacity: 0, y: 20 }}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => {
+                setPdfUploadMode('device');
+                setIsAddPdfOpen(true);
+              }}
+              className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#007AFF] to-blue-500 text-white flex items-center justify-center shadow-[0_8px_30px_rgba(0,122,255,0.45)] hover:shadow-[0_12px_36px_rgba(0,122,255,0.55)] transition-all cursor-pointer pointer-events-auto border-2 border-white/70"
+              title="Upload PDF Module"
+              aria-label="Upload PDF Module"
+            >
+              <Plus className="w-6 h-6 stroke-[3]" />
+            </motion.button>
+          </div>
         )}
-      </div>
+      </AnimatePresence>
+
+      {/* Floating Hovering Plus Button for Videos Page at Bottom Right */}
+      <AnimatePresence>
+        {activeTab === 'video' && effectiveCourseRep && !isAddVideoOpen && !playingVideo && (
+          <div className="fixed bottom-6 inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
+            <motion.button
+              key="floating-add-video-btn"
+              initial={{ scale: 0, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0, opacity: 0, y: 20 }}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => {
+                setVideoUploadMode('device');
+                setIsAddVideoOpen(true);
+              }}
+              className="w-14 h-14 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-[0_8px_30px_rgba(79,70,229,0.45)] hover:shadow-[0_12px_36px_rgba(79,70,229,0.55)] transition-all cursor-pointer pointer-events-auto border-2 border-white/60"
+              title="Add Video Module"
+              aria-label="Add Video Module"
+            >
+              <Plus className="w-6 h-6 stroke-[3]" />
+            </motion.button>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* DEDICATED FULL-SCREEN PDF VIEWER PAGE */}
       <AnimatePresence>
@@ -1046,6 +1118,22 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
                         </div>
                       )}
                     </div>
+                    {extractYouTubeId(videoFormData.videoUrl) && (
+                      <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 mt-2 shadow-xs">
+                        <img
+                          src={`https://img.youtube.com/vi/${extractYouTubeId(videoFormData.videoUrl)}/hqdefault.jpg`}
+                          alt="Thumbnail Preview"
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-2.5">
+                          <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            YouTube Thumbnail Detected
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     <p className="text-[11px] text-slate-400">
                       Video title and channel name will be automatically populated.
                     </p>

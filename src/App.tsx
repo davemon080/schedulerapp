@@ -1,20 +1,23 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { HeaderSection } from './components/HeaderSection';
 import { DayTimelineSection } from './components/DayTimelineSection';
 import { ActivitiesSection } from './components/ActivitiesSection';
 import { EventBottomSheet } from './components/EventBottomSheet';
 import { BottomNavBar } from './components/BottomNavBar';
 import { EventEditModal } from './components/EventEditModal';
-import { CalendarModal } from './components/CalendarModal';
+import { CalendarView } from './components/CalendarView';
 import { SplashScreen } from './components/SplashScreen';
 import { NotificationsView } from './components/NotificationsView';
 import { DeadlinesView, BroadcastsView, ModulesView, ProfileView } from './components/OtherViews';
 import { AssignmentDetailsView } from './components/AssignmentDetailsView';
+import { BroadcastDetailsView } from './components/BroadcastDetailsView';
 import { CourseDetailView } from './components/CourseDetailView';
 import { DeadlineEditModal } from './components/DeadlineEditModal';
+import { SemesterAccessLockView } from './components/SemesterAccessLockView';
+import { WalletView } from './components/WalletView';
 import { LoginPage } from './components/LoginPage';
 import { AdminDashboard } from './admin/AdminDashboard';
-import { INITIAL_DAYS } from './data/mockData';
+import { INITIAL_DAYS, getWeekDaysForDate } from './data/mockData';
 import { AssignmentItem, EventItem, NavigationTab, NotificationItem, UserSession } from './types';
 import { Plus, Check, CheckCheck, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,6 +33,7 @@ import {
   deleteAssignment,
   fetchAnnouncementsAndNotifications,
   createAnnouncement,
+  updateAnnouncement,
   deleteAnnouncement,
   fetchCourses,
   createCourse,
@@ -42,6 +46,7 @@ import {
   normalizeSemester,
   correctAllStudentsTo100LSecondSemester,
   purgeMockScheduleDeadlinesAndBroadcasts,
+  resetAllStudentsToUnpaidInDatabase,
 } from './lib/dbService';
 import { CourseRecord, DepartmentRecord } from './admin/types';
 import { CourseFormData } from './components/AddCourseModal';
@@ -78,7 +83,10 @@ export default function App() {
   }, []);
 
   const [days, setDays] = useState(INITIAL_DAYS);
-  const [selectedDayId, setSelectedDayId] = useState<string>('WED 19');
+  const [selectedDayId, setSelectedDayId] = useState<string>(() => {
+    const todayMatch = INITIAL_DAYS.find((d) => d.isToday);
+    return todayMatch?.id || INITIAL_DAYS[0]?.id || 'MON 31';
+  });
   const [events, setEvents] = useState<EventItem[]>([]);
   const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -95,6 +103,8 @@ export default function App() {
       const saved = localStorage.getItem('university_schedule_user');
       if (saved) {
         const parsed = JSON.parse(saved);
+        const isAdmin = Boolean(parsed.isAdmin || parsed.isadmin);
+        const isRep = Boolean(parsed.isCourseRep || parsed.iscourserep);
         return {
           ...parsed,
           level: parsed.level || 100,
@@ -104,6 +114,12 @@ export default function App() {
           current_semester: parsed.current_semester || '1st Semester',
           session: parsed.session || '2025/2026',
           academic_session: parsed.academic_session || '2025/2026',
+          // If not course rep or admin, enforce unpaid status and clear semester access by default
+          is_paid: (isAdmin || isRep) ? Boolean(parsed.is_paid ?? parsed.is_payed) : false,
+          is_payed: (isAdmin || isRep) ? Boolean(parsed.is_payed ?? parsed.is_paid) : false,
+          hasFreeAccess: isAdmin || isRep,
+          paid_semester: (isAdmin || isRep) ? parsed.paid_semester : undefined,
+          paid_at: (isAdmin || isRep) ? parsed.paid_at : undefined,
         };
       }
     } catch (e) {
@@ -111,6 +127,11 @@ export default function App() {
     }
     return null;
   });
+
+  const userSessionRef = useRef<UserSession | null>(userSession);
+  useEffect(() => {
+    userSessionRef.current = userSession;
+  }, [userSession]);
 
   const isCourseRep = Boolean(
     userSession?.isCourseRep ||
@@ -130,7 +151,12 @@ export default function App() {
 
   // Helper to add activity notification
   const addActivityNotification = useCallback(
-    (title: string, message: string, category: 'schedule' | 'profile' | 'deadline' | 'system' = 'schedule', type: 'activity' | 'alert' | 'info' | 'success' = 'activity') => {
+    (
+      title: string,
+      message: string,
+      category: NotificationItem['category'] = 'schedule',
+      type: 'activity' | 'alert' | 'info' | 'success' = 'activity'
+    ) => {
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const newNotif: NotificationItem = {
@@ -154,6 +180,8 @@ export default function App() {
     try {
       // Purge any lingering mock schedule/deadline/broadcast records from Firestore
       purgeMockScheduleDeadlinesAndBroadcasts().catch(() => {});
+      // Enforce that all students in the database are set to unpaid and semester access is reset
+      resetAllStudentsToUnpaidInDatabase().catch(() => {});
 
       const [dbEvents, dbAssigns, dbNotifs, dbCourses, dbSem, dbDepts] = await Promise.all([
         fetchScheduleActivities(),
@@ -256,13 +284,18 @@ export default function App() {
             const matchCourseRep = Boolean(matched.iscourserep || matched.isCourseRep);
             const matchAdmin = Boolean(matched.isadmin || matched.isAdmin);
             const matchSemester = getStudentActiveSemester(matched, currentSemester);
+            const matchIsPaid = Boolean(matched.is_paid || matched.is_payed);
+            const matchPaidSemester = matched.paid_semester || (matched as any).paidSemester || undefined;
 
             if (
               userSession.level !== matchLevel ||
               userSession.yearLevel !== matchYearLevel ||
               userSession.department !== matchDept ||
               userSession.isCourseRep !== matchCourseRep ||
-              userSession.isAdmin !== matchAdmin
+              userSession.isAdmin !== matchAdmin ||
+              userSession.is_paid !== (matchCourseRep || matchAdmin || matchIsPaid) ||
+              userSession.is_payed !== (matchCourseRep || matchAdmin || matchIsPaid) ||
+              userSession.paid_semester !== matchPaidSemester
             ) {
               const syncedSession: UserSession = {
                 ...userSession,
@@ -275,6 +308,10 @@ export default function App() {
                 department_id: matchDeptId,
                 isCourseRep: matchCourseRep,
                 isAdmin: matchAdmin,
+                is_paid: matchCourseRep || matchAdmin || matchIsPaid,
+                is_payed: matchCourseRep || matchAdmin || matchIsPaid,
+                hasFreeAccess: matchCourseRep || matchAdmin,
+                paid_semester: matchPaidSemester,
               };
               setUserSession(syncedSession);
               try {
@@ -288,32 +325,44 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, [userSession]);
+  }, [userSession?.uid, userSession?.matricNumber, userSession?.email]);
 
-  const handleUpdateUserSession = async (updates: Partial<UserSession>) => {
-    if (!userSession) return;
-    const updated: UserSession = {
-      ...userSession,
-      ...updates,
-    };
-    if (updates.level) {
-      updated.level = updates.level;
-      updated.yearLevel = `${updates.level} Level`;
-      updated.year_level = `${updates.level} Level`;
-    }
-    if (updates.semester) {
-      updated.semester = updates.semester;
-      updated.current_semester = updates.semester;
-      setCurrentSemester(updates.semester);
-    }
-    setUserSession(updated);
-    try {
-      localStorage.setItem('university_schedule_user', JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
-    const studentId = userSession.uid || userSession.id || userSession.matricNumber || userSession.email;
-    if (studentId) {
+  const handleUpdateUserSession = useCallback(async (updates: Partial<UserSession>) => {
+    setUserSession((prev) => {
+      if (!prev) return null;
+      let hasDifference = false;
+      for (const [k, v] of Object.entries(updates)) {
+        if ((prev as any)[k] !== v) {
+          hasDifference = true;
+          break;
+        }
+      }
+      if (!hasDifference) return prev;
+
+      const updated: UserSession = {
+        ...prev,
+        ...updates,
+      };
+      if (updates.level) {
+        updated.level = updates.level;
+        updated.yearLevel = `${updates.level} Level`;
+        updated.year_level = `${updates.level} Level`;
+      }
+      if (updates.semester) {
+        updated.semester = updates.semester;
+        updated.current_semester = updates.semester;
+        setCurrentSemester(updates.semester);
+      }
+      try {
+        localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+
+    const studentId = userSessionRef.current?.uid || userSessionRef.current?.id || userSessionRef.current?.matricNumber || userSessionRef.current?.email;
+    if (studentId && (updates.level || updates.semester || updates.department)) {
       try {
         await updateStudentUser(studentId, {
           ...updates,
@@ -334,7 +383,7 @@ export default function App() {
     } else if (updates.semester) {
       showToast(`Semester switched to ${updates.semester}!`);
     }
-  };
+  }, []);
 
   const handleGlobalSyncEvents = useCallback((updated: EventItem[]) => {
     setEvents(updated);
@@ -409,15 +458,21 @@ export default function App() {
   const [isDeadlineModalOpen, setIsDeadlineModalOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<AssignmentItem | null>(null);
 
+  // Broadcasts State
+  const [selectedBroadcastForDetails, setSelectedBroadcastForDetails] = useState<NotificationItem | null>(null);
+  const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
+
   // Modules & Course Details State
   const [selectedCourseForDetails, setSelectedCourseForDetails] = useState<any | null>(null);
+
+  // Direct Wallet Modal/Page View state
+  const [isDirectWalletOpen, setIsDirectWalletOpen] = useState<boolean>(false);
 
   // Menu & Bottom Drawer States
   const [selectedEventForMenu, setSelectedEventForMenu] = useState<EventItem | null>(null);
   const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   // Student academic scope extraction for unified schedule, deadlines, and broadcasts
   const studentMatric = userSession?.matricNumber || '';
@@ -473,25 +528,174 @@ export default function App() {
     });
   }, [events, isICH, isCHM, isCSC, studentDeptId, activeLevel, activeSemester]);
 
-  // Filter events for currently selected day
+  // Filter events for currently selected day (matches by exact dayKey) & sort by time
   const currentDayEvents = useMemo(() => {
-    return filteredEvents.filter((e) => e.dayKey === selectedDayId);
+    const matchedList = filteredEvents.filter((e) => {
+      if (e.dayKey === selectedDayId) return true;
+      return false;
+    });
+
+    const getMinutes = (ev: EventItem): number => {
+      if (ev.startTime) {
+        const parts = ev.startTime.split(':').map(Number);
+        if (!isNaN(parts[0])) return parts[0] * 60 + (parts[1] || 0);
+      }
+      if (ev.time) {
+        const raw = ev.time.split('-')[0].trim().toUpperCase();
+        const isPM = raw.includes('PM');
+        const isAM = raw.includes('AM');
+        const match = raw.match(/(\d+)(?::(\d+))?/);
+        if (match) {
+          let h = parseInt(match[1], 10);
+          const m = match[2] ? parseInt(match[2], 10) : 0;
+          if (isPM && h < 12) h += 12;
+          if (isAM && h === 12) h = 0;
+          return h * 60 + m;
+        }
+      }
+      return 9999;
+    };
+
+    return matchedList.sort((a, b) => getMinutes(a) - getMinutes(b));
   }, [filteredEvents, selectedDayId]);
 
-  // Recalculate event counts on days
+  // Recalculate event counts on days strictly for that exact day
   const updatedDays = useMemo(() => {
-    return days.map((day) => ({
-      ...day,
-      eventsCount: filteredEvents.filter((e) => e.dayKey === day.id).length,
-    }));
+    return days.map((day) => {
+      const count = filteredEvents.filter((e) => e.dayKey === day.id).length;
+      return {
+        ...day,
+        eventsCount: count,
+      };
+    });
   }, [days, filteredEvents]);
 
+  const isActualCourseRep = Boolean(
+    isCourseRep ||
+    userSession?.isCourseRep ||
+    userSession?.isAdmin ||
+    (userSession as any)?.iscourserep ||
+    (userSession as any)?.isadmin
+  );
+
+  const isPaidAccess = Boolean(
+    isActualCourseRep ||
+    userSession?.is_paid ||
+    userSession?.is_payed
+  );
+
   const unreadNotifCount = useMemo(() => {
+    if (!isPaidAccess) return 0;
     return notifications.filter((n) => n.isUnread).length;
-  }, [notifications]);
+  }, [notifications, isPaidAccess]);
+
+  // Automated Activity & Deadline Reminder Engine
+  const sentRemindersRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    // Request notification permission if supported
+    if ('Notification' in window && Notification.permission === 'default') {
+      try {
+        Notification.requestPermission().catch(() => {});
+      } catch (e) {}
+    }
+
+    const checkReminders = () => {
+      if (!isPaidAccess) return;
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const todayDateNum = now.getDate();
+      const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+      const todayDayName = dayNames[now.getDay()];
+      const todayStr = `${todayDayName} ${todayDateNum}`;
+
+      // 1. Check upcoming and live activities for today
+      filteredEvents.forEach((ev) => {
+        if (ev.isPostponed) return;
+
+        // Check if event is scheduled for today
+        const evDay = (ev.dayKey || '').toUpperCase();
+        const isEvToday =
+          evDay.includes(todayStr) ||
+          evDay.includes(todayDayName) ||
+          evDay.includes(String(todayDateNum));
+
+        if (!isEvToday) return;
+
+        // Parse event start time
+        let startMins: number | null = null;
+        if (ev.startTime) {
+          const parts = ev.startTime.split(':').map(Number);
+          if (!isNaN(parts[0])) startMins = parts[0] * 60 + (parts[1] || 0);
+        } else if (ev.time) {
+          const raw = ev.time.split('-')[0].trim().toUpperCase();
+          const isPM = raw.includes('PM');
+          const isAM = raw.includes('AM');
+          const [hStr, mStr] = raw.replace(/AM|PM/g, '').trim().split(':');
+          let h = parseInt(hStr, 10);
+          const m = parseInt(mStr, 10) || 0;
+          if (!isNaN(h)) {
+            if (isPM && h < 12) h += 12;
+            if (isAM && h === 12) h = 0;
+            startMins = h * 60 + m;
+          }
+        }
+
+        if (startMins === null) return;
+
+        const diffMinutes = startMins - currentMinutes;
+
+        // 15-Minute Advance Reminder
+        const reminder15Key = `remind-15-${ev.id}-${todayDateNum}`;
+        if (diffMinutes > 0 && diffMinutes <= 15 && !sentRemindersRef.current.has(reminder15Key)) {
+          sentRemindersRef.current.add(reminder15Key);
+          const msg = `${ev.course} (${ev.title}) is starting in ${diffMinutes} minutes at ${ev.startTime ? ev.startTime.substring(0, 5) : ev.time}. Venue: ${ev.location}`;
+          showToast(`⏰ Upcoming Class: ${ev.course} in ${diffMinutes}m!`);
+          addActivityNotification(
+            `Class Reminder: ${ev.course}`,
+            msg,
+            'schedule',
+            'activity'
+          );
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification(`Class Reminder: ${ev.course}`, {
+                body: msg,
+              });
+            } catch (e) {}
+          }
+        }
+
+        // Class Starting Now Reminder
+        const startingNowKey = `remind-now-${ev.id}-${todayDateNum}`;
+        if (diffMinutes <= 0 && diffMinutes >= -5 && !sentRemindersRef.current.has(startingNowKey)) {
+          sentRemindersRef.current.add(startingNowKey);
+          const msg = `${ev.course} (${ev.title}) is starting now at ${ev.location}! ${ev.deliveryMode === 'online' ? 'Online meeting link ready.' : ''}`;
+          showToast(`🔴 Class Starting Now: ${ev.course}!`);
+          addActivityNotification(
+            `Class In Session: ${ev.course}`,
+            msg,
+            'schedule',
+            'alert'
+          );
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification(`Class Starting Now: ${ev.course}`, {
+                body: msg,
+              });
+            } catch (e) {}
+          }
+        }
+      });
+    };
+
+    checkReminders();
+    const interval = setInterval(checkReminders, 25000);
+    return () => clearInterval(interval);
+  }, [filteredEvents, addActivityNotification]);
 
   // Check if any drawer/sheet is currently open
-  const isAnyDrawerOpen = isBottomSheetOpen || isEditModalOpen || isCalendarOpen || isDeadlineModalOpen;
+  const isAnyDrawerOpen = isBottomSheetOpen || isEditModalOpen || isDeadlineModalOpen || isBroadcastModalOpen;
 
   // Handler to open 3-dot Bottom Sheet
   const handleOpenMenu = (event: EventItem) => {
@@ -671,7 +875,7 @@ export default function App() {
         addActivityNotification(
           'Module Registered',
           `${created.courseCode}: ${created.title} was registered for ${created.semester}.`,
-          'system',
+          'modules',
           'success'
         );
         return true;
@@ -689,6 +893,12 @@ export default function App() {
       if (updated) {
         setCourses((prev) => prev.map((c) => (c.id === courseId ? updated : c)));
         showToast(`Module ${updated.courseCode} updated successfully!`);
+        addActivityNotification(
+          'Module Updated',
+          `Curriculum details for ${updated.courseCode} (${updated.title}) were updated.`,
+          'modules',
+          'info'
+        );
         return true;
       }
     } catch (err) {
@@ -708,7 +918,7 @@ export default function App() {
         addActivityNotification(
           'Module Removed',
           `${target?.courseCode || 'Course'} was removed from the curriculum.`,
-          'system',
+          'modules',
           'info'
         );
         return true;
@@ -856,6 +1066,7 @@ export default function App() {
     message: string;
     priority?: 'urgent' | 'normal';
     category?: string;
+    images?: string[];
   }) => {
     try {
       const created = await createAnnouncement({
@@ -866,6 +1077,7 @@ export default function App() {
         department_id: deptId,
         level: activeLevel,
         semester: activeSemester,
+        images: data.images || [],
       });
       if (created) {
         setNotifications((prev) => [created, ...prev.filter((n) => n.id !== created.id)]);
@@ -873,7 +1085,7 @@ export default function App() {
         addActivityNotification(
           'Broadcast Published',
           `Notice "${data.title}" was broadcasted to ${activeLevel}L students.`,
-          'system',
+          'broadcast',
           'success'
         );
         return true;
@@ -885,6 +1097,66 @@ export default function App() {
     return false;
   };
 
+  const handleAddImagesToBroadcast = async (id: string, newImages: string[]) => {
+    let updatedList: string[] = [];
+    setNotifications((prev) =>
+      prev.map((n) => {
+        if (n.id === id) {
+          const current = n.images || [];
+          updatedList = [...current, ...newImages];
+          const updated = {
+            ...n,
+            images: updatedList,
+          };
+          if (selectedBroadcastForDetails?.id === id) {
+            setSelectedBroadcastForDetails(updated);
+          }
+          return updated;
+        }
+        return n;
+      })
+    );
+    showToast(`Added ${newImages.length} image${newImages.length > 1 ? 's' : ''}`);
+    addActivityNotification(
+      'Broadcast Updated',
+      `Attached ${newImages.length} image(s) to notice.`,
+      'broadcast',
+      'info'
+    );
+    try {
+      await updateAnnouncement(id, { images: updatedList });
+    } catch (err) {
+      console.error('Error updating broadcast images:', err);
+    }
+  };
+
+  const handleDeleteBroadcastImage = async (id: string, imageIndex: number) => {
+    let updatedList: string[] = [];
+    setNotifications((prev) =>
+      prev.map((n) => {
+        if (n.id === id) {
+          const current = n.images || [];
+          updatedList = current.filter((_, idx) => idx !== imageIndex);
+          const updated = {
+            ...n,
+            images: updatedList,
+          };
+          if (selectedBroadcastForDetails?.id === id) {
+            setSelectedBroadcastForDetails(updated);
+          }
+          return updated;
+        }
+        return n;
+      })
+    );
+    showToast('Image removed from notice');
+    try {
+      await updateAnnouncement(id, { images: updatedList });
+    } catch (err) {
+      console.error('Error removing broadcast image:', err);
+    }
+  };
+
   const handleDeleteBroadcast = async (id: string) => {
     try {
       const target = notifications.find((n) => n.id === id);
@@ -893,7 +1165,7 @@ export default function App() {
       addActivityNotification(
         'Broadcast Removed',
         `Deleted broadcast: ${target?.title || ''}`,
-        'system',
+        'broadcast',
         'alert'
       );
       await deleteAnnouncement(id);
@@ -918,9 +1190,7 @@ export default function App() {
       setEditingAssignment(null);
       setIsDeadlineModalOpen(true);
     } else if (activeTab === 'Broadcasts') {
-      showToast('Broadcast creation composer opened');
-      setEditingEvent(null);
-      setIsEditModalOpen(true);
+      setIsBroadcastModalOpen(true);
     } else if (activeTab === 'Modules') {
       showToast('Module registration opened');
       setEditingEvent(null);
@@ -948,29 +1218,25 @@ export default function App() {
     return currentDay ? currentDay.dateNum : 19;
   }, [days, selectedDayId]);
 
-  // Master animation variants for page transitions
+  // Master animation variants for page transitions - optimized for high-performance instant response
   const pageVariants = {
     initial: {
       opacity: 0,
-      y: 6,
-      scale: 0.995,
+      y: 3,
     },
     animate: {
       opacity: 1,
       y: 0,
-      scale: 1,
       transition: {
-        duration: 0.14,
+        duration: 0.12,
         ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
       },
     },
     exit: {
       opacity: 0,
-      y: -4,
-      scale: 0.995,
       transition: {
-        duration: 0.09,
-        ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+        duration: 0.08,
+        ease: [0.4, 0, 1, 1] as [number, number, number, number],
       },
     },
   };
@@ -1028,6 +1294,17 @@ export default function App() {
         {/* Main Content: Authenticated Dashboard vs Login Screen */}
         {!userSession ? (
           <LoginPage onLogin={handleLogin} />
+        ) : isDirectWalletOpen ? (
+          <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-3 pb-20 relative">
+            <WalletView
+              onBack={() => setIsDirectWalletOpen(false)}
+              userSession={userSession}
+              activeLevel={activeLevel}
+              activeSemester={activeSemester}
+              isCourseRep={isCourseRep}
+              onSessionUpdated={handleUpdateUserSession}
+            />
+          </div>
         ) : (
           <>
             {/* Ambient Soft Gradient Orbs in Background */}
@@ -1042,20 +1319,46 @@ export default function App() {
                 {/* Top Header Row */}
                 {activeTab !== 'Notifications' && (
                   <HeaderSection
-                    onOpenNotifications={() => setActiveTab('Notifications')}
-                    onOpenCalendarView={() => setIsCalendarOpen(true)}
+                    onOpenNotifications={() => {
+                      if (!isPaidAccess) return;
+                      setActiveTab('Notifications');
+                    }}
+                    onOpenCalendarView={() => {
+                      if (!isPaidAccess) return;
+                      setActiveTab(activeTab === 'Calendar' ? 'Schedule' : 'Calendar');
+                      setSelectedAssignmentForDetails(null);
+                      setSelectedBroadcastForDetails(null);
+                      setSelectedCourseForDetails(null);
+                    }}
                     onOpenProfileTab={() => setActiveTab('Profile')}
                     unreadCount={unreadNotifCount}
                     profileImage={profileImage}
                     onUploadProfileImage={handleProfileImageUpload}
                     isNotificationsActive={false}
+                    isCalendarActive={activeTab === 'Calendar'}
                     userSession={userSession}
+                    isAccessBlocked={!isPaidAccess}
                   />
                 )}
 
                 {/* Conditional View by Active Navigation Tab */}
                 <AnimatePresence mode="wait">
-                  {activeTab === 'Schedule' && (
+                  {!isPaidAccess && activeTab !== 'Profile' ? (
+                    <motion.div
+                      key="tab-locked-semester-access"
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      <SemesterAccessLockView
+                        userSession={userSession}
+                        activeSemester={activeSemester}
+                        onOpenWallet={() => setIsDirectWalletOpen(true)}
+                        onNavigateToProfile={() => setActiveTab('Profile')}
+                      />
+                    </motion.div>
+                  ) : activeTab === 'Schedule' ? (
                     <motion.div
                       key="tab-schedule"
                       variants={pageVariants}
@@ -1080,9 +1383,40 @@ export default function App() {
                         isLoading={isDataLoading}
                       />
                     </motion.div>
-                  )}
-
-                  {activeTab === 'Notifications' && (
+                  ) : activeTab === 'Calendar' ? (
+                    <motion.div
+                      key="tab-calendar"
+                      variants={pageVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      <CalendarView
+                        events={filteredEvents}
+                        days={updatedDays}
+                        selectedDateNum={selectedDateNum}
+                        onSelectDate={(dateNum, dayId, dateObj) => {
+                          const targetDate = dateObj || new Date(new Date().getFullYear(), new Date().getMonth(), dateNum);
+                          const newWeekDays = getWeekDaysForDate(targetDate);
+                          setDays(newWeekDays);
+                          setSelectedDayId(dayId);
+                          setActiveTab('Schedule');
+                          setSelectedAssignmentForDetails(null);
+                          setSelectedBroadcastForDetails(null);
+                          setSelectedCourseForDetails(null);
+                          const matchedDay = newWeekDays.find((d) => d.id === dayId || d.dateNum === dateNum);
+                          if (matchedDay) {
+                            showToast(`Viewing schedule for ${matchedDay.fullDate}`);
+                          } else {
+                            showToast(`Viewing schedule for ${dayId}`);
+                          }
+                        }}
+                        activeLevel={activeLevel}
+                        activeSemester={activeSemester}
+                        departmentName={userSession?.department || 'Department of Industrial Chemistry'}
+                      />
+                    </motion.div>
+                  ) : activeTab === 'Notifications' ? (
                     <motion.div
                       key="tab-notifications"
                       variants={pageVariants}
@@ -1097,9 +1431,7 @@ export default function App() {
                         isLoading={isDataLoading}
                       />
                     </motion.div>
-                  )}
-
-                  {activeTab === 'Deadlines' && (
+                  ) : activeTab === 'Deadlines' ? (
                     <motion.div
                       key={selectedAssignmentForDetails ? `tab-deadline-detail-${selectedAssignmentForDetails.id}` : 'tab-deadlines'}
                       variants={pageVariants}
@@ -1137,32 +1469,46 @@ export default function App() {
                         />
                       )}
                     </motion.div>
-                  )}
-
-                  {activeTab === 'Broadcasts' && (
+                  ) : activeTab === 'Broadcasts' ? (
                     <motion.div
-                      key="tab-broadcasts"
+                      key={selectedBroadcastForDetails ? `tab-broadcast-detail-${selectedBroadcastForDetails.id}` : 'tab-broadcasts'}
                       variants={pageVariants}
                       initial="initial"
                       animate="animate"
                       exit="exit"
                     >
-                      <BroadcastsView
-                        onBackToSchedule={() => setActiveTab('Schedule')}
-                        isLoading={isDataLoading}
-                        notifications={notifications}
-                        userSession={userSession}
-                        isCourseRep={isCourseRep}
-                        currentSemester={currentSemester}
-                        activeLevel={activeLevel}
-                        activeSemester={activeSemester}
-                        onAddBroadcast={handleCreateBroadcast}
-                        onDeleteBroadcast={handleDeleteBroadcast}
-                      />
+                      {selectedBroadcastForDetails ? (
+                        <BroadcastDetailsView
+                          broadcast={selectedBroadcastForDetails}
+                          onBack={() => setSelectedBroadcastForDetails(null)}
+                          onDeleteBroadcast={async (id) => {
+                            await handleDeleteBroadcast(id);
+                            setSelectedBroadcastForDetails(null);
+                          }}
+                          onAddImages={handleAddImagesToBroadcast}
+                          onDeleteImage={handleDeleteBroadcastImage}
+                          isCourseRep={isCourseRep}
+                        />
+                      ) : (
+                        <BroadcastsView
+                          onBackToSchedule={() => setActiveTab('Schedule')}
+                          isLoading={isDataLoading}
+                          notifications={notifications}
+                          userSession={userSession}
+                          isCourseRep={isCourseRep}
+                          currentSemester={currentSemester}
+                          activeLevel={activeLevel}
+                          activeSemester={activeSemester}
+                          onSelectBroadcast={(b) => setSelectedBroadcastForDetails(b)}
+                          onAddBroadcast={handleCreateBroadcast}
+                          onDeleteBroadcast={handleDeleteBroadcast}
+                          isPostBroadcastModalOpen={isBroadcastModalOpen}
+                          onOpenPostBroadcastModal={() => setIsBroadcastModalOpen(true)}
+                          onClosePostBroadcastModal={() => setIsBroadcastModalOpen(false)}
+                        />
+                      )}
                     </motion.div>
-                  )}
-
-                  {activeTab === 'Modules' && (
+                  ) : activeTab === 'Modules' ? (
                     <motion.div
                       key={selectedCourseForDetails ? `tab-course-detail-${selectedCourseForDetails.id}` : 'tab-modules'}
                       variants={pageVariants}
@@ -1204,9 +1550,7 @@ export default function App() {
                         />
                       )}
                     </motion.div>
-                  )}
-
-                  {activeTab === 'Profile' && (
+                  ) : activeTab === 'Profile' ? (
                     <motion.div
                       key="tab-profile"
                       variants={pageVariants}
@@ -1227,6 +1571,7 @@ export default function App() {
                         activeLevel={activeLevel}
                         activeSemester={activeSemester}
                         onUpdateUserSession={handleUpdateUserSession}
+                        onAddNotification={addActivityNotification}
                         onNavigateToAdmin={() => {
                           if (typeof window !== 'undefined') {
                             window.history.pushState(null, '', '/adminschedulerapp');
@@ -1235,19 +1580,21 @@ export default function App() {
                         }}
                       />
                     </motion.div>
-                  )}
+                  ) : null}
                 </AnimatePresence>
               </div>
             </div>
 
-            {/* Floating Action Button (FAB) - Strictly for Course Rep and not on Modules / Profile / Notifications */}
+            {/* Floating Action Button (FAB) - Strictly for Course Rep and not on Modules / Profile / Notifications / Detail views */}
             <AnimatePresence>
               {isCourseRep &&
+                isPaidAccess &&
                 !isAnyDrawerOpen &&
                 activeTab !== 'Profile' &&
                 activeTab !== 'Notifications' &&
                 activeTab !== 'Modules' &&
-                !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) && (
+                !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) &&
+                !(activeTab === 'Broadcasts' && selectedBroadcastForDetails !== null) && (
                   <div className="fixed bottom-[84px] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
                     <motion.button
                       key="floating-fab-btn"
@@ -1272,6 +1619,7 @@ export default function App() {
             <AnimatePresence>
               {activeTab !== 'Notifications' &&
                 !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) &&
+                !(activeTab === 'Broadcasts' && selectedBroadcastForDetails !== null) &&
                 !(activeTab === 'Modules' && selectedCourseForDetails !== null) && (
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}
@@ -1285,9 +1633,13 @@ export default function App() {
                 >
                   <BottomNavBar
                     activeTab={activeTab}
+                    isPaid={isPaidAccess}
                     onSelectTab={(tab) => {
                       if (tab !== 'Deadlines') {
                         setSelectedAssignmentForDetails(null);
+                      }
+                      if (tab !== 'Broadcasts') {
+                        setSelectedBroadcastForDetails(null);
                       }
                       if (tab !== 'Modules') {
                         setSelectedCourseForDetails(null);
@@ -1367,6 +1719,7 @@ export default function App() {
               courses={courses}
               currentSemester={currentSemester}
               userSession={userSession}
+              days={updatedDays}
             />
 
             {/* Add / Edit Deadline Modal */}
@@ -1378,19 +1731,6 @@ export default function App() {
               courses={courses}
               currentSemester={currentSemester}
               userSession={userSession}
-            />
-
-            {/* Monthly Calendar View */}
-            <CalendarModal
-              isOpen={isCalendarOpen}
-              selectedDate={selectedDateNum}
-              onClose={() => setIsCalendarOpen(false)}
-              onSelectDate={(dateNum) => {
-                const matchedDay = days.find((d) => d.dateNum === dateNum);
-                if (matchedDay) {
-                  setSelectedDayId(matchedDay.id);
-                }
-              }}
             />
           </>
         )}

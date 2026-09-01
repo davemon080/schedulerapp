@@ -151,6 +151,43 @@
         "is_active": { "type": "boolean" }
       },
       "required": ["semester_code", "is_active"]
+    },
+    "WalletTransaction": {
+      "title": "WalletTransaction",
+      "description": "Campus digital wallet transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["credit", "debit"] },
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["topup", "transfer", "access"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "ref": { "type": "string" },
+        "status": { "type": "string" },
+        "recipientOrSender": { "type": "string" },
+        "note": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["user_id", "type", "title", "amount", "ref"]
+    },
+    "SemesterAccess": {
+      "title": "SemesterAccess",
+      "description": "Student semester access grant record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "matric_number": { "type": "string" },
+        "student_email": { "type": "string" },
+        "semester_code": { "type": "string" },
+        "fee_paid": { "type": "number" },
+        "status": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["user_id", "semester_code", "status"]
     }
   },
   "firestore": {
@@ -181,6 +218,18 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "Student accounts and user profiles"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "WalletTransaction",
+      "description": "User subcollection of wallet transactions"
+    },
+    "/wallet_transactions/{transactionId}": {
+      "schema": "WalletTransaction",
+      "description": "Root audit ledger of all campus wallet transactions"
+    },
+    "/semester_access/{accessId}": {
+      "schema": "SemesterAccess",
+      "description": "Grants of active semester access for students"
     },
     "/feedback/{feedbackId}": {
       "schema": "Feedback",

@@ -11,6 +11,10 @@ import {
   Trash2,
   Sparkles,
   ChevronLeft,
+  Clock,
+  Megaphone,
+  BookMarked,
+  Wallet,
 } from 'lucide-react';
 import { NotificationsSkeleton } from './Skeletons';
 
@@ -21,27 +25,50 @@ interface NotificationsViewProps {
   isLoading?: boolean;
 }
 
+type FilterType = 'all' | 'unread' | 'schedule' | 'deadline' | 'broadcast' | 'modules' | 'wallet';
+
 export const NotificationsView: React.FC<NotificationsViewProps> = ({
   notifications,
   onBackToSchedule,
   onDeleteNotif,
   isLoading = false,
 }) => {
-  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'activity'>('all');
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
   if (isLoading) {
     return <NotificationsSkeleton />;
   }
 
-  const filteredNotifications = notifications.filter((n) => {
-    if (activeFilter === 'unread') return n.isUnread;
-    if (activeFilter === 'activity') {
-      return n.type === 'activity' || n.category === 'schedule' || n.category === 'profile';
-    }
-    return true;
-  });
+  const filteredNotifications = notifications
+    .filter((n) => {
+      if (activeFilter === 'unread') return n.isUnread;
+      if (activeFilter === 'schedule') return n.category === 'schedule';
+      if (activeFilter === 'deadline') return n.category === 'deadline';
+      if (activeFilter === 'broadcast') return n.category === 'broadcast';
+      if (activeFilter === 'modules') return n.category === 'modules';
+      if (activeFilter === 'wallet') return n.category === 'wallet';
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = a.timestamp || 0;
+      const timeB = b.timestamp || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (b.id || '').localeCompare(a.id || '');
+    });
 
   const getIcon = (n: NotificationItem) => {
+    if (n.category === 'wallet') {
+      return <Wallet className="w-4 h-4 text-emerald-600" />;
+    }
+    if (n.category === 'deadline') {
+      return <Clock className="w-4 h-4 text-amber-600" />;
+    }
+    if (n.category === 'broadcast') {
+      return <Megaphone className="w-4 h-4 text-indigo-600" />;
+    }
+    if (n.category === 'modules') {
+      return <BookMarked className="w-4 h-4 text-blue-600" />;
+    }
     if (n.category === 'profile') {
       return <UserCheck className="w-4 h-4 text-purple-600" />;
     }
@@ -61,6 +88,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   };
 
   const unreadCount = notifications.filter((n) => n.isUnread).length;
+
+  const filterOptions: { id: FilterType; label: string }[] = [
+    { id: 'all', label: `All (${notifications.length})` },
+    { id: 'unread', label: `Unread (${unreadCount})` },
+    { id: 'schedule', label: 'Schedule' },
+    { id: 'deadline', label: 'Deadlines' },
+    { id: 'broadcast', label: 'Broadcasts' },
+    { id: 'modules', label: 'Modules' },
+    { id: 'wallet', label: 'Wallet' },
+  ];
 
   return (
     <div className="space-y-4 pb-36 pt-2">
@@ -91,39 +128,21 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         </div>
       </div>
 
-      {/* Filter Tabs with Sliding Active Pill */}
-      <div className="glass-container rounded-[22px] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.03)] border border-white/80 flex items-center gap-1.5 relative">
-        {(['all', 'unread', 'activity'] as const).map((filterKey) => {
-          const isActive = activeFilter === filterKey;
-          const label =
-            filterKey === 'all'
-              ? `All (${notifications.length})`
-              : filterKey === 'unread'
-              ? `Unread (${unreadCount})`
-              : 'Activities';
-
+      {/* Filter Tabs with Horizontal Scrollable Pills */}
+      <div className="glass-container rounded-[22px] p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.03)] border border-white/80 flex items-center gap-1 overflow-x-auto no-scrollbar">
+        {filterOptions.map((opt) => {
+          const isActive = activeFilter === opt.id;
           return (
             <button
-              key={filterKey}
-              onClick={() => setActiveFilter(filterKey)}
-              className={`flex-1 py-2 px-3 rounded-[16px] text-[12px] font-semibold transition-colors duration-150 cursor-pointer text-center relative z-10 ${
+              key={opt.id}
+              onClick={() => setActiveFilter(opt.id)}
+              className={`py-1.5 px-3 rounded-[16px] text-[11.5px] font-semibold whitespace-nowrap shrink-0 transition-colors duration-150 cursor-pointer text-center relative z-10 ${
                 isActive
-                  ? filterKey === 'unread'
-                    ? 'text-[#007AFF]'
-                    : filterKey === 'activity'
-                    ? 'text-purple-600'
-                    : 'text-[#1C1C1E]'
+                  ? 'text-blue-600 bg-white shadow-2xs border border-black/5 font-bold'
                   : 'text-[#8E8E93] hover:text-[#1C1C1E]'
               }`}
             >
-              {isActive && (
-                <motion.div
-                  layoutId="activeNotifFilterPill"
-                  transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-                  className="absolute inset-0 bg-white rounded-[16px] shadow-2xs border border-black/5 -z-10"
-                />
-              )}
-              {label}
+              {opt.label}
             </button>
           );
         })}

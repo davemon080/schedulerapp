@@ -8,12 +8,13 @@ import {
   Settings, 
   LayoutDashboard, 
   LogOut, 
-  ExternalLink,
-  Shield,
-  Building2,
-  BookOpen,
-  MessageSquare,
-  Sparkles
+  ExternalLink, 
+  Shield, 
+  Building2, 
+  BookOpen, 
+  MessageSquare, 
+  Sparkles,
+  Activity
 } from 'lucide-react';
 import { AdminTab, AdminUser } from './types';
 
@@ -96,6 +97,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       label: 'Feedback & Clashes',
       icon: MessageSquare,
       badge: feedbackCount > 0 ? feedbackCount : undefined,
+    },
+    {
+      id: 'analytics' as AdminTab,
+      label: 'App Usage & Telemetry',
+      icon: Activity,
     },
     {
       id: 'database' as AdminTab,

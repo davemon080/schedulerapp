@@ -3,7 +3,11 @@ export interface EventItem {
   course: string;
   title: string;
   time: string;
+  startTime?: string;
+  endTime?: string;
   location: string;
+  deliveryMode?: 'physical' | 'online';
+  meetingLink?: string;
   views: string;
   tags: string[];
   isPostponed?: boolean;
@@ -46,7 +50,7 @@ export interface AssignmentItem {
   semester?: string;
 }
 
-export type NavigationTab = 'Schedule' | 'Deadlines' | 'Broadcasts' | 'Modules' | 'Profile' | 'Notifications';
+export type NavigationTab = 'Schedule' | 'Deadlines' | 'Broadcasts' | 'Modules' | 'Profile' | 'Notifications' | 'Calendar';
 
 export interface UserSession {
   id?: string;
@@ -67,11 +71,89 @@ export interface UserSession {
   is_payed?: boolean;
   is_paid?: boolean;
   hasFreeAccess?: boolean;
+  wallet_balance?: number;
+  walletBalance?: number;
+  paid_semester?: string;
+  paid_at?: string;
   semester?: string;
   current_semester?: string;
   session?: string;
   academic_session?: string;
+  active_session_token?: string;
+  last_active_at?: string;
+  last_active_device?: string;
   isLoggedIn: boolean;
+}
+
+export interface LevelAdvisorInfo {
+  id?: string;
+  name: string;
+  title: string;
+  department: string;
+  department_id?: string;
+  level?: number | string;
+  officeLocation: string;
+  phoneNumber: string;
+  email?: string;
+  consultationHours?: string;
+  photoUrl?: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  matricNumber: string;
+  category: 'academic' | 'timetable' | 'wallet' | 'materials' | 'session' | 'other';
+  subject: string;
+  message: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'open' | 'in_progress' | 'resolved';
+  response?: string;
+  respondedAt?: string;
+  respondedBy?: string;
+  createdAt: string;
+  timestamp: number;
+}
+
+export interface AppVisitRecord {
+  id: string;
+  userId?: string;
+  userEmail?: string;
+  matricNumber?: string;
+  department?: string;
+  level?: number | string;
+  device?: string;
+  path?: string;
+  timestamp: number;
+  dateStr: string; // YYYY-MM-DD
+  hour: number; // 0-23
+}
+
+export interface WalletTransaction {
+  id: string;
+  user_id?: string;
+  type: 'credit' | 'debit';
+  title: string;
+  category: 'dues' | 'topup' | 'transfer' | 'fee' | 'kit' | 'access';
+  amount: number;
+  date: string;
+  timestamp: number;
+  ref: string;
+  status: 'Success' | 'Pending' | 'Failed';
+  recipientOrSender?: string;
+  note?: string;
+  created_at?: string;
+}
+
+export interface UserWalletData {
+  balance: number;
+  is_paid: boolean;
+  is_payed: boolean;
+  paid_semester?: string;
+  paid_at?: string;
+  transactions: WalletTransaction[];
 }
 
 
@@ -83,7 +165,7 @@ export interface NotificationItem {
   timeAgo?: string;
   isUnread: boolean;
   type?: 'alert' | 'info' | 'success' | 'activity';
-  category?: 'schedule' | 'profile' | 'deadline' | 'system';
+  category?: 'schedule' | 'profile' | 'deadline' | 'system' | 'broadcast' | 'modules' | 'wallet';
   timestamp?: number;
   department_id?: string;
   level?: number | string;
@@ -91,4 +173,5 @@ export interface NotificationItem {
   author?: string;
   sender?: string;
   priority?: 'urgent' | 'normal';
+  images?: string[];
 }

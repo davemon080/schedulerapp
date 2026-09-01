@@ -10,7 +10,9 @@ interface HeaderSectionProps {
   profileImage?: string | null;
   onUploadProfileImage?: (imageDataUrl: string) => void;
   isNotificationsActive?: boolean;
+  isCalendarActive?: boolean;
   userSession?: UserSession | null;
+  isAccessBlocked?: boolean;
 }
 
 export const HeaderSection: React.FC<HeaderSectionProps> = ({
@@ -21,12 +23,21 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
   profileImage,
   onUploadProfileImage,
   isNotificationsActive = false,
+  isCalendarActive = false,
   userSession,
+  isAccessBlocked = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const displayName = userSession?.fullName || 'Student User';
-  const displayDepartment = userSession?.department || 'Department of Industrial Chemistry';
+  
+  // Format department name cleanly without 'Department of'
+  const formatDeptName = (dept?: string) => {
+    if (!dept) return 'Industrial Chemistry';
+    return dept.replace(/^Department\s+of\s+/i, '').replace(/^Dept\.?\s+of\s+/i, '').trim();
+  };
+
+  const displayDepartment = formatDeptName(userSession?.department);
 
   const getInitials = (name: string) => {
     if (!name || name.trim().length === 0) return 'ST';
@@ -109,27 +120,37 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
       <div className="flex items-center gap-2">
         {/* Calendar Icon Container */}
         <button
-          onClick={onOpenCalendarView}
-          aria-label="Open Calendar"
-          className="w-10 h-10 rounded-[16px] glass-icon-btn flex items-center justify-center text-[#1C1C1E] active:scale-95 transition-all duration-150 relative cursor-pointer"
-          title="Monthly Calendar"
+          onClick={isAccessBlocked ? undefined : onOpenCalendarView}
+          disabled={isAccessBlocked}
+          aria-label="Open Calendar Page"
+          className={`w-10 h-10 rounded-[16px] flex items-center justify-center transition-all duration-150 relative ${
+            isAccessBlocked
+              ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
+              : isCalendarActive
+              ? 'bg-blue-500/15 border-2 border-[#007AFF] text-[#007AFF] shadow-xs active:scale-95 cursor-pointer'
+              : 'glass-icon-btn text-[#1C1C1E] active:scale-95 cursor-pointer'
+          }`}
+          title={isAccessBlocked ? "Access locked - activate semester access to view calendar" : "Monthly Academic Calendar"}
         >
-          <CalendarIcon className="w-[19px] h-[19px] text-[#1C1C1E]" />
+          <CalendarIcon className={`w-[19px] h-[19px] ${isAccessBlocked ? 'text-slate-400' : isCalendarActive ? 'text-[#007AFF]' : 'text-[#1C1C1E]'}`} />
         </button>
 
         {/* Notification Bell Container with red badge */}
         <button
-          onClick={onOpenNotifications}
+          onClick={isAccessBlocked ? undefined : onOpenNotifications}
+          disabled={isAccessBlocked}
           aria-label="Open Notifications Page"
-          className={`w-10 h-10 rounded-[16px] flex items-center justify-center active:scale-95 transition-all duration-150 relative cursor-pointer ${
-            isNotificationsActive
-              ? 'bg-blue-500/15 border-2 border-[#007AFF] text-[#007AFF] shadow-xs'
-              : 'glass-icon-btn text-[#1C1C1E]'
+          className={`w-10 h-10 rounded-[16px] flex items-center justify-center transition-all duration-150 relative ${
+            isAccessBlocked
+              ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
+              : isNotificationsActive
+              ? 'bg-blue-500/15 border-2 border-[#007AFF] text-[#007AFF] shadow-xs active:scale-95 cursor-pointer'
+              : 'glass-icon-btn text-[#1C1C1E] active:scale-95 cursor-pointer'
           }`}
-          title="Notifications & Activities Page"
+          title={isAccessBlocked ? "Access locked - activate semester access to view notifications" : "Notifications & Activities Page"}
         >
-          <Bell className={`w-[19px] h-[19px] ${isNotificationsActive ? 'text-[#007AFF]' : 'text-[#1C1C1E]'}`} />
-          {unreadCount > 0 && (
+          <Bell className={`w-[19px] h-[19px] ${isAccessBlocked ? 'text-slate-400' : isNotificationsActive ? 'text-[#007AFF]' : 'text-[#1C1C1E]'}`} />
+          {!isAccessBlocked && unreadCount > 0 && (
             <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-[#FF3B30] rounded-full ring-2 ring-white shadow-sm animate-pulse" />
           )}
         </button>

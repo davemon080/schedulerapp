@@ -7,6 +7,7 @@ interface CalendarModalProps {
   onClose: () => void;
   selectedDate: number;
   onSelectDate: (dayNum: number) => void;
+  zIndex?: number;
 }
 
 export const CalendarModal: React.FC<CalendarModalProps> = ({
@@ -14,6 +15,7 @@ export const CalendarModal: React.FC<CalendarModalProps> = ({
   onClose,
   selectedDate,
   onSelectDate,
+  zIndex = 50,
 }) => {
   if (!isOpen) return null;
 
@@ -24,7 +26,10 @@ export const CalendarModal: React.FC<CalendarModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-end justify-center pointer-events-auto">
+      <div
+        className="fixed inset-0 flex items-end justify-center pointer-events-auto"
+        style={{ zIndex }}
+      >
         {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -84,28 +89,31 @@ export const CalendarModal: React.FC<CalendarModalProps> = ({
               {calendarDays.map((dayNum) => {
                 const isSelected = dayNum === selectedDate;
                 const isToday = dayNum === 19;
-                const isScheduledWeek = dayNum >= 17 && dayNum <= 23;
+                // Calculate weekday for each date in October 2026 (Oct 1 is Thu)
+                const dayIndex = (4 + dayNum - 1) % 7;
+                const isWeekend = dayIndex === 0 || dayIndex === 6; // Sun=0, Sat=6
 
                 return (
                   <button
                     key={dayNum}
+                    type="button"
                     onClick={() => {
                       onSelectDate(dayNum);
                       onClose();
                     }}
-                    className={`h-9 w-9 mx-auto rounded-full flex flex-col items-center justify-center text-[13px] font-semibold transition-all relative cursor-pointer ${
+                    className={`h-9 w-9 mx-auto rounded-full flex flex-col items-center justify-center text-[13px] font-semibold transition-all relative cursor-pointer active:scale-95 ${
                       isSelected
-                        ? 'bg-[#007AFF] text-white shadow-[0_4px_12px_rgba(0,122,255,0.4)] scale-105'
+                        ? 'bg-[#007AFF] text-white shadow-[0_4px_12px_rgba(0,122,255,0.4)] scale-105 font-bold z-10'
                         : isToday
-                        ? 'bg-blue-100/80 text-[#007AFF] border border-blue-300/80 font-bold'
-                        : isScheduledWeek
-                        ? 'text-[#1C1C1E] hover:bg-white/80 bg-white/40'
-                        : 'text-slate-400 hover:bg-white/40'
+                        ? 'bg-blue-100/90 text-[#007AFF] border border-blue-400 font-bold shadow-2xs'
+                        : !isWeekend
+                        ? 'text-[#1C1C1E] hover:bg-white/90 bg-white/40 border border-white/60'
+                        : 'text-slate-500 hover:bg-white/60 bg-white/20'
                     }`}
                   >
                     <span>{dayNum}</span>
-                    {isScheduledWeek && !isSelected && (
-                      <span className="w-1 h-1 rounded-full bg-[#007AFF] -mt-0.5" />
+                    {!isWeekend && !isSelected && !isToday && (
+                      <span className="w-1 h-1 rounded-full bg-[#007AFF]/60 -mt-0.5" />
                     )}
                   </button>
                 );
@@ -116,9 +124,9 @@ export const CalendarModal: React.FC<CalendarModalProps> = ({
             <div className="mt-4 pt-3 border-t border-black/5 flex items-center justify-between text-[11px] text-[#8E8E93]">
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-[#007AFF]" />
-                Active Class Days (17 - 23 Oct)
+                Tap any date to open schedule
               </span>
-              <span>Wed 19 is Today</span>
+              <span className="font-medium text-[#007AFF]">Wed 19 is Today</span>
             </div>
           </div>
         </motion.div>

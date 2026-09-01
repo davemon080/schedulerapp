@@ -1,11 +1,12 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { NavigationTab } from '../types';
-import { CalendarDays, Clock, Radio, BookMarked, User } from 'lucide-react';
+import { CalendarDays, Clock, Radio, BookMarked, User, Lock } from 'lucide-react';
 
 interface BottomNavBarProps {
   activeTab: NavigationTab;
   onSelectTab: (tab: NavigationTab) => void;
+  isPaid?: boolean;
 }
 
 interface NavItemConfig {
@@ -25,6 +26,7 @@ const NAV_ITEMS: NavItemConfig[] = [
 export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   activeTab,
   onSelectTab,
+  isPaid = true,
 }) => {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 flex justify-center px-4 pb-4 pt-2 pointer-events-none">
@@ -32,6 +34,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
+          const isLocked = !isPaid && item.id !== 'Profile';
 
           return (
             <motion.button
@@ -51,19 +54,27 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
                 />
               )}
 
-              <motion.div
-                animate={{
-                  scale: isActive ? 1.08 : 1,
-                  y: isActive ? -1 : 0,
-                }}
-                transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-              >
-                <Icon
-                  className={`w-[20px] h-[20px] ${
-                    isActive ? 'text-[#007AFF]' : 'group-hover:text-slate-800'
-                  }`}
-                />
-              </motion.div>
+              <div className="relative">
+                <motion.div
+                  animate={{
+                    scale: isActive ? 1.08 : 1,
+                    y: isActive ? -1 : 0,
+                  }}
+                  transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+                >
+                  <Icon
+                    className={`w-[20px] h-[20px] ${
+                      isActive ? 'text-[#007AFF]' : 'group-hover:text-slate-800'
+                    }`}
+                  />
+                </motion.div>
+
+                {isLocked && (
+                  <span className="absolute -top-1 -right-1.5 w-3 h-3 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                    <Lock className="w-2 h-2 stroke-[2.5]" />
+                  </span>
+                )}
+              </div>
 
               <span
                 className={`text-[10.5px] mt-0.5 tracking-tight text-center truncate w-full transition-all duration-150 ${

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { AdminUser } from './types';
+import { verifyAdminCredentialsFromDb } from '../lib/dbService';
 import { 
   Shield, 
   Lock, 
@@ -38,39 +39,26 @@ export const AdminAuth: React.FC<AdminAuthProps> = ({
     setErrorMessage(null);
     setIsLoading(true);
 
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = password.trim();
+
     try {
       // 1. Attempt login via backend route
-      const res = await fetch('/api/admin/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data.success && data.user) {
-        const adminUser: AdminUser = {
-          id: data.user.id,
-          email: data.user.email,
-          role: data.user.role || 'Super Administrator',
-          fullName: data.user.fullName || 'Academic Administrator',
-          lastLogin: new Date().toISOString(),
-          isAdmin: true,
-        };
-        localStorage.setItem('university_admin_session', JSON.stringify(adminUser));
-        onLoginSuccess(adminUser);
-        return;
-      }
-
-      // 2. Client-side Firebase Auth direct attempt
       try {
-        const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
-        if (userCredential.user) {
+        const res = await fetch('/api/admin/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, password: cleanPass }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success && data.user) {
           const adminUser: AdminUser = {
-            id: userCredential.user.uid,
-            email: userCredential.user.email || email,
-            role: 'Academic Administrator',
-            fullName: userCredential.user.displayName || 'Admin Officer',
+            id: data.user.id,
+            email: data.user.email,
+            role: data.user.role || 'Super Administrator',
+            fullName: data.user.fullName || 'Academic Administrator',
             lastLogin: new Date().toISOString(),
             isAdmin: true,
           };
@@ -78,17 +66,18 @@ export const AdminAuth: React.FC<AdminAuthProps> = ({
           onLoginSuccess(adminUser);
           return;
         }
-      } catch (fbErr) {
-        // Continue to check fallback
+      } catch (backendErr) {
+        // Continue to Firestore admins collection verification
       }
 
-      // 3. Fallback for demo admin credentials
-      if (email.toLowerCase().includes('admin') || email.toLowerCase() === 'davemon080@gmail.com') {
+      // 2. Direct verification against separate Firestore 'admins' collection
+      const dbAdmin = await verifyAdminCredentialsFromDb(cleanEmail, cleanPass);
+      if (dbAdmin) {
         const adminUser: AdminUser = {
-          id: 'admin_sys_root',
-          email: email.trim(),
-          role: 'Super Administrator',
-          fullName: email.toLowerCase() === 'davemon080@gmail.com' ? 'David Mon' : 'Academic Operations Officer',
+          id: dbAdmin.id || 'admin_davemon080',
+          email: dbAdmin.email,
+          role: dbAdmin.role || 'Super Administrator',
+          fullName: dbAdmin.fullName || 'David Mon (Super Admin)',
           lastLogin: new Date().toISOString(),
           isAdmin: true,
         };
@@ -97,30 +86,18 @@ export const AdminAuth: React.FC<AdminAuthProps> = ({
         return;
       }
 
-      setErrorMessage(data.message || 'Invalid admin credentials. Please verify your email and password.');
+      // 3. Reject any unauthorized account
+      setErrorMessage('Access denied. Only registered administrator accounts on the database can access this portal.');
     } catch (err: any) {
-      if (email.toLowerCase().includes('admin') || email.toLowerCase() === 'davemon080@gmail.com') {
-        const adminUser: AdminUser = {
-          id: 'admin_sys_root',
-          email: email.trim(),
-          role: 'Super Administrator',
-          fullName: 'Academic Operations Officer',
-          lastLogin: new Date().toISOString(),
-          isAdmin: true,
-        };
-        localStorage.setItem('university_admin_session', JSON.stringify(adminUser));
-        onLoginSuccess(adminUser);
-      } else {
-        setErrorMessage(err?.message || 'Authentication failed. Please verify credentials.');
-      }
+      setErrorMessage(err?.message || 'Access denied. Account is not authorized as an administrator.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleFillDemoAdmin = () => {
-    setEmail('admin@university.edu');
-    setPassword('admin123');
+    setEmail('davemon080@gmail.com');
+    setPassword('Eroll@12');
     setErrorMessage(null);
   };
 

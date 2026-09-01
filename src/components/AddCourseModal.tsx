@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, BookOpen, Hash, Layers, FileText, Check, AlertCircle, Building2, GraduationCap } from 'lucide-react';
+import { X, BookOpen, Hash, Check, AlertCircle } from 'lucide-react';
 import { DepartmentRecord } from '../admin/types';
 
 export interface CourseFormData {
@@ -27,14 +27,6 @@ interface AddCourseModalProps {
   availableDepartments?: DepartmentRecord[];
 }
 
-const DEFAULT_DEPARTMENTS: DepartmentRecord[] = [
-  { id: 'dept-ich', name: 'Department of Industrial Chemistry', code: 'ICH' },
-  { id: 'dept-chm', name: 'Department of Chemistry', code: 'CHM' },
-  { id: 'dept-csc', name: 'Department of Computer Science', code: 'CSC' },
-  { id: 'dept-bch', name: 'Department of Biochemistry', code: 'BCH' },
-  { id: 'dept-mcb', name: 'Department of Microbiology', code: 'MCB' },
-];
-
 export const AddCourseModal: React.FC<AddCourseModalProps> = ({
   isOpen,
   onClose,
@@ -44,13 +36,7 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
   currentLevel,
   initialSemester = '1st Semester',
   editingCourse = null,
-  availableDepartments = [],
 }) => {
-  const depts = availableDepartments.length > 0 ? availableDepartments : DEFAULT_DEPARTMENTS;
-
-  const [selectedDeptId, setSelectedDeptId] = useState<string>(
-    editingCourse?.department_id || departmentId || 'dept-ich'
-  );
   const [courseCode, setCourseCode] = useState(editingCourse?.courseCode || editingCourse?.code || '');
   const [title, setTitle] = useState(editingCourse?.title || editingCourse?.name || '');
   const [units, setUnits] = useState<number>(
@@ -58,20 +44,20 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
       ? editingCourse.units
       : parseInt(String(editingCourse?.units || '3').replace(/\D/g, ''), 10) || 3
   );
-  const [semester, setSemester] = useState<string>(
-    editingCourse?.semester || (initialSemester === 'all' ? '1st Semester' : initialSemester)
-  );
-  const [level, setLevel] = useState<number>(editingCourse?.level || currentLevel || 100);
   const [description, setDescription] = useState(editingCourse?.description || '');
-  const [pdfurl, setPdfurl] = useState(editingCourse?.pdfurl || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Fixed academic scope derived from the course rep's active session
+  const targetLevel = Number(editingCourse?.level || currentLevel || 100);
+  const targetSemester = editingCourse?.semester || (initialSemester === 'all' ? '1st Semester' : initialSemester || '1st Semester');
+  const targetDeptId = departmentId || editingCourse?.department_id || 'dept-ich';
+  const targetDeptName = departmentName || editingCourse?.departmentName || 'Department of Industrial Chemistry';
 
   // Reset form when modal opens with new course or empty
   React.useEffect(() => {
     if (isOpen) {
       if (editingCourse) {
-        setSelectedDeptId(editingCourse.department_id || departmentId || 'dept-ich');
         setCourseCode(editingCourse.courseCode || editingCourse.code || '');
         setTitle(editingCourse.title || editingCourse.name || '');
         setUnits(
@@ -79,31 +65,18 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
             ? editingCourse.units
             : parseInt(String(editingCourse.units || '3').replace(/\D/g, ''), 10) || 3
         );
-        setSemester(editingCourse.semester || '1st Semester');
-        setLevel(editingCourse.level || currentLevel || 100);
         setDescription(editingCourse.description || '');
-        setPdfurl(editingCourse.pdfurl || '');
       } else {
-        setSelectedDeptId(departmentId || 'dept-ich');
         setCourseCode('');
         setTitle('');
         setUnits(3);
-        setSemester(initialSemester === 'all' ? '1st Semester' : initialSemester);
-        setLevel(currentLevel || 100);
         setDescription('');
-        setPdfurl('');
       }
       setErrorMsg('');
     }
-  }, [isOpen, editingCourse, currentLevel, initialSemester, departmentId]);
+  }, [isOpen, editingCourse]);
 
   if (!isOpen) return null;
-
-  const currentDeptObj = depts.find((d) => d.id === selectedDeptId) || {
-    id: selectedDeptId,
-    name: departmentName || 'Department of Industrial Chemistry',
-    code: 'ICH',
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,12 +97,12 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
         courseCode: courseCode.trim().toUpperCase(),
         title: title.trim(),
         units: Number(units) || 3,
-        semester,
-        level: Number(level) || 100,
-        department_id: selectedDeptId || 'dept-ich',
-        departmentName: currentDeptObj.name,
+        semester: targetSemester,
+        level: targetLevel,
+        department_id: targetDeptId,
+        departmentName: targetDeptName,
         description: description.trim(),
-        pdfurl: pdfurl.trim(),
+        pdfurl: editingCourse?.pdfurl || '',
       });
       onClose();
     } catch (err: any) {
@@ -165,26 +138,27 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold text-[11px] border border-blue-200">
-                  Course Management
+                  Course Rep Portal
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[11px]">
-                  {level}L
+                  {targetLevel} Level
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[11px] border border-indigo-200">
-                  {semester}
+                  {targetSemester}
                 </span>
               </div>
               <h3 className="text-[19px] font-bold text-slate-900 mt-1">
                 {editingCourse ? 'Edit Course' : 'Add New Department Course'}
               </h3>
-              <p className="text-[12px] text-slate-500 mt-0.5">
-                {currentDeptObj.name}
+              <p className="text-[12px] text-slate-500 mt-0.5 font-medium">
+                {targetDeptName}
               </p>
             </div>
 
             <button
+              type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 active:scale-95 transition-all"
+              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 active:scale-95 transition-all cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -198,30 +172,6 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Department Selection */}
-            <div>
-              <label className="block text-[12px] font-bold text-slate-700 mb-1">
-                Target Department <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <Building2 className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
-                <select
-                  value={selectedDeptId}
-                  onChange={(e) => setSelectedDeptId(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                >
-                  {depts.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} ({d.code || 'DEPT'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                This course will strictly only be visible within this department's dashboard.
-              </p>
-            </div>
-
             {/* Row 1: Code and Units */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -236,7 +186,7 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                     placeholder="e.g. ICH 101"
                     value={courseCode}
                     onChange={(e) => setCourseCode(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 uppercase font-mono"
                   />
                 </div>
               </div>
@@ -250,7 +200,7 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                   <select
                     value={units}
                     onChange={(e) => setUnits(Number(e.target.value))}
-                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
                   >
                     <option value={1}>1 Unit</option>
                     <option value={2}>2 Units</option>
@@ -277,46 +227,6 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
               />
             </div>
 
-            {/* Row 2: Semester & Academic Level */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[12px] font-bold text-slate-700 mb-1">
-                  Semester <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <Layers className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
-                  <select
-                    value={semester}
-                    onChange={(e) => setSemester(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value="1st Semester">1st Semester</option>
-                    <option value="2nd Semester">2nd Semester</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[12px] font-bold text-slate-700 mb-1">
-                  Academic Level <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <GraduationCap className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
-                  <select
-                    value={level}
-                    onChange={(e) => setLevel(Number(e.target.value))}
-                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    <option value={100}>100 Level</option>
-                    <option value={200}>200 Level</option>
-                    <option value={300}>300 Level</option>
-                    <option value={400}>400 Level</option>
-                    <option value={500}>500 Level</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
             {/* Course Description / Syllabus */}
             <div>
               <label className="block text-[12px] font-bold text-slate-700 mb-1">
@@ -327,25 +237,8 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                 placeholder="Key topics, lab requirements, recommended textbooks..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
               />
-            </div>
-
-            {/* Syllabus PDF / Resource Link */}
-            <div>
-              <label className="block text-[12px] font-bold text-slate-700 mb-1">
-                Official Syllabus PDF / Resource URL (Optional)
-              </label>
-              <div className="relative">
-                <FileText className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={pdfurl}
-                  onChange={(e) => setPdfurl(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                />
-              </div>
             </div>
 
             {/* Actions */}
@@ -354,14 +247,14 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
+                className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 shadow-md shadow-blue-500/20 flex items-center gap-1.5 transition-all"
+                className="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 shadow-md shadow-blue-500/20 flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <Check className="w-4 h-4" />
                 <span>{isSubmitting ? 'Saving...' : editingCourse ? 'Update Course' : 'Save Course'}</span>

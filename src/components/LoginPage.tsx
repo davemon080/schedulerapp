@@ -87,29 +87,54 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setIsLoading(true);
 
     try {
-      // 1. Authenticate with Firebase Auth
+      // 0. Super Admin account separation check
+      if (trimmedEmail.toLowerCase() === 'davemon080@gmail.com') {
+        setErrorMessage('This is a Super Administrator account. Please click "Administrator Access" in the top bar to log into the Admin Dashboard.');
+        setIsLoading(false);
+        return;
+      }
+
+      // 1. Fetch student profile from Firestore by email or matric number first to verify database registration
+      let studentProfile = await fetchStudentByEmailOrMatric(trimmedEmail) || await fetchStudentByEmailOrMatric(trimmedMatric);
+
+      // 2. Authenticate with Firebase Auth if available
       let authUserUid: string | null = null;
       try {
         const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
         authUserUid = userCredential.user.uid;
       } catch (authErr: any) {
-        console.warn('Firebase Auth error during student login:', authErr.code, authErr.message);
+        // Handled via database password check below
       }
 
-      // 2. Fetch student profile from Firestore by Auth UID or email/matric
-      let studentProfile = null;
-      if (authUserUid) {
+      if (authUserUid && !studentProfile) {
         studentProfile = await fetchStudentByAuthUid(authUserUid);
       }
-      if (!studentProfile) {
-        studentProfile = await fetchStudentByEmailOrMatric(trimmedEmail) || await fetchStudentByEmailOrMatric(trimmedMatric);
-      }
 
-      // If neither Firebase Auth nor Firestore found user, show friendly error
-      if (!authUserUid && !studentProfile) {
-        setErrorMessage('Invalid student credentials. Please check your email and password (default: 123456).');
+      // If no account exists in the database, reject login
+      if (!studentProfile && !authUserUid) {
+        setErrorMessage('No registered student account found matching this email or matric number. Please contact your department administrator.');
         setIsLoading(false);
         return;
+      }
+
+      // 3. Strict verification of database credentials
+      if (studentProfile) {
+        // Verify matric number matches the database record if provided
+        const dbMatricClean = (studentProfile.matric_number || studentProfile.matricNumber || '').replace(/[\s\/-]/g, '').toUpperCase();
+        const enteredMatricClean = trimmedMatric.replace(/[\s\/-]/g, '').toUpperCase();
+        if (enteredMatricClean && dbMatricClean && enteredMatricClean !== dbMatricClean) {
+          setErrorMessage('Matriculation number does not match the registered student profile for this email.');
+          setIsLoading(false);
+          return;
+        }
+
+        // Verify password matches database password (or default 123456 if unset)
+        const expectedPassword = studentProfile.password || studentProfile.portal_password || '123456';
+        if (!authUserUid && trimmedPassword !== expectedPassword) {
+          setErrorMessage('Incorrect password. Please verify your portal password (default: 123456).');
+          setIsLoading(false);
+          return;
+        }
       }
 
       // Derive display info
@@ -139,6 +164,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       const profilePic = studentProfile?.profile_pic_url || studentProfile?.profileImage || studentProfile?.photoURL || '';
 
+      const isAdminAccount = Boolean(studentProfile?.isadmin || studentProfile?.isAdmin);
+      const isCourseRepAccount = Boolean(studentProfile?.iscourserep || studentProfile?.isCourseRep);
+      // Only Course Reps and Admins get free semester access. Standard students must pay.
+      const isUserPaid = Boolean(
+        isAdminAccount ||
+        isCourseRepAccount ||
+        studentProfile?.is_paid ||
+        studentProfile?.is_payed
+      );
+
+      const userWalletBal = typeof studentProfile?.wallet_balance === 'number' 
+        ? studentProfile.wallet_balance 
+        : (typeof studentProfile?.walletBalance === 'number' ? studentProfile.walletBalance : 0);
+
       onLogin({
         id: studentUid,
         uid: studentUid,
@@ -153,13 +192,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         year_level: yearLevel,
         semester: activeSemester,
         current_semester: activeSemester,
+        session: activeSession,
+        academic_session: activeSession,
         profileImage: profilePic,
         profile_pic_url: profilePic,
-        isAdmin: Boolean(studentProfile?.isadmin || studentProfile?.isAdmin),
-        isCourseRep: Boolean(studentProfile?.iscourserep || studentProfile?.isCourseRep),
-        is_payed: Boolean(studentProfile?.is_payed ?? studentProfile?.is_paid ?? true),
-        is_paid: Boolean(studentProfile?.is_payed ?? studentProfile?.is_paid ?? true),
-        hasFreeAccess: Boolean(studentProfile?.is_payed ?? studentProfile?.is_paid ?? true),
+        isAdmin: isAdminAccount,
+        isCourseRep: isCourseRepAccount,
+        is_payed: isUserPaid,
+        is_paid: isUserPaid,
+        hasFreeAccess: isCourseRepAccount || isAdminAccount,
+        wallet_balance: userWalletBal,
+        walletBalance: userWalletBal,
+        paid_semester: studentProfile?.paid_semester,
+        paid_at: studentProfile?.paid_at,
         isLoggedIn: true,
       });
     } catch (err: any) {

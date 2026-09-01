@@ -1,45 +1,38 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AssignmentItem } from '../types';
+import { NotificationItem } from '../types';
 import {
   ChevronLeft,
   ChevronRight,
-  CheckCircle2,
+  Megaphone,
   Clock,
-  Calendar,
-  BookOpen,
   User,
-  FileText,
-  Upload,
   Image as ImageIcon,
-  Edit3,
+  Plus,
   Trash2,
   Maximize2,
-  Check,
-  AlertCircle,
   Share2,
-  Plus,
+  CheckCircle2,
+  AlertTriangle,
+  Upload,
+  Calendar,
 } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
 
-interface AssignmentDetailsViewProps {
-  assignment: AssignmentItem;
+interface BroadcastDetailsViewProps {
+  broadcast: NotificationItem;
   onBack: () => void;
-  onToggleComplete: (id: string) => void;
-  onEdit: (assignment: AssignmentItem) => void;
-  onDelete: (id: string) => void;
-  onAddImages: (id: string, newImages: string[]) => void;
-  onDeleteImage: (id: string, imageIndex: number) => void;
+  onDeleteBroadcast?: (id: string) => void;
+  onAddImages?: (id: string, newImages: string[]) => void;
+  onDeleteImage?: (id: string, imageIndex: number) => void;
   isCourseRep?: boolean;
 }
 
-export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
-  assignment,
+export const BroadcastDetailsView: React.FC<BroadcastDetailsViewProps> = ({
+  broadcast,
   onBack,
-  onToggleComplete,
-  onEdit,
-  onDelete,
+  onDeleteBroadcast,
   onAddImages,
   onDeleteImage,
   isCourseRep = false,
@@ -52,7 +45,8 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
 
-  const images = assignment.images || [];
+  const images = broadcast.images || [];
+  const isUrgent = broadcast.type === 'alert' || broadcast.priority === 'urgent';
 
   const handleOpenViewer = (index: number) => {
     setSelectedImageIndex(index);
@@ -74,7 +68,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
         }
         processed++;
         if (processed === files.length) {
-          onAddImages(assignment.id, newImages);
+          onAddImages?.(broadcast.id, newImages);
         }
       };
       reader.readAsDataURL(file);
@@ -107,13 +101,6 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
     }
   };
 
-  const priorityColor =
-    assignment.priority === 'High'
-      ? 'text-rose-700 bg-rose-50 border-rose-200/80'
-      : assignment.priority === 'Medium'
-      ? 'text-amber-700 bg-amber-50 border-amber-200/80'
-      : 'text-blue-700 bg-blue-50 border-blue-200/80';
-
   return (
     <div className="space-y-4 pb-20 pt-1">
       {/* Top Bar with Back Button & Actions */}
@@ -124,7 +111,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/80 hover:bg-white text-[13px] font-semibold text-[#007AFF] border border-white/90 shadow-2xs transition-all cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
-          <span>Deadlines</span>
+          <span>Broadcasts</span>
         </motion.button>
 
         <div className="flex items-center gap-2">
@@ -134,7 +121,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
                 whileTap={{ scale: 0.94 }}
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-[#007AFF] text-[12px] font-bold border border-blue-200/60 shadow-2xs transition-all cursor-pointer"
-                title="Add photos or diagrams"
+                title="Add photos to this broadcast"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Photos</span>
@@ -148,32 +135,26 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
                 onChange={handleImageUpload}
                 className="hidden"
               />
-
-              <motion.button
-                whileTap={{ scale: 0.94 }}
-                onClick={() => onEdit(assignment)}
-                className="p-2 rounded-full bg-white/80 hover:bg-white text-slate-700 border border-white/90 shadow-2xs transition-all cursor-pointer"
-                title="Edit deadline"
-              >
-                <Edit3 className="w-4 h-4" />
-              </motion.button>
-
-              <motion.button
-                whileTap={{ scale: 0.94 }}
-                onClick={() => setIsConfirmDeleteOpen(true)}
-                className="p-2 rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer"
-                title="Delete deadline"
-              >
-                <Trash2 className="w-4 h-4" />
-              </motion.button>
             </>
+          )}
+
+          {isCourseRep && onDeleteBroadcast && (
+            <motion.button
+              whileTap={{ scale: 0.94 }}
+              onClick={() => setIsConfirmDeleteOpen(true)}
+              className="p-2 rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer"
+              title="Delete broadcast"
+            >
+              <Trash2 className="w-4 h-4" />
+            </motion.button>
           )}
         </div>
       </div>
 
-      {/* 1. IMAGES AT THE TOP (FIRST THING - UNCONTAINED SLIDER) */}
+      {/* 1. IMAGES AT THE TOP (NOT IN ANY CONTAINER) */}
       {images.length > 0 && (
         <div className="space-y-2.5 pt-1">
+          {/* Horizontal Slider Track with Snapping - Edge to Edge Uncontained */}
           <div
             ref={sliderRef}
             onScroll={handleSliderScroll}
@@ -187,7 +168,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
               >
                 <img
                   src={imgUrl}
-                  alt={`Assignment diagram ${idx + 1}`}
+                  alt={`Broadcast attachment ${idx + 1}`}
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
@@ -208,13 +189,13 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
                   Photo {idx + 1} of {images.length}
                 </div>
 
-                {isCourseRep && (
+                {isCourseRep && onDeleteImage && (
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       if (confirm(`Remove photo ${idx + 1}?`)) {
-                        onDeleteImage(assignment.id, idx);
+                        onDeleteImage(broadcast.id, idx);
                       }
                     }}
                     className="absolute top-3 right-3 p-2 rounded-full bg-black/60 hover:bg-rose-600 text-white backdrop-blur-md transition-colors shadow-xs"
@@ -227,7 +208,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
             ))}
           </div>
 
-          {/* Slider Navigation Dots & Prev/Next */}
+          {/* Slider Navigation Dots & Prev/Next (Uncontained) */}
           {images.length > 1 && (
             <div className="flex items-center justify-between px-2 pt-0.5">
               <button
@@ -267,172 +248,85 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
         </div>
       )}
 
-      {/* 2. ALL OTHER DETAILS COME AFTER IMAGES (UNCONTAINED) */}
+      {/* 2. ALL OTHER DETAILS COME AFTER THE IMAGES (UNCONTAINED) */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="space-y-4 px-1 pt-1"
+        className="space-y-3.5 px-1 pt-1"
       >
-        {/* Badges Row */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[12.5px] font-extrabold text-[#007AFF] bg-blue-50/90 px-3 py-1 rounded-full border border-blue-200/70 shadow-2xs">
-              {assignment.course}
-            </span>
-            <span className={`text-[11.5px] font-bold px-2.5 py-1 rounded-full border shadow-2xs ${priorityColor}`}>
-              {assignment.priority} Priority
-            </span>
-            {assignment.level && (
-              <span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-slate-200/70 text-slate-700">
-                {assignment.level}L
+        {/* Header Badges & Author */}
+        <div className="flex items-center justify-between gap-2 pb-1">
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`w-9 h-9 rounded-2xl flex items-center justify-center font-bold shrink-0 ${
+                isUrgent ? 'bg-rose-500 text-white shadow-md shadow-rose-500/25' : 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+              }`}
+            >
+              <Megaphone className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[14.5px] font-bold text-[#1C1C1E]">
+                  {broadcast.sender || broadcast.author || 'Department Rep'}
+                </span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-50" />
+              </div>
+              <p className="text-[11.5px] text-slate-500 flex items-center gap-1 mt-0.5">
+                <Clock className="w-3 h-3 text-slate-400" />
+                <span>{broadcast.time || 'Today'}</span>
+                {broadcast.level && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-200/70 text-slate-700 ml-1">
+                    {broadcast.level}L
+                  </span>
+                )}
+                {broadcast.semester && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-200/70 text-slate-700">
+                    {broadcast.semester}
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {isUrgent && (
+              <span className="text-[10.5px] font-extrabold uppercase px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 border border-rose-200 shadow-2xs flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3 text-rose-600" />
+                Urgent Notice
               </span>
             )}
           </div>
-
-          <span
-            className={`text-[11.5px] font-bold px-3 py-1 rounded-full border flex items-center gap-1.5 shadow-2xs ${
-              assignment.isCompleted
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-amber-50 text-amber-700 border-amber-200'
-            }`}
-          >
-            {assignment.isCompleted ? (
-              <>
-                <Check className="w-3.5 h-3.5 stroke-[3]" />
-                <span>Completed</span>
-              </>
-            ) : (
-              <>
-                <Clock className="w-3.5 h-3.5" />
-                <span>Pending</span>
-              </>
-            )}
-          </span>
         </div>
 
-        {/* Title */}
+        {/* Headline */}
         <div>
-          <h1
-            className={`text-[20px] sm:text-[22px] font-bold tracking-tight leading-snug ${
-              assignment.isCompleted
-                ? 'text-slate-500 line-through decoration-emerald-500/70 decoration-2'
-                : 'text-[#1C1C1E]'
-            }`}
-          >
-            {assignment.title}
+          <h1 className="text-[20px] sm:text-[22px] font-bold tracking-tight text-[#1C1C1E] leading-snug">
+            {broadcast.title}
           </h1>
         </div>
 
-        {/* Due Date Info Row */}
-        <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-slate-600">
-          <div className="flex items-center gap-1.5 font-medium text-slate-700 bg-white/80 px-3 py-1 rounded-full border border-black/5 shadow-2xs">
-            <Clock className="w-3.5 h-3.5 text-[#007AFF]" />
-            <span>Due: <strong className="font-semibold text-slate-900">{assignment.dueDate}</strong> {assignment.dueTime && `(${assignment.dueTime})`}</span>
-          </div>
-          {assignment.semester && (
-            <span className="text-[11.5px] font-medium text-slate-500 px-2.5 py-1 rounded-full bg-slate-100">
-              {assignment.semester}
-            </span>
-          )}
+        {/* Message Body - Clean Uncontained Typography */}
+        <div className="text-[14px] sm:text-[14.5px] text-slate-700 leading-relaxed whitespace-pre-line pt-0.5">
+          {broadcast.message}
         </div>
-
-        {/* Toggle Complete Button */}
-        <div>
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            whileHover={{ scale: 1.01 }}
-            onClick={() => onToggleComplete(assignment.id)}
-            className={`w-full py-2.5 px-4 rounded-[18px] font-bold text-[13.5px] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
-              assignment.isCompleted
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
-                : 'bg-[#007AFF] hover:bg-[#0062cc] text-white shadow-blue-600/25'
-            }`}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>
-              {assignment.isCompleted ? 'Mark as Pending (Undo)' : 'Mark Assignment as Complete'}
-            </span>
-          </motion.button>
-        </div>
-
-        {/* Requirements & Instructions - Clean Uncontained Typography */}
-        <div className="space-y-1.5 pt-1">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600">
-              <FileText className="w-4 h-4" />
-            </div>
-            <h3 className="text-[15px] font-bold text-[#1C1C1E]">Requirements & Instructions</h3>
-          </div>
-          <p className="text-[14px] text-slate-700 leading-relaxed font-normal whitespace-pre-line pt-0.5">
-            {assignment.description || 'No additional instructions provided for this assignment.'}
-          </p>
-        </div>
-
-        {/* Submission Format & Instructor Details */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-          <div className="bg-white/60 p-3.5 rounded-2xl border border-black/5 shadow-2xs space-y-1">
-            <span className="text-[11px] uppercase font-bold text-slate-400 tracking-wider block">
-              Submission Format
-            </span>
-            <p className="text-[13.5px] font-bold text-[#1C1C1E]">
-              {assignment.submissionType || 'Student Portal Submission'}
-            </p>
-          </div>
-
-          <div className="bg-white/60 p-3.5 rounded-2xl border border-black/5 shadow-2xs space-y-1">
-            <span className="text-[11px] uppercase font-bold text-slate-400 tracking-wider block">
-              Instructor / Examiner
-            </span>
-            <p className="text-[13.5px] font-bold text-[#1C1C1E]">
-              {assignment.instructor || 'Faculty Department'}
-            </p>
-          </div>
-        </div>
-
-        {/* Additional Notes & Hints */}
-        {assignment.notes && (
-          <div className="space-y-1.5 pt-1">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-500" />
-              <h4 className="text-[14px] font-bold text-[#1C1C1E]">Instructor Notes & Hints</h4>
-            </div>
-            <p className="text-[13px] text-slate-600 leading-relaxed bg-amber-50/40 p-3.5 rounded-2xl border border-amber-200/50">
-              {assignment.notes}
-            </p>
-          </div>
-        )}
-
-        {/* Tags */}
-        {assignment.tags && assignment.tags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            {assignment.tags.map((t) => (
-              <span
-                key={t}
-                className="text-[11px] font-semibold text-slate-600 bg-white/70 px-3 py-1 rounded-full border border-black/5 shadow-2xs"
-              >
-                #{t}
-              </span>
-            ))}
-          </div>
-        )}
       </motion.div>
 
-      {/* Image Lightbox Viewer Modal */}
-      {selectedImageIndex !== null && images.length > 0 && (
+      {/* Full-Screen In-App Image Viewer */}
+      {selectedImageIndex !== null && (
         <ImageViewerModal
           isOpen={isViewerOpen}
           images={images}
           initialIndex={selectedImageIndex}
-          title={`${assignment.course} - ${assignment.title}`}
+          title={broadcast.title}
           onClose={() => {
             setIsViewerOpen(false);
             setSelectedImageIndex(null);
           }}
           onDeleteImage={
-            isCourseRep
+            isCourseRep && onDeleteImage
               ? (idx) => {
-                  onDeleteImage(assignment.id, idx);
+                  onDeleteImage(broadcast.id, idx);
                   if (images.length <= 1) {
                     setIsViewerOpen(false);
                     setSelectedImageIndex(null);
@@ -443,26 +337,28 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
         />
       )}
 
-      {/* Confirm Delete Deadline Modal */}
+      {/* Confirm Broadcast Deletion Modal */}
       <ConfirmDeleteModal
         isOpen={isConfirmDeleteOpen}
-        onClose={() => setIsConfirmDeleteOpen(false)}
+        title="Delete Faculty Broadcast"
+        description="Are you sure you want to permanently delete this broadcast notice from student feeds?"
+        itemName={broadcast.title}
+        itemType="Broadcast"
+        confirmLabel="Delete Broadcast"
+        isDeleting={isDeleting}
         onConfirm={async () => {
           setIsDeleting(true);
           try {
-            await onDelete(assignment.id);
+            if (onDeleteBroadcast) {
+              await onDeleteBroadcast(broadcast.id);
+            }
             setIsConfirmDeleteOpen(false);
             onBack();
           } finally {
             setIsDeleting(false);
           }
         }}
-        title="Delete Academic Deadline"
-        itemType="assignment / deadline"
-        itemName={`${assignment.course} - ${assignment.title}`}
-        description="Are you sure you want to permanently delete this deadline notice?"
-        confirmLabel="Yes, Delete Deadline"
-        isDeleting={isDeleting}
+        onClose={() => setIsConfirmDeleteOpen(false)}
       />
     </div>
   );

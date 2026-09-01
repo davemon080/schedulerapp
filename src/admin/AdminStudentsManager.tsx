@@ -19,7 +19,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { detectDepartmentFromMatric, fetchDepartments, getStudentDepartmentInfo, correctAllStudentsTo100LFirstSemester, correctAllStudentsTo100LSecondSemester } from '../lib/dbService';
+import { detectDepartmentFromMatric, fetchDepartments, getStudentDepartmentInfo, correctAllStudentsTo100LFirstSemester, correctAllStudentsTo100LSecondSemester, resetAllStudentsToUnpaidInDatabase } from '../lib/dbService';
 import { StudentDetailsModal } from './StudentDetailsModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
@@ -55,6 +55,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
 
   const [formData, setFormData] = useState<StudentProfileRecord>({
     email: '',
+    password: '123456',
     matric_number: '',
     full_name: '',
     department: 'Department of Industrial Chemistry',
@@ -93,10 +94,24 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     }));
   };
 
+  // Genuine student list - explicitly excludes super admin records
+  const pureStudents = useMemo(() => {
+    return students.filter(s => {
+      const email = (s.email || '').toLowerCase().trim();
+      const sAny = s as any;
+      const isSuperAdmin = sAny.role === 'super_admin' || 
+                           sAny.role === 'Super Administrator' || 
+                           sAny.isSuperAdmin || 
+                           email === 'davemon080@gmail.com' ||
+                           (s.id && s.id.startsWith('admin_'));
+      return !isSuperAdmin;
+    });
+  }, [students]);
+
   // Department counts for UI pills
   const deptCounts = useMemo(() => {
     const counts: Record<string, number> = {
-      all: students.length,
+      all: pureStudents.length,
       ICH: 0,
       CHM: 0,
     };
@@ -105,18 +120,18 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
       if (d.code) counts[d.code.toUpperCase()] = 0;
     });
 
-    students.forEach(s => {
+    pureStudents.forEach(s => {
       const sInfo = getStudentDepartmentInfo(s, departments);
       const code = sInfo.code.toUpperCase();
       counts[code] = (counts[code] || 0) + 1;
     });
 
     return counts;
-  }, [students, departments]);
+  }, [pureStudents, departments]);
 
   // Strict, isolated department and level filtering
   const filteredStudents = useMemo(() => {
-    return students.filter((s) => {
+    return pureStudents.filter((s) => {
       const q = searchQuery.toLowerCase().trim();
       const sInfo = getStudentDepartmentInfo(s, departments);
 
@@ -173,6 +188,8 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     try {
       await onAddStudent({
         email: formData.email.trim().toLowerCase(),
+        password: formData.password?.trim() || '123456',
+        portal_password: formData.password?.trim() || '123456',
         matric_number: formData.matric_number.trim().toUpperCase(),
         matricNumber: formData.matric_number.trim().toUpperCase(),
         full_name: formData.full_name.trim(),
@@ -183,6 +200,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
       setIsAddModalOpen(false);
       setFormData({
         email: '',
+        password: '123456',
         matric_number: '',
         full_name: '',
         department: 'Department of Industrial Chemistry',
@@ -291,6 +309,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   };
 
   const [isAligning, setIsAligning] = useState<boolean>(false);
+  const [isResettingPayments, setIsResettingPayments] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   const handleAlignAllStudents = async () => {
@@ -305,6 +324,27 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
       console.error(e);
     } finally {
       setIsAligning(false);
+    }
+  };
+
+  const handleResetPayments = async () => {
+    if (!window.confirm('Are you sure you want to mark all students as unpaid and remove their semester access across the database?')) {
+      return;
+    }
+    setIsResettingPayments(true);
+    try {
+      const res = await resetAllStudentsToUnpaidInDatabase();
+      if (res.success) {
+        setSyncNotice(`Successfully marked ${res.count} student(s) as unpaid and cleared semester access in Firestore.`);
+        setTimeout(() => setSyncNotice(null), 5000);
+      } else {
+        setSyncNotice(`Notice: ${res.error || 'Could not reset student payments.'}`);
+        setTimeout(() => setSyncNotice(null), 5000);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsResettingPayments(false);
     }
   };
 
@@ -325,6 +365,16 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          <button
+            onClick={handleResetPayments}
+            disabled={isResettingPayments}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-[12.5px] font-semibold transition-colors cursor-pointer border border-amber-200/70"
+            title="Mark all students as Not Paid and revoke semester access on database"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+            <span>{isResettingPayments ? 'Resetting...' : 'Reset Student Payments'}</span>
+          </button>
+
           <button
             onClick={handleAlignAllStudents}
             disabled={isAligning}
@@ -760,6 +810,17 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                     placeholder="student@university.edu"
                     required
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-[13px] font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[12px] font-bold text-slate-700 mb-1">Portal Login Password</label>
+                  <input
+                    type="text"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    placeholder="Default: 123456"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-[13px] font-mono font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                   />
                 </div>
 

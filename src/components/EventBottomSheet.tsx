@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EventItem } from '../types';
-import { Pencil, Trash2, Share2, X, AlertCircle, Copy, Check } from 'lucide-react';
+import { Pencil, Trash2, Share2, X, AlertCircle, Copy, Check, Video } from 'lucide-react';
 
 interface EventBottomSheetProps {
   isOpen: boolean;
@@ -98,6 +98,40 @@ export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
 
             {/* Action Items List */}
             <div className="space-y-1.5 pt-1">
+              {/* Option: Join Online Meeting (If online / meeting link exists) */}
+              {(() => {
+                const meetingUrl = event.meetingLink?.trim() ||
+                  (event.location?.startsWith('http') || event.location?.includes('meet.google.com') || event.location?.includes('zoom.us') || event.location?.includes('teams.microsoft.com') ? event.location.trim() : '') ||
+                  (event.notes?.match(/https?:\/\/[^\s]+/)?.[0] || '');
+
+                if (!meetingUrl) return null;
+
+                const targetUrl = meetingUrl.startsWith('http://') || meetingUrl.startsWith('https://') ? meetingUrl : `https://${meetingUrl}`;
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                      onClose();
+                    }}
+                    className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-[20px] bg-emerald-50 hover:bg-emerald-100/90 text-left transition-colors cursor-pointer group border border-emerald-300 shadow-2xs"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
+                      <Video className="w-[18px] h-[18px]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[15px] font-bold text-emerald-950 block">
+                        Join Online Class
+                      </span>
+                      <span className="text-[12px] text-emerald-700 block truncate">
+                        {targetUrl}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })()}
+
               {/* Option: Edit Event (Pencil icon) - Course Rep Only */}
               {isCourseRep && (
                 <button
