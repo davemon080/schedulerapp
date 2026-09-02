@@ -11,6 +11,7 @@ import { AdminCoursesManager } from './AdminCoursesManager';
 import { AdminStudentsManager } from './AdminStudentsManager';
 import { AdminFeedbackManager } from './AdminFeedbackManager';
 import { AdminSemesterManager } from './AdminSemesterManager';
+import { AdminAnalyticsManager } from './AdminAnalyticsManager';
 import { AdminDatabaseViewer } from './AdminDatabaseViewer';
 import { AdminSettings } from './AdminSettings';
 import { DesktopOnlyNotice } from './DesktopOnlyNotice';
@@ -50,6 +51,7 @@ import {
 
 const VALID_TABS: AdminTab[] = [
   'overview',
+  'analytics',
   'semester',
   'schedule',
   'assignments',
@@ -247,7 +249,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (e) {}
     return [
       {
-        email: 'simonodavido@gmail.com',
+        email: 'student.ich@university.edu',
         matric_number: '2025/PS/ICH/0001',
         full_name: 'David Simon O.',
         department: 'Department of Industrial Chemistry',
@@ -255,7 +257,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         year_level: '100 Level',
       },
       {
-        email: 'chemistry.student@university.edu',
+        email: 'student.chm@university.edu',
         matric_number: '2025/PS/CHM/0001',
         full_name: 'Sarah Adebayo',
         department: 'Department of Chemistry',
@@ -296,10 +298,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Toast alert
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string, durationMs = 4000) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
-  };
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, durationMs);
+  }, []);
 
   const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(true);
 
@@ -444,6 +448,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsRefreshing(false);
     }
   }, [isRefreshing]);
+
+  // Background Task Runner State
+  interface BackgroundTaskInfo {
+    id: string;
+    title: string;
+    startedAt: number;
+  }
+  const [activeBackgroundTask, setActiveBackgroundTask] = useState<BackgroundTaskInfo | null>(null);
+
+  const runBackgroundTask = useCallback(async (
+    taskTitle: string,
+    taskFn: () => Promise<{ success: boolean; count?: number; message?: string; error?: string }>
+  ) => {
+    const taskId = 'bg_' + Date.now();
+    setActiveBackgroundTask({
+      id: taskId,
+      title: taskTitle,
+      startedAt: Date.now(),
+    });
+
+    try {
+      const result = await taskFn();
+      setActiveBackgroundTask((prev) => (prev?.id === taskId ? null : prev));
+
+      if (result.success) {
+        showToast(result.message || `✓ ${taskTitle} finished successfully (${result.count || 0} affected)`, 6000);
+      } else {
+        showToast(`Notice: ${result.error || result.message || 'Operation ended with notices'}`, 6000);
+      }
+
+      // Refresh data silently in background
+      handleManualSync();
+    } catch (err: any) {
+      setActiveBackgroundTask((prev) => (prev?.id === taskId ? null : prev));
+      showToast(`Error during bulk action: ${err?.message || 'Operation failed'}`, 6000);
+    }
+  }, [handleManualSync, showToast]);
 
   // Add Class Activity
   const handleAddEvent = async (newEventData: Omit<EventItem, 'id'>) => {
@@ -696,8 +737,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <ErrorBoundary fallbackTitle="Admin Dashboard Safe Mode">
-      <div className="min-h-screen bg-slate-50 text-slate-900 flex font-sans antialiased select-none">
-        {/* Desktop Only Side Menu */}
+      <div className="h-screen w-full overflow-hidden bg-slate-50 text-slate-900 flex font-sans antialiased select-none">
+        {/* Fixed Desktop Side Menu */}
         <AdminSidebar
           activeTab={activeTab}
           onSelectTab={setActiveTab}
@@ -712,8 +753,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           feedbackCount={feedbackCount}
         />
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Scrollable Page Section Alone */}
+        <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
           {/* Desktop Top Header Bar */}
           <AdminHeader
             activeTab={activeTab}
@@ -825,11 +866,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onDeleteStudent={handleDeleteStudent}
                 isAddModalOpen={isAddStudentModalOpen}
                 setIsAddModalOpen={setIsAddStudentModalOpen}
+                isRegistry={Boolean(adminUser?.isRegistry)}
+                onRunBackgroundTask={runBackgroundTask}
+                onManualSync={handleManualSync}
               />
             )}
 
             {activeTab === 'feedback' && (
               <AdminFeedbackManager />
+            )}
+
+            {activeTab === 'analytics' && (
+              <AdminAnalyticsManager />
             )}
 
             {activeTab === 'database' && (
@@ -857,6 +905,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <DesktopOnlyNotice onDismiss={() => setShowDesktopNotice(false)} />
         )}
 
+        {/* Floating Active Background Task Indicator */}
+        <AnimatePresence>
+          {activeBackgroundTask && (
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              className="fixed bottom-20 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-white text-slate-800 shadow-2xl border border-indigo-200 text-[13px] font-medium"
+            >
+              <div className="w-4 h-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin shrink-0" />
+              <div className="flex flex-col pr-2">
+                <span className="text-slate-900 font-bold text-[12.5px] flex items-center gap-1.5">
+                  <span>Background Processing</span>
+                  <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 text-[10px] rounded-md font-semibold">Running</span>
+                </span>
+                <span className="text-slate-500 font-normal text-[11.5px] line-clamp-1">{activeBackgroundTask.title}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Toast Alert */}
         <AnimatePresence>
           {toastMessage && (
@@ -864,7 +933,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl border border-slate-800 text-[13px] font-medium"
+              className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl border border-slate-800 text-[13px] font-medium max-w-md"
             >
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>{toastMessage}</span>

@@ -75,6 +75,11 @@ export interface UserSession {
   walletBalance?: number;
   paid_semester?: string;
   paid_at?: string;
+  password?: string;
+  password_changed?: boolean;
+  is_default_password?: boolean;
+  has_custom_password?: boolean;
+  password_updated_at?: string;
   semester?: string;
   current_semester?: string;
   session?: string;

@@ -14,9 +14,10 @@ import {
 } from 'lucide-react';
 import { UserSession } from '../types';
 import { auth } from '../lib/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { fetchStudentByAuthUid, fetchStudentByEmailOrMatric, fetchCurrentSemester, normalizeSemester } from '../lib/dbService';
+import { signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
+import { fetchStudentByAuthUid, fetchStudentByEmailOrMatric, fetchStudents, fetchCurrentSemester, normalizeSemester, registerUserActiveSession, recordAppVisit } from '../lib/dbService';
 import { getStudentActiveLevel, getStudentActiveSemester } from '../lib/academicScope';
+import { ForgotPasswordPage } from './ForgotPasswordPage';
 
 interface LoginPageProps {
   onLogin: (session: UserSession) => void;
@@ -36,20 +37,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
-  const handleFillICH = () => {
-    setEmail('simonodavido@gmail.com');
-    setMatricNumber('2025/PS/ICH/0001');
-    setPassword('123456');
-    setErrorMessage(null);
-  };
-
-  const handleFillCHM = () => {
-    setEmail('chemistry.student@university.edu');
-    setMatricNumber('2025/PS/CHM/0001');
-    setPassword('123456');
-    setErrorMessage(null);
-  };
+  if (isForgotPasswordOpen) {
+    return (
+      <ForgotPasswordPage
+        initialEmail={email}
+        onBackToLogin={(newEmail) => {
+          setIsForgotPasswordOpen(false);
+          if (newEmail) {
+            setEmail(newEmail);
+          }
+        }}
+      />
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +67,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     if (!trimmedEmail.includes('@') || !trimmedEmail.includes('.')) {
-      setErrorMessage('Please enter a valid email address (e.g. simonodavido@gmail.com).');
+      setErrorMessage('Please enter a valid email address (e.g. student@university.edu).');
       return;
     }
 
@@ -94,47 +96,97 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         return;
       }
 
-      // 1. Fetch student profile from Firestore by email or matric number first to verify database registration
+      // 1. Fetch student profile from Firestore by email or matric number first
       let studentProfile = await fetchStudentByEmailOrMatric(trimmedEmail) || await fetchStudentByEmailOrMatric(trimmedMatric);
 
-      // 2. Authenticate with Firebase Auth if available
-      let authUserUid: string | null = null;
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
-        authUserUid = userCredential.user.uid;
-      } catch (authErr: any) {
-        // Handled via database password check below
-      }
-
-      if (authUserUid && !studentProfile) {
-        studentProfile = await fetchStudentByAuthUid(authUserUid);
+      // Fallback: Scan all students if not returned by direct index
+      if (!studentProfile) {
+        try {
+          const allStudents = await fetchStudents();
+          const cleanEmailMatch = trimmedEmail.toLowerCase();
+          const cleanMatricMatch = trimmedMatric.replace(/[\s\/-]/g, '').toUpperCase();
+          const found = allStudents.find((s) => {
+            const sEmail = (s.email || '').toLowerCase().trim();
+            const sMatric = (s.matric_number || s.matricNumber || '').replace(/[\s\/-]/g, '').toUpperCase();
+            return (sEmail && sEmail === cleanEmailMatch) || (cleanMatricMatch && sMatric === cleanMatricMatch);
+          });
+          if (found) {
+            studentProfile = found;
+          }
+        } catch {}
       }
 
       // If no account exists in the database, reject login
-      if (!studentProfile && !authUserUid) {
+      if (!studentProfile) {
         setErrorMessage('No registered student account found matching this email or matric number. Please contact your department administrator.');
         setIsLoading(false);
         return;
       }
 
-      // 3. Strict verification of database credentials
-      if (studentProfile) {
-        // Verify matric number matches the database record if provided
-        const dbMatricClean = (studentProfile.matric_number || studentProfile.matricNumber || '').replace(/[\s\/-]/g, '').toUpperCase();
-        const enteredMatricClean = trimmedMatric.replace(/[\s\/-]/g, '').toUpperCase();
-        if (enteredMatricClean && dbMatricClean && enteredMatricClean !== dbMatricClean) {
-          setErrorMessage('Matriculation number does not match the registered student profile for this email.');
-          setIsLoading(false);
-          return;
-        }
+      // 2. Strict verification of Matriculation Number
+      const dbMatricClean = (studentProfile.matric_number || studentProfile.matricNumber || '').replace(/[\s\/-]/g, '').toUpperCase();
+      const enteredMatricClean = trimmedMatric.replace(/[\s\/-]/g, '').toUpperCase();
+      if (enteredMatricClean && dbMatricClean && enteredMatricClean !== dbMatricClean) {
+        setErrorMessage('Matriculation number does not match the registered student profile for this email.');
+        setIsLoading(false);
+        return;
+      }
 
-        // Verify password matches database password (or default 123456 if unset)
-        const expectedPassword = studentProfile.password || studentProfile.portal_password || '123456';
-        if (!authUserUid && trimmedPassword !== expectedPassword) {
+      // 3. Strict verification of password & Invalidation of default password
+      // Check local cache for immediate synchronous custom password recognition
+      let localCachedPwd: string | null = null;
+      try {
+        localCachedPwd =
+          localStorage.getItem(`student_pwd_custom_${trimmedEmail}`) ||
+          (studentProfile.email ? localStorage.getItem(`student_pwd_custom_${studentProfile.email.toLowerCase()}`) : null) ||
+          (dbMatricClean ? localStorage.getItem(`student_pwd_custom_${dbMatricClean}`) : null);
+      } catch {}
+
+      const dbPassword = (studentProfile.password || studentProfile.portal_password || '').trim();
+      const expectedPassword = localCachedPwd || dbPassword || '123456';
+
+      const hasCustomPassword = Boolean(
+        localCachedPwd ||
+        (studentProfile.password && studentProfile.password !== '123456') ||
+        (studentProfile.portal_password && studentProfile.portal_password !== '123456') ||
+        studentProfile.password_changed ||
+        studentProfile.has_custom_password ||
+        studentProfile.is_default_password === false ||
+        expectedPassword !== '123456'
+      );
+
+      // MANDATORY CHECK: Password entered by user MUST match the active expected password
+      if (trimmedPassword !== expectedPassword) {
+        // Sign out any active Firebase Auth session to prevent stale authorization
+        try {
+          await signOut(auth);
+        } catch {}
+
+        if (trimmedPassword === '123456' && hasCustomPassword) {
+          setErrorMessage('The default password (123456) is no longer valid for this account because your password was changed. Please enter your updated password.');
+        } else if (hasCustomPassword) {
+          setErrorMessage('Incorrect password. Please enter your updated password or use Forgot Password to reset.');
+        } else {
           setErrorMessage('Incorrect password. Please verify your portal password (default: 123456).');
-          setIsLoading(false);
-          return;
         }
+        setIsLoading(false);
+        return;
+      }
+
+      // 4. Authenticate with Firebase Auth if available, syncing password if needed
+      let authUserUid: string | null = null;
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
+        authUserUid = userCredential.user.uid;
+      } catch (authErr: any) {
+        // Try authenticating with default in Firebase Auth and auto-updating to active custom password
+        try {
+          const oldCred = await signInWithEmailAndPassword(auth, trimmedEmail, '123456');
+          if (oldCred.user) {
+            await updatePassword(oldCred.user, trimmedPassword);
+            authUserUid = oldCred.user.uid;
+          }
+        } catch {}
       }
 
       // Derive display info
@@ -177,6 +229,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const userWalletBal = typeof studentProfile?.wallet_balance === 'number' 
         ? studentProfile.wallet_balance 
         : (typeof studentProfile?.walletBalance === 'number' ? studentProfile.walletBalance : 0);
+
+      // Single-Device Session Token Generation
+      const deviceToken = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const detectedDevice = typeof navigator !== 'undefined'
+        ? (/iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'iOS Mobile' : /Android/i.test(navigator.userAgent) ? 'Android Mobile' : /Macintosh|Mac OS X/i.test(navigator.userAgent) ? 'macOS Desktop' : 'Windows/Web Client')
+        : 'Web Client';
+
+      // Register active single-device token in Firestore (replaces any previous device session)
+      try {
+        await registerUserActiveSession(studentUid, deviceToken, detectedDevice);
+      } catch (sessErr) {
+        console.warn('Active session registration warning:', sessErr);
+      }
+
+      // Record telemetry app visit
+      try {
+        await recordAppVisit({
+          userId: studentUid,
+          studentName: studentName,
+          matricNumber: verifiedMatric,
+          department: department,
+          level: activeLevel,
+          device: detectedDevice,
+        });
+      } catch (visitErr) {
+        console.warn('App visit recording warning:', visitErr);
+      }
 
       onLogin({
         id: studentUid,
@@ -283,7 +362,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. r.ogwu@student.university.edu"
+                placeholder="student@university.edu"
                 required
                 autoComplete="email"
                 className="w-full pl-11 pr-4 py-3.5 rounded-[22px] bg-white border border-slate-200/90 text-[14px] text-[#1C1C1E] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30 focus:border-[#007AFF] transition-all shadow-2xs font-medium"
@@ -315,9 +394,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
           {/* Password Field */}
           <div>
-            <label htmlFor="login-password-input" className="block text-[12.5px] font-bold text-[#1C1C1E] mb-1.5 px-1">
-              Password
-            </label>
+            <div className="flex items-center justify-between mb-1.5 px-1">
+              <label htmlFor="login-password-input" className="block text-[12.5px] font-bold text-[#1C1C1E]">
+                Password
+              </label>
+              <button
+                id="btn-forgot-password-link"
+                type="button"
+                onClick={() => setIsForgotPasswordOpen(true)}
+                className="text-[12px] font-semibold text-[#007AFF] hover:underline cursor-pointer"
+              >
+                Forgot Password?
+              </button>
+            </div>
             <div className="relative flex items-center">
               <div className="absolute left-4 text-slate-400 pointer-events-none">
                 <Lock className="w-4 h-4" />
@@ -387,31 +476,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             )}
           </motion.button>
         </form>
-
-        {/* Quick Demo Pre-fill Pills */}
-        <div className="mt-6 flex flex-col items-center gap-2">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Quick Fill Demo Student</span>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <button
-              id="fill-demo-ich-btn"
-              type="button"
-              onClick={handleFillICH}
-              className="px-3.5 py-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-[#007AFF] text-[12px] font-bold border border-blue-200 transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Industrial Chem (ICH)</span>
-            </button>
-            <button
-              id="fill-demo-chm-btn"
-              type="button"
-              onClick={handleFillCHM}
-              className="px-3.5 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[12px] font-bold border border-emerald-200 transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Chemistry (CHM)</span>
-            </button>
-          </div>
-        </div>
 
         {/* Security / Portal footer */}
         <div className="text-center mt-8 text-[12px] text-[#8E8E93] flex items-center justify-center gap-1.5">

@@ -16,10 +16,11 @@ import { DeadlineEditModal } from './components/DeadlineEditModal';
 import { SemesterAccessLockView } from './components/SemesterAccessLockView';
 import { WalletView } from './components/WalletView';
 import { LoginPage } from './components/LoginPage';
+import { PermissionsPromptModal } from './components/PermissionsPromptModal';
 import { AdminDashboard } from './admin/AdminDashboard';
 import { INITIAL_DAYS, getWeekDaysForDate } from './data/mockData';
 import { AssignmentItem, EventItem, NavigationTab, NotificationItem, UserSession } from './types';
-import { Plus, Check, CheckCheck, Trash2 } from 'lucide-react';
+import { Plus, Check, CheckCheck, Trash2, ShieldAlert, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import {
@@ -47,10 +48,13 @@ import {
   correctAllStudentsTo100LSecondSemester,
   purgeMockScheduleDeadlinesAndBroadcasts,
   resetAllStudentsToUnpaidInDatabase,
+  verifyUserActiveSession,
+  recordAppVisit,
 } from './lib/dbService';
 import { CourseRecord, DepartmentRecord } from './admin/types';
 import { CourseFormData } from './components/AddCourseModal';
 import { getStudentActiveLevel, getStudentActiveSemester } from './lib/academicScope';
+import { isChannelNotificationEnabled } from './lib/notificationSettings';
 
 export default function App() {
   const checkIsAdminRoute = () => {
@@ -96,6 +100,24 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavigationTab>('Schedule');
   const [showSplash, setShowSplash] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
+  const [showPermissionsPrompt, setShowPermissionsPrompt] = useState(false);
+
+  // Auto-request / prompt for notification and photos permissions on app startup
+  useEffect(() => {
+    try {
+      const hasPrompted = localStorage.getItem('app_permissions_prompted_v1');
+      const notifStatus = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'granted';
+
+      if (!hasPrompted || notifStatus === 'default') {
+        const timer = setTimeout(() => {
+          setShowPermissionsPrompt(true);
+        }, 1400);
+        return () => clearTimeout(timer);
+      }
+    } catch (e) {
+      console.warn('Permissions startup check notice:', e);
+    }
+  }, []);
   
   // Student Portal Auth Session
   const [userSession, setUserSession] = useState<UserSession | null>(() => {
@@ -141,6 +163,7 @@ export default function App() {
   );
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -171,6 +194,14 @@ export default function App() {
         timestamp: Date.now(),
       };
       setNotifications((prev) => [newNotif, ...prev]);
+
+      // Pop notification toast if enabled in user notification settings
+      if (isChannelNotificationEnabled(category || 'schedule')) {
+        setToastMessage(`${title}: ${message}`);
+        setTimeout(() => {
+          setToastMessage(null);
+        }, 3200);
+      }
     },
     []
   );
@@ -324,6 +355,46 @@ export default function App() {
     });
     return () => {
       unsubscribe();
+    };
+  }, [userSession?.uid, userSession?.matricNumber, userSession?.email]);
+
+  // Single Active Device Session Guard: Detects if another device signs in with the same account
+  useEffect(() => {
+    if (!userSession) return;
+
+    const verifyCurrentSession = async () => {
+      const localToken = typeof localStorage !== 'undefined' ? localStorage.getItem('university_active_session_token') : null;
+      if (!localToken) return;
+
+      const userIdentifier = userSession.uid || userSession.matricNumber || userSession.email;
+      const res = await verifyUserActiveSession(userIdentifier, localToken);
+
+      if (!res.isValid && res.reason === 'CONCURRENT_LOGIN_DETECTED') {
+        setSessionExpiredNotice(
+          'Your student account was signed in on another device. For security and exam integrity, simultaneous logins on multiple devices are not permitted.'
+        );
+        setUserSession(null);
+        try {
+          localStorage.removeItem('university_schedule_user');
+          localStorage.removeItem('university_active_session_token');
+        } catch (e) {}
+      }
+    };
+
+    // Check on visibility change (when user returns to tab)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        verifyCurrentSession();
+      }
+    };
+
+    // Run periodic check every 25 seconds
+    const interval = setInterval(verifyCurrentSession, 25000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [userSession?.uid, userSession?.matricNumber, userSession?.email]);
 
@@ -1749,6 +1820,48 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Single-Device Concurrent Login Modal */}
+        <AnimatePresence>
+          {sessionExpiredNotice && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.92, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.92, y: 20 }}
+                className="bg-white rounded-[32px] p-6 max-w-sm w-full text-center shadow-2xl border border-slate-100 space-y-4"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-inner">
+                  <ShieldAlert className="w-7 h-7" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-[18px] font-extrabold text-slate-900 tracking-tight">
+                    Session Logged Out
+                  </h3>
+                  <p className="text-[12.5px] text-slate-600 font-medium leading-relaxed">
+                    {sessionExpiredNotice}
+                  </p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-[11.5px] text-slate-500 flex items-center justify-center gap-2">
+                  <Smartphone className="w-4 h-4 text-blue-600" />
+                  <span>Only one device per student account is active.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSessionExpiredNotice(null)}
+                  className="w-full py-3 rounded-2xl bg-[#007AFF] hover:bg-blue-600 text-white font-bold text-[14px] transition-colors shadow-lg shadow-blue-500/25 cursor-pointer"
+                >
+                  Return to Sign In
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+        {/* Permissions Request Modal on Startup / Manual */}
+        <PermissionsPromptModal
+          isOpen={showPermissionsPrompt}
+          onClose={() => setShowPermissionsPrompt(false)}
+        />
       </div>
     </ErrorBoundary>
   );

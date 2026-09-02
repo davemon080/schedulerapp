@@ -12,7 +12,8 @@ import {
   BookOpen,
   MessageSquare,
   Server,
-  Zap
+  Zap,
+  Activity
 } from 'lucide-react';
 import { EventItem, AssignmentItem, NotificationItem } from '../types';
 import { StudentProfileRecord, AdminTab } from './types';
@@ -96,6 +97,14 @@ export const AdminOverview: React.FC<AdminOverviewProps> = ({
       icon: MessageSquare,
       color: 'rose',
       tab: 'feedback' as AdminTab,
+    },
+    {
+      title: 'App Usage & Visits',
+      value: 'Live Telemetry',
+      subtitle: 'Daily visits & active sessions',
+      icon: Activity,
+      color: 'blue',
+      tab: 'analytics' as AdminTab,
     },
     {
       title: 'Firebase Firestore',

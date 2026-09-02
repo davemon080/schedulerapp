@@ -10,6 +10,7 @@ export interface AdminUser {
   profileImage?: string;
   isAdmin?: boolean;
   isCourseRep?: boolean;
+  isRegistry?: boolean;
 }
 
 export type AdminTab = 
@@ -182,6 +183,18 @@ export interface StudentProfileRecord {
   photo_url?: string;
   photoURL?: string;
   activesessionid?: string;
+  active_session_token?: string;
+  password_changed?: boolean;
+  is_default_password?: boolean;
+  has_custom_password?: boolean;
+  password_updated_at?: string;
+  last_login_at?: string;
+  last_active_at?: string;
+  last_login_device?: string;
+  last_active_device?: string;
+  unread_notifications_count?: number;
+  read_announcement_ids?: string[];
+  last_notification_reset_at?: string;
   created_at?: string;
   createdat?: string;
   status?: string;

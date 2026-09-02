@@ -94,13 +94,13 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     },
     {
       id: 'feedback' as AdminTab,
-      label: 'Feedback & Clashes',
+      label: 'Feedback & Support Desk',
       icon: MessageSquare,
       badge: feedbackCount > 0 ? feedbackCount : undefined,
     },
     {
       id: 'analytics' as AdminTab,
-      label: 'App Usage & Telemetry',
+      label: 'App Traffic & Telemetry',
       icon: Activity,
     },
     {
@@ -114,6 +114,18 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       icon: Settings,
     },
   ];
+
+  // If the logged-in admin is a Registry Officer, restrict sidebar strictly to Student Directory / Registry
+  const visibleNavItems = adminUser?.isRegistry
+    ? [
+        {
+          id: 'students' as AdminTab,
+          label: 'Student Directory & Registry',
+          icon: Users,
+          badge: studentCount > 0 ? studentCount : undefined,
+        },
+      ]
+    : navItems;
 
   return (
     <aside className="w-64 bg-[#0F172A] border-r border-slate-800 flex flex-col justify-between h-screen sticky top-0 select-none shrink-0 text-slate-300">
@@ -137,10 +149,10 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
         {/* Navigation Menu */}
         <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-230px)]">
           <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-            Management
+            {adminUser?.isRegistry ? 'Registry Access' : 'Management'}
           </div>
 
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
 

@@ -29,17 +29,18 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/35 backdrop-blur-md">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 15 }}
+          initial={{ opacity: 0, scale: 0.94, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 overflow-hidden space-y-4"
+          exit={{ opacity: 0, scale: 0.94, y: 15 }}
+          transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+          className="glass-container-solid rounded-[32px] max-w-md w-full p-6 shadow-[0_24px_70px_rgba(0,0,0,0.22)] border border-white overflow-hidden space-y-4"
         >
           {/* Top Header */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+              <div className="w-11 h-11 rounded-2xl bg-rose-500/15 border border-rose-300/30 flex items-center justify-center text-rose-600 shrink-0">
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
@@ -54,7 +55,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             <button
               onClick={onClose}
               disabled={isDeleting}
-              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-black/5 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -62,7 +63,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
 
           {/* Item Highlight Callout */}
           {itemName && (
-            <div className="p-3.5 bg-rose-50/70 rounded-2xl border border-rose-100 space-y-1">
+            <div className="p-3.5 bg-rose-50/70 rounded-2xl border border-rose-200/60 space-y-1">
               <span className="text-[10px] uppercase font-bold text-rose-600 tracking-wider block">
                 Target {itemType}:
               </span>
@@ -73,7 +74,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
           )}
 
           {/* Warning Message */}
-          <div className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+          <div className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed bg-white/60 p-3.5 rounded-2xl border border-black/5">
             <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
             <p>
               {description ||
@@ -87,7 +88,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isDeleting}
-              className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+              className="px-4 py-2.5 rounded-2xl bg-black/5 hover:bg-black/10 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -96,7 +97,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
               type="button"
               onClick={onConfirm}
               disabled={isDeleting}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition-all cursor-pointer disabled:opacity-50"
+              className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-98 text-white text-xs font-bold shadow-md shadow-rose-600/25 transition-all cursor-pointer disabled:opacity-50"
             >
               {isDeleting ? (
                 <>

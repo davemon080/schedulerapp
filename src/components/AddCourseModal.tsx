@@ -115,39 +115,39 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/35 backdrop-blur-md">
         {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0"
         />
 
         {/* Modal Window */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 15 }}
+          initial={{ opacity: 0, scale: 0.94, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 15 }}
+          exit={{ opacity: 0, scale: 0.94, y: 15 }}
           transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-          className="relative w-full max-w-lg bg-white rounded-[32px] p-6 shadow-2xl border border-slate-200 z-10 max-h-[90vh] overflow-y-auto"
+          className="glass-container-solid relative w-full max-w-lg rounded-[32px] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.22)] border border-white z-10 max-h-[90vh] overflow-y-auto"
         >
           {/* Header */}
-          <div className="flex items-start justify-between pb-3 border-b border-slate-100 mb-4">
+          <div className="flex items-start justify-between pb-3 border-b border-black/5 mb-4">
             <div>
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold text-[11px] border border-blue-200">
+                <span className="px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-700 font-bold text-[11px] border border-blue-200/60">
                   Course Rep Portal
                 </span>
-                <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[11px]">
+                <span className="px-2.5 py-0.5 rounded-full bg-black/5 text-slate-700 font-bold text-[11px]">
                   {targetLevel} Level
                 </span>
-                <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold text-[11px] border border-indigo-200">
+                <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-700 font-bold text-[11px] border border-indigo-200/60">
                   {targetSemester}
                 </span>
               </div>
-              <h3 className="text-[19px] font-bold text-slate-900 mt-1">
+              <h3 className="text-[19px] font-bold text-[#1C1C1E] mt-1.5 tracking-tight">
                 {editingCourse ? 'Edit Course' : 'Add New Department Course'}
               </h3>
               <p className="text-[12px] text-slate-500 mt-0.5 font-medium">
@@ -158,14 +158,14 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 active:scale-95 transition-all cursor-pointer"
+              className="w-8 h-8 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-slate-500 active:scale-95 transition-all cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {errorMsg && (
-            <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+            <div className="mb-4 p-3 rounded-2xl bg-rose-50/80 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -186,7 +186,7 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                     placeholder="e.g. ICH 101"
                     value={courseCode}
                     onChange={(e) => setCourseCode(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 uppercase font-mono"
+                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-white/60 focus:bg-white border border-black/10 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 uppercase font-mono transition-all"
                   />
                 </div>
               </div>
@@ -200,7 +200,7 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                   <select
                     value={units}
                     onChange={(e) => setUnits(Number(e.target.value))}
-                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                    className="w-full pl-10 pr-3 py-2.5 rounded-2xl bg-white/60 focus:bg-white border border-black/10 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer transition-all"
                   >
                     <option value={1}>1 Unit</option>
                     <option value={2}>2 Units</option>
@@ -223,7 +223,7 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                 placeholder="e.g. Introduction to Industrial Chemistry"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-white/60 focus:bg-white border border-black/10 text-slate-900 font-semibold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
             </div>
 
@@ -237,24 +237,24 @@ export const AddCourseModal: React.FC<AddCourseModalProps> = ({
                 placeholder="Key topics, lab requirements, recommended textbooks..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-white/60 focus:bg-white border border-black/10 text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none transition-all leading-relaxed"
               />
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-black/5">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
+                className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-600 bg-black/5 hover:bg-black/10 active:scale-95 transition-all cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 shadow-md shadow-blue-500/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                className="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-[#007AFF] hover:bg-blue-600 active:scale-95 shadow-md shadow-blue-500/25 flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <Check className="w-4 h-4" />
                 <span>{isSubmitting ? 'Saving...' : editingCourse ? 'Update Course' : 'Save Course'}</span>

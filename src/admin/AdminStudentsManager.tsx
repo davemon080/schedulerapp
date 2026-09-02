@@ -16,10 +16,32 @@ import {
   Filter,
   Building2,
   Check,
-  RotateCcw
+  RotateCcw,
+  Wallet,
+  CheckSquare,
+  Square,
+  ImageOff,
+  BellOff,
+  Receipt,
+  Coins,
+  Layers,
+  AlertTriangle,
+  RefreshCw,
+  SlidersHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { detectDepartmentFromMatric, fetchDepartments, getStudentDepartmentInfo, correctAllStudentsTo100LFirstSemester, correctAllStudentsTo100LSecondSemester, resetAllStudentsToUnpaidInDatabase } from '../lib/dbService';
+import { 
+  detectDepartmentFromMatric, 
+  fetchDepartments, 
+  getStudentDepartmentInfo, 
+  correctAllStudentsTo100LFirstSemester, 
+  correctAllStudentsTo100LSecondSemester, 
+  resetAllStudentsToUnpaidInDatabase,
+  bulkClearStudentTransactions,
+  bulkResetStudentWallets,
+  bulkResetStudentProfilePics,
+  bulkResetStudentNotifications
+} from '../lib/dbService';
 import { StudentDetailsModal } from './StudentDetailsModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
@@ -32,6 +54,12 @@ interface AdminStudentsManagerProps {
   onDeleteStudent: (email: string) => Promise<void>;
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
+  isRegistry?: boolean;
+  onRunBackgroundTask?: (
+    taskTitle: string,
+    taskFn: () => Promise<{ success: boolean; count?: number; message?: string; error?: string }>
+  ) => void;
+  onManualSync?: () => Promise<void>;
 }
 
 export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
@@ -43,6 +71,9 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   onDeleteStudent,
   isAddModalOpen,
   setIsAddModalOpen,
+  isRegistry = false,
+  onRunBackgroundTask,
+  onManualSync,
 }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [deletingStudent, setDeletingStudent] = useState<StudentProfileRecord | null>(null);
@@ -52,6 +83,12 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   const [selectedLevelFilter, setSelectedLevelFilter] = useState<string>('all');
   const [selectedStudentForDetails, setSelectedStudentForDetails] = useState<StudentProfileRecord | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState<boolean>(false);
+
+  // Bulk Actions Selection State
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isBulkProcessing, setIsBulkProcessing] = useState<boolean>(false);
+  const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
+  const [activeBulkModal, setActiveBulkModal] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<StudentProfileRecord>({
     email: '',
@@ -312,39 +349,219 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   const [isResettingPayments, setIsResettingPayments] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
-  const handleAlignAllStudents = async () => {
-    setIsAligning(true);
-    try {
-      const res = await correctAllStudentsTo100LFirstSemester();
-      if (res.success) {
-        setSyncNotice(`Synced ${res.totalUpdated} student(s) to 2025/2026 1st Semester 100L.`);
-        setTimeout(() => setSyncNotice(null), 4000);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsAligning(false);
+  const handleAlignAllStudents = () => {
+    if (onRunBackgroundTask) {
+      onRunBackgroundTask(
+        'Aligning all students to 2025/2026 1st Semester 100L',
+        async () => {
+          const res = await correctAllStudentsTo100LFirstSemester();
+          return {
+            success: res.success,
+            count: res.totalUpdated,
+            message: `Aligned ${res.totalUpdated} student(s) to 2025/2026 1st Semester 100L in Firestore.`,
+          };
+        }
+      );
+    } else {
+      setIsAligning(true);
+      correctAllStudentsTo100LFirstSemester()
+        .then((res) => {
+          if (res.success) {
+            setSyncNotice(`Synced ${res.totalUpdated} student(s) to 2025/2026 1st Semester 100L.`);
+            setTimeout(() => setSyncNotice(null), 4000);
+          }
+        })
+        .finally(() => setIsAligning(false));
     }
   };
 
-  const handleResetPayments = async () => {
+  const handleResetPayments = () => {
     if (!window.confirm('Are you sure you want to mark all students as unpaid and remove their semester access across the database?')) {
       return;
     }
-    setIsResettingPayments(true);
-    try {
-      const res = await resetAllStudentsToUnpaidInDatabase();
-      if (res.success) {
-        setSyncNotice(`Successfully marked ${res.count} student(s) as unpaid and cleared semester access in Firestore.`);
-        setTimeout(() => setSyncNotice(null), 5000);
-      } else {
-        setSyncNotice(`Notice: ${res.error || 'Could not reset student payments.'}`);
-        setTimeout(() => setSyncNotice(null), 5000);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsResettingPayments(false);
+    if (onRunBackgroundTask) {
+      onRunBackgroundTask(
+        'Resetting all student payment statuses to unpaid',
+        async () => {
+          const res = await resetAllStudentsToUnpaidInDatabase();
+          return {
+            success: res.success,
+            count: res.count,
+            message: `Reset payment status for ${res.count} student(s) and cleared semester access in Firestore.`,
+            error: res.error,
+          };
+        }
+      );
+    } else {
+      setIsResettingPayments(true);
+      resetAllStudentsToUnpaidInDatabase()
+        .then((res) => {
+          if (res.success) {
+            setSyncNotice(`Successfully marked ${res.count} student(s) as unpaid and cleared semester access in Firestore.`);
+            setTimeout(() => setSyncNotice(null), 5000);
+          } else {
+            setSyncNotice(`Notice: ${res.error || 'Could not reset student payments.'}`);
+            setTimeout(() => setSyncNotice(null), 5000);
+          }
+        })
+        .finally(() => setIsResettingPayments(false));
+    }
+  };
+
+  // Bulk selection helpers
+  const allFilteredIds = useMemo(() => {
+    return filteredStudents.map(s => (s.id || s.uid || s.email) as string).filter(Boolean);
+  }, [filteredStudents]);
+
+  const isAllSelected = useMemo(() => {
+    return allFilteredIds.length > 0 && allFilteredIds.every(id => selectedStudentIds.includes(id));
+  }, [allFilteredIds, selectedStudentIds]);
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(allFilteredIds);
+    }
+  };
+
+  const toggleSelectStudent = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedStudentIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const clearSelection = () => {
+    setSelectedStudentIds([]);
+  };
+
+  // Bulk action handlers (run in background, non-blocking)
+  const handleBulkClearTransactions = () => {
+    if (selectedStudentIds.length === 0) return;
+    const targetIds = [...selectedStudentIds];
+    setActiveBulkModal(null);
+    setSelectedStudentIds([]);
+
+    if (onRunBackgroundTask) {
+      onRunBackgroundTask(
+        `Clearing transactions for ${targetIds.length} existing student(s)`,
+        () => bulkClearStudentTransactions(targetIds)
+      );
+    } else {
+      setIsBulkProcessing(true);
+      bulkClearStudentTransactions(targetIds)
+        .then((res) => {
+          if (res.success) {
+            setBulkActionNotice(res.message || `Successfully cleared transaction records for ${res.count} student(s).`);
+          } else {
+            setBulkActionNotice(`Notice: ${res.error || 'Could not clear student transactions.'}`);
+          }
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .catch((e: any) => {
+          setBulkActionNotice(`Error: ${e.message}`);
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .finally(() => {
+          setIsBulkProcessing(false);
+        });
+    }
+  };
+
+  const handleBulkResetWallets = () => {
+    if (selectedStudentIds.length === 0) return;
+    const targetIds = [...selectedStudentIds];
+    setActiveBulkModal(null);
+    setSelectedStudentIds([]);
+
+    if (onRunBackgroundTask) {
+      onRunBackgroundTask(
+        `Resetting wallets to ₦0.00 for ${targetIds.length} existing student(s)`,
+        () => bulkResetStudentWallets(targetIds)
+      );
+    } else {
+      setIsBulkProcessing(true);
+      bulkResetStudentWallets(targetIds)
+        .then((res) => {
+          if (res.success) {
+            setBulkActionNotice(res.message || `Successfully reset wallet balance to ₦0.00 for ${res.count} student(s).`);
+          } else {
+            setBulkActionNotice(`Notice: ${res.error || 'Could not reset student wallets.'}`);
+          }
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .catch((e: any) => {
+          setBulkActionNotice(`Error: ${e.message}`);
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .finally(() => {
+          setIsBulkProcessing(false);
+        });
+    }
+  };
+
+  const handleBulkResetProfilePics = () => {
+    if (selectedStudentIds.length === 0) return;
+    const targetIds = [...selectedStudentIds];
+    setActiveBulkModal(null);
+    setSelectedStudentIds([]);
+
+    if (onRunBackgroundTask) {
+      onRunBackgroundTask(
+        `Resetting profile pictures for ${targetIds.length} existing student(s)`,
+        () => bulkResetStudentProfilePics(targetIds)
+      );
+    } else {
+      setIsBulkProcessing(true);
+      bulkResetStudentProfilePics(targetIds)
+        .then((res) => {
+          if (res.success) {
+            setBulkActionNotice(res.message || `Successfully reset profile picture/avatars for ${res.count} student(s).`);
+          } else {
+            setBulkActionNotice(`Notice: ${res.error || 'Could not reset profile pictures.'}`);
+          }
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .catch((e: any) => {
+          setBulkActionNotice(`Error: ${e.message}`);
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .finally(() => {
+          setIsBulkProcessing(false);
+        });
+    }
+  };
+
+  const handleBulkResetNotifications = () => {
+    if (selectedStudentIds.length === 0) return;
+    const targetIds = [...selectedStudentIds];
+    setActiveBulkModal(null);
+    setSelectedStudentIds([]);
+
+    if (onRunBackgroundTask) {
+      onRunBackgroundTask(
+        `Resetting notifications for ${targetIds.length} existing student(s)`,
+        () => bulkResetStudentNotifications(targetIds)
+      );
+    } else {
+      setIsBulkProcessing(true);
+      bulkResetStudentNotifications(targetIds)
+        .then((res) => {
+          if (res.success) {
+            setBulkActionNotice(res.message || `Successfully cleared notifications for ${res.count} student(s).`);
+          } else {
+            setBulkActionNotice(`Notice: ${res.error || 'Could not reset notifications.'}`);
+          }
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .catch((e: any) => {
+          setBulkActionNotice(`Error: ${e.message}`);
+          setTimeout(() => setBulkActionNotice(null), 5000);
+        })
+        .finally(() => {
+          setIsBulkProcessing(false);
+        });
     }
   };
 
@@ -357,7 +574,14 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-[15px] font-bold text-slate-900">Enrolled Student Directory</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-[15px] font-bold text-slate-900">Enrolled Student Directory</h3>
+              {isRegistry && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  REGISTRY VIEW
+                </span>
+              )}
+            </div>
             <p className="text-[12px] text-slate-500 font-medium">
               Strict department isolation: Filter <strong className="text-blue-600 font-semibold">ICH</strong> (Industrial Chemistry) separately from <strong className="text-emerald-600 font-semibold">CHM</strong> (Chemistry)
             </p>
@@ -365,25 +589,29 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-          <button
-            onClick={handleResetPayments}
-            disabled={isResettingPayments}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-[12.5px] font-semibold transition-colors cursor-pointer border border-amber-200/70"
-            title="Mark all students as Not Paid and revoke semester access on database"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
-            <span>{isResettingPayments ? 'Resetting...' : 'Reset Student Payments'}</span>
-          </button>
+          {!isRegistry && (
+            <>
+              <button
+                onClick={handleResetPayments}
+                disabled={isResettingPayments}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-[12.5px] font-semibold transition-colors cursor-pointer border border-amber-200/70"
+                title="Mark all students as Not Paid and revoke semester access on database"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                <span>{isResettingPayments ? 'Resetting...' : 'Reset Student Payments'}</span>
+              </button>
 
-          <button
-            onClick={handleAlignAllStudents}
-            disabled={isAligning}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-[12.5px] font-semibold transition-colors cursor-pointer border border-blue-200/60"
-            title="Set all students to 2025/2026 1st Semester 100L in Firestore"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-            <span>{isAligning ? 'Syncing...' : 'Align 100L 1st Sem'}</span>
-          </button>
+              <button
+                onClick={handleAlignAllStudents}
+                disabled={isAligning}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-[12.5px] font-semibold transition-colors cursor-pointer border border-blue-200/60"
+                title="Set all students to 2025/2026 1st Semester 100L in Firestore"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isAligning ? 'Syncing...' : 'Align 100L 1st Sem'}</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={exportStudentsCSV}
@@ -407,6 +635,21 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-xs font-semibold text-blue-800 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
           <span>{syncNotice}</span>
+        </div>
+      )}
+
+      {bulkActionNotice && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 text-xs font-semibold text-emerald-800 flex items-center justify-between gap-2 shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{bulkActionNotice}</span>
+          </div>
+          <button 
+            onClick={() => setBulkActionNotice(null)}
+            className="text-emerald-700 hover:text-emerald-900 p-1 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
@@ -572,36 +815,137 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         </div>
       )}
 
+      {/* Bulk Action Toolbar Banner (when items are selected) */}
+      {selectedStudentIds.length > 0 && (
+        <div className="bg-linear-to-r from-slate-900 via-slate-850 to-slate-900 text-white p-4 rounded-2xl border border-slate-700 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-white">
+                  {selectedStudentIds.length} Student{selectedStudentIds.length !== 1 ? 's' : ''} Selected
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-semibold border border-emerald-500/30">
+                  BULK OPERATIONS
+                </span>
+              </div>
+              <p className="text-[11.5px] text-slate-300">
+                Perform batched administrative actions across the selected student accounts.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-end">
+            <button
+              onClick={clearSelection}
+              className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs font-semibold transition-colors cursor-pointer border border-white/10"
+            >
+              Clear Selection
+            </button>
+
+            {/* Clear Transactions */}
+            <button
+              onClick={() => setActiveBulkModal('clear_transactions')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Clear Transactions</span>
+            </button>
+
+            {/* Reset Wallets (Super Admin only) */}
+            {!isRegistry && (
+              <button
+                onClick={() => setActiveBulkModal('reset_wallets')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
+              >
+                <Coins className="w-3.5 h-3.5" />
+                <span>Reset Wallets (₦0)</span>
+              </button>
+            )}
+
+            {/* Reset Profile Picture */}
+            <button
+              onClick={() => setActiveBulkModal('reset_profile_pics')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer"
+            >
+              <ImageOff className="w-3.5 h-3.5" />
+              <span>Reset Profile Pics</span>
+            </button>
+
+            {/* Reset Notifications */}
+            <button
+              onClick={() => setActiveBulkModal('reset_notifications')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all cursor-pointer"
+            >
+              <BellOff className="w-3.5 h-3.5" />
+              <span>Reset Notifications</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Students Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <h4 className="text-[14px] font-bold text-slate-900">Enrolled Students</h4>
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
               {filteredStudents.length} of {students.length} students
             </span>
           </div>
-          <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1.5">
-            <Database className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Collection: <code className="text-slate-600 font-mono">users (Auth UID)</code></span>
-          </span>
+          
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleSelectAll}
+              className="text-xs text-slate-600 hover:text-emerald-700 font-semibold flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 border border-slate-200 transition-colors cursor-pointer"
+            >
+              {isAllSelected ? (
+                <>
+                  <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Deselect All Filtered ({allFilteredIds.length})</span>
+                </>
+              ) : (
+                <>
+                  <Square className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Select All Filtered ({allFilteredIds.length})</span>
+                </>
+              )}
+            </button>
+
+            <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Collection: <code className="text-slate-600 font-mono">users (Auth UID)</code></span>
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[13px] border-collapse">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold text-[12px] uppercase tracking-wider">
-                <th className="py-3 px-5">Student / UID</th>
+                <th className="py-3 px-4 w-12 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 text-emerald-600 rounded-sm border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                    title="Select/Deselect all visible students"
+                  />
+                </th>
+                <th className="py-3 px-4">Student / UID</th>
                 <th className="py-3 px-4">Matriculation No.</th>
                 <th className="py-3 px-4">Email Address</th>
                 <th className="py-3 px-4">Department &amp; Level</th>
+                {!isRegistry && <th className="py-3 px-4">Wallet Balance</th>}
                 <th className="py-3 px-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-slate-400">
+                  <td colSpan={isRegistry ? 6 : 7} className="py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Users className="w-8 h-8 text-slate-300" />
                       <p className="text-sm font-semibold text-slate-600">No student records found</p>
@@ -625,16 +969,32 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                 filteredStudents.map((s, idx) => {
                   const sInfo = getStudentDepartmentInfo(s, departments);
                   const badge = getDeptBadgeStyle(sInfo.code);
+                  const studentBal = typeof s.wallet_balance === 'number'
+                    ? s.wallet_balance
+                    : (typeof s.walletBalance === 'number' ? s.walletBalance : 0);
+                  const studentId = (s.id || s.uid || s.email) as string;
+                  const isSelected = selectedStudentIds.includes(studentId);
+
                   return (
                     <tr 
-                      key={s.id || s.uid || s.email || idx} 
+                      key={studentId || idx} 
                       onClick={() => {
                         setSelectedStudentForDetails(s);
                         setIsDetailsModalOpen(true);
                       }}
-                      className="hover:bg-emerald-50/40 transition-colors group cursor-pointer"
+                      className={`transition-colors group cursor-pointer ${
+                        isSelected ? 'bg-emerald-50/70 hover:bg-emerald-50' : 'hover:bg-slate-50/80'
+                      }`}
                     >
-                      <td className="py-3.5 px-5">
+                      <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => toggleSelectStudent(studentId, e as any)}
+                          className="w-4 h-4 text-emerald-600 rounded-sm border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
                           {s.profile_picture || s.profilePicture || s.photo_url || s.photoURL ? (
                             <img
@@ -665,7 +1025,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                               )}
                             </div>
                             <span className="text-[11px] text-slate-400 block truncate">
-                              Tap row to view &amp; edit credentials
+                              {!isRegistry ? 'Tap row to view & manage wallet' : 'Tap row to view academic profile'}
                             </span>
                           </div>
                         </div>
@@ -687,14 +1047,40 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                           </div>
                         </div>
                       </td>
+                      {!isRegistry && (
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center">
+                            <span className={`px-2.5 py-1 rounded-xl font-mono text-[12px] font-bold border flex items-center gap-1.5 transition-all ${
+                              studentBal > 0
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 shadow-2xs group-hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}>
+                              <Wallet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>₦{studentBal.toLocaleString()}</span>
+                            </span>
+                          </div>
+                        </td>
+                      )}
                       <td className="py-3.5 px-5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => setDeletingStudent(s)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                          title="Remove student record"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {!isRegistry ? (
+                          <button
+                            onClick={() => setDeletingStudent(s)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                            title="Remove student record"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setSelectedStudentForDetails(s);
+                              setIsDetailsModalOpen(true);
+                            }}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded-md hover:bg-blue-50 transition-colors cursor-pointer"
+                          >
+                            View Record
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -882,6 +1268,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         student={selectedStudentForDetails}
         departments={departments}
         onUpdateStudent={onUpdateStudent}
+        isRegistry={isRegistry}
         onDeleteStudent={async (identifier) => {
           const s = students.find(item => (item.id === identifier || item.uid === identifier || item.email === identifier));
           if (s) {
@@ -904,6 +1291,270 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         confirmLabel="Yes, Delete Student"
         isDeleting={isDeleting}
       />
+
+      {/* ========================================================= */}
+      {/* BULK ACTION CONFIRMATION MODALS */}
+      {/* ========================================================= */}
+
+      {/* 1. Bulk Clear Transactions Modal */}
+      <AnimatePresence>
+        {activeBulkModal === 'clear_transactions' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-amber-100 text-amber-700 border border-amber-200">
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Clear Transaction History</h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-950">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Warning: Irreversible action</span>
+                  </div>
+                  <p className="text-[11.5px] leading-relaxed">
+                    This will permanently delete all recorded ledger transactions in Firestore for the {selectedStudentIds.length} selected student(s). Their current wallet balances will remain unaffected.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveBulkModal(null)}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkClearTransactions}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isBulkProcessing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Clearing Records...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Receipt className="w-3.5 h-3.5" />
+                        <span>Confirm Clear Transactions</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 2. Bulk Reset Wallets Modal */}
+      <AnimatePresence>
+        {activeBulkModal === 'reset_wallets' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    <Coins className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Reset Wallet Balances to ₦0</h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200/80 text-xs text-rose-900 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-rose-950">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Balance Zeroing Notice</span>
+                  </div>
+                  <p className="text-[11.5px] leading-relaxed">
+                    This will set the <code className="font-mono font-bold">wallet_balance</code> of all {selectedStudentIds.length} selected student(s) to <strong>₦0.00</strong> and record an administrative audit entry on their profile.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveBulkModal(null)}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkResetWallets}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isBulkProcessing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Resetting Wallets...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Coins className="w-3.5 h-3.5" />
+                        <span>Confirm Reset to ₦0.00</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 3. Bulk Reset Profile Pics Modal */}
+      <AnimatePresence>
+        {activeBulkModal === 'reset_profile_pics' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-blue-100 text-blue-700 border border-blue-200">
+                    <ImageOff className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Reset Profile Pictures</h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200/80 text-xs text-blue-900 space-y-1">
+                  <p className="text-[11.5px] leading-relaxed">
+                    This will clear the custom avatar / photo URLs for all {selectedStudentIds.length} selected student(s), reverting their avatars back to the default university monogram initials.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveBulkModal(null)}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkResetProfilePics}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isBulkProcessing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Resetting Avatars...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ImageOff className="w-3.5 h-3.5" />
+                        <span>Confirm Reset Photos</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 4. Bulk Reset Notifications Modal */}
+      <AnimatePresence>
+        {activeBulkModal === 'reset_notifications' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-purple-100 text-purple-700 border border-purple-200">
+                    <BellOff className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Reset Student Notifications</h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200/80 text-xs text-purple-900 space-y-1">
+                  <p className="text-[11.5px] leading-relaxed">
+                    This will clear all pending notifications and notification counters for the {selectedStudentIds.length} selected student(s) in Firestore.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveBulkModal(null)}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkResetNotifications}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isBulkProcessing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Resetting Notifications...</span>
+                      </>
+                    ) : (
+                      <>
+                        <BellOff className="w-3.5 h-3.5" />
+                        <span>Confirm Reset Notifications</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

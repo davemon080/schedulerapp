@@ -54,13 +54,15 @@ export const AdminAuth: React.FC<AdminAuthProps> = ({
         const data = await res.json();
 
         if (res.ok && data.success && data.user) {
+          const isRegistry = Boolean(data.user.isRegistry || data.user.role === 'Registry Officer' || data.user.role === 'Registry');
           const adminUser: AdminUser = {
             id: data.user.id,
             email: data.user.email,
-            role: data.user.role || 'Super Administrator',
-            fullName: data.user.fullName || 'Academic Administrator',
+            role: data.user.role || (isRegistry ? 'Registry Officer' : 'Super Administrator'),
+            fullName: data.user.fullName || (isRegistry ? 'Registry Officer' : 'Academic Administrator'),
             lastLogin: new Date().toISOString(),
             isAdmin: true,
+            isRegistry: isRegistry,
           };
           localStorage.setItem('university_admin_session', JSON.stringify(adminUser));
           onLoginSuccess(adminUser);
@@ -73,13 +75,15 @@ export const AdminAuth: React.FC<AdminAuthProps> = ({
       // 2. Direct verification against separate Firestore 'admins' collection
       const dbAdmin = await verifyAdminCredentialsFromDb(cleanEmail, cleanPass);
       if (dbAdmin) {
+        const isRegistry = Boolean(dbAdmin.isRegistry || dbAdmin.role === 'Registry Officer' || dbAdmin.role === 'Registry' || dbAdmin.role === 'Registrar');
         const adminUser: AdminUser = {
           id: dbAdmin.id || 'admin_davemon080',
           email: dbAdmin.email,
-          role: dbAdmin.role || 'Super Administrator',
-          fullName: dbAdmin.fullName || 'David Mon (Super Admin)',
+          role: dbAdmin.role || (isRegistry ? 'Registry Officer' : 'Super Administrator'),
+          fullName: dbAdmin.fullName || (isRegistry ? 'Registry Officer' : 'David Mon (Super Admin)'),
           lastLogin: new Date().toISOString(),
           isAdmin: true,
+          isRegistry: isRegistry,
         };
         localStorage.setItem('university_admin_session', JSON.stringify(adminUser));
         onLoginSuccess(adminUser);

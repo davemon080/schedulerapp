@@ -21,31 +21,20 @@ import {
   Sparkles,
   BarChart3,
   Globe,
-  MessageSquare,
-  Send,
 } from 'lucide-react';
-import { fetchAppUsageAnalytics, AppAnalyticsSummary, invalidateStudentSession, fetchAllSupportTickets, updateSupportTicketStatus } from '../lib/dbService';
-import { SupportTicket } from '../types';
+import { fetchAppUsageAnalytics, AppAnalyticsSummary, invalidateStudentSession } from '../lib/dbService';
 
 export const AdminAnalyticsManager: React.FC = () => {
   const [analytics, setAnalytics] = useState<AppAnalyticsSummary | null>(null);
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'usage' | 'sessions' | 'tickets'>('usage');
+  const [activeSubTab, setActiveSubTab] = useState<'usage' | 'sessions'>('usage');
   const [sessionSearch, setSessionSearch] = useState('');
-  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
-  const [ticketResponse, setTicketResponse] = useState('');
-  const [isResponding, setIsResponding] = useState(false);
 
   const loadData = async () => {
     try {
-      const [analyticsData, ticketsData] = await Promise.all([
-        fetchAppUsageAnalytics(),
-        fetchAllSupportTickets(),
-      ]);
+      const analyticsData = await fetchAppUsageAnalytics();
       setAnalytics(analyticsData);
-      setTickets(ticketsData);
     } catch (e) {
       console.error('Failed to load analytics data:', e);
     } finally {
@@ -73,39 +62,6 @@ export const AdminAnalyticsManager: React.FC = () => {
         ...analytics,
         activeSessions: analytics.activeSessions.filter((s) => s.id !== studentId),
       });
-    }
-  };
-
-  const handleSendTicketResponse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedTicket || !ticketResponse.trim()) return;
-    setIsResponding(true);
-    try {
-      const ok = await updateSupportTicketStatus(
-        selectedTicket.id,
-        'resolved',
-        ticketResponse.trim(),
-        'Department Head / Admin'
-      );
-      if (ok) {
-        setTickets((prev) =>
-          prev.map((t) =>
-            t.id === selectedTicket.id
-              ? {
-                  ...t,
-                  status: 'resolved',
-                  response: ticketResponse.trim(),
-                  respondedBy: 'Department Head / Admin',
-                  respondedAt: 'Just now',
-                }
-              : t
-          )
-        );
-        setSelectedTicket(null);
-        setTicketResponse('');
-      }
-    } finally {
-      setIsResponding(false);
     }
   };
 
@@ -165,7 +121,7 @@ export const AdminAnalyticsManager: React.FC = () => {
                 activeSubTab === 'usage' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Daily Usage
+              Unique App Usage
             </button>
             <button
               type="button"
@@ -178,20 +134,6 @@ export const AdminAnalyticsManager: React.FC = () => {
               <span className="px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-700 text-[10px]">
                 {analytics.activeSessions.length}
               </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('tickets')}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                activeSubTab === 'tickets' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <span>Support Desk</span>
-              {tickets.filter((t) => t.status === 'open').length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-700 text-[10px]">
-                  {tickets.filter((t) => t.status === 'open').length}
-                </span>
-              )}
             </button>
           </div>
 
@@ -511,143 +453,6 @@ export const AdminAnalyticsManager: React.FC = () => {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* SUB-TAB 3: SUPPORT DESK & TICKETS */}
-      {activeSubTab === 'tickets' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Student Support &amp; Issue Tickets</h3>
-              <p className="text-xs text-slate-500">
-                Direct inquiries, timetable conflict alerts, and module queries submitted by students
-              </p>
-            </div>
-            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700">
-              {tickets.length} Total Tickets
-            </span>
-          </div>
-
-          {tickets.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 space-y-2">
-              <MessageSquare className="w-8 h-8 mx-auto text-slate-300" />
-              <p className="text-sm font-bold text-slate-700">No support tickets currently logged</p>
-              <p className="text-xs">Inquiries from the mobile support page will appear here instantly.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {tickets.map((t) => (
-                <div
-                  key={t.id}
-                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3 flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10.5px] font-bold font-mono px-2 py-0.5 rounded bg-slate-200 text-slate-700">
-                        #{t.id}
-                      </span>
-                      <span
-                        className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          t.status === 'resolved'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
-                        {t.status}
-                      </span>
-                    </div>
-
-                    <h4 className="text-[14px] font-bold text-slate-900 mt-2">{t.subject}</h4>
-                    <p className="text-xs text-slate-600 mt-1 leading-relaxed bg-white p-2.5 rounded-lg border border-slate-100">
-                      {t.message}
-                    </p>
-
-                    <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between">
-                      <span>From: <strong className="text-slate-700 font-semibold">{t.studentName}</strong> ({t.matricNumber})</span>
-                      <span>{t.createdAt}</span>
-                    </div>
-                  </div>
-
-                  {t.response ? (
-                    <div className="bg-emerald-50 p-2.5 rounded-lg border border-emerald-100 text-xs text-emerald-900 mt-2">
-                      <span className="font-bold block text-[11px] text-emerald-800">Admin Response:</span>
-                      <p>{t.response}</p>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedTicket(t);
-                        setTicketResponse('');
-                      }}
-                      className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer shadow-xs mt-2"
-                    >
-                      Respond &amp; Resolve
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Respond Modal */}
-          {selectedTicket && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-              <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-slate-100 space-y-4">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                  <h4 className="text-base font-bold text-slate-900">
-                    Respond to #{selectedTicket.id}
-                  </h4>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTicket(null)}
-                    className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold hover:bg-slate-200"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-xs font-bold text-slate-500">Student Issue:</span>
-                  <p className="text-xs text-slate-800 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                    "{selectedTicket.message}"
-                  </p>
-                </div>
-
-                <form onSubmit={handleSendTicketResponse} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Official Response</label>
-                    <textarea
-                      required
-                      rows={3}
-                      value={ticketResponse}
-                      onChange={(e) => setTicketResponse(e.target.value)}
-                      placeholder="Enter response, instructions, or resolution notes for the student..."
-                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedTicket(null)}
-                      className="flex-1 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isResponding}
-                      className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs"
-                    >
-                      {isResponding ? 'Sending...' : 'Send Resolution'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>

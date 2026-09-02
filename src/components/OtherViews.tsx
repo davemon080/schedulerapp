@@ -1,6 +1,6 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, AlertCircle, FileText, CheckCircle2, Megaphone, BookMarked, FlaskConical, Award, Bell, Shield, ChevronRight, Camera, Image as ImageIcon, Check, Plus, LogOut, Mail, GraduationCap, Edit3, Trash2, MoreVertical, Wallet, CreditCard, ArrowUpRight, ArrowDownLeft, Receipt, Eye, EyeOff, Send, Sparkles, UserCheck, Phone, MapPin, X, HelpCircle, Copy, ExternalLink, MessageSquare, Headphones } from 'lucide-react';
+import { Clock, AlertCircle, FileText, CheckCircle2, Megaphone, BookMarked, FlaskConical, Award, Bell, Shield, ChevronRight, Camera, Image as ImageIcon, Check, Plus, LogOut, Mail, GraduationCap, Edit3, Trash2, MoreVertical, Wallet, CreditCard, ArrowUpRight, ArrowDownLeft, Receipt, Eye, EyeOff, Send, Sparkles, UserCheck, Phone, MapPin, X, HelpCircle, Copy, ExternalLink, MessageSquare, Headphones, Settings } from 'lucide-react';
 import { AssignmentItem, UserSession, NotificationItem } from '../types';
 import {
   DeadlinesSkeleton,
@@ -13,8 +13,10 @@ import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
 import { CourseDetailView } from './CourseDetailView';
 import { WalletView } from './WalletView';
 import { SupportPage } from './SupportPage';
+import { SettingsPage } from './SettingsPage';
 import { getStudentActiveLevel, getStudentActiveSemester, normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
 import { DepartmentRecord } from '../admin/types';
+import { LevelAdvisorPage } from './LevelAdvisorPage';
 
 interface OtherViewProps {
   onBackToSchedule: () => void;
@@ -714,35 +716,46 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
       {/* Course Rep Post Broadcast Modal with Facebook-style Image Upload */}
       <AnimatePresence>
         {isPostModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* iOS Backdrop */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={handleCloseModal}
+              className="fixed inset-0 bg-black/35 backdrop-blur-md"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 16 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 340 }}
+              className="relative z-10 glass-container-solid rounded-[32px] max-w-md w-full p-6 shadow-[0_24px_70px_rgba(0,0,0,0.22)] border border-white space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-900"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+              <div className="flex items-center justify-between pb-3 border-b border-black/5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-blue-50 text-[#007AFF] flex items-center justify-center border border-blue-200/60">
                     <Megaphone className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-slate-900">Post Faculty Broadcast</h3>
-                    <p className="text-[11px] text-slate-400">For {activeLevel}L • {activeSemester}</p>
+                    <h3 className="text-[17px] font-bold text-[#1C1C1E] tracking-tight">Post Faculty Broadcast</h3>
+                    <p className="text-[11.5px] text-[#8E8E93]">For {activeLevel}L • {activeSemester}</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center cursor-pointer"
+                  className="w-8 h-8 rounded-full bg-black/5 hover:bg-black/10 text-slate-500 flex items-center justify-center transition-colors cursor-pointer"
                 >
-                  ✕
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
               <form onSubmit={handlePostSubmit} className="space-y-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-[12px] font-bold text-slate-700 mb-1">
                     Announcement Headline *
                   </label>
                   <input
@@ -751,22 +764,22 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                     value={postTitle}
                     onChange={(e) => setPostTitle(e.target.value)}
                     placeholder="e.g., Chemistry Lab Test Rescheduled"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-black/10 bg-white/60 focus:bg-white text-[13px] text-slate-900 font-medium focus:ring-2 focus:ring-blue-500/30 outline-none transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-[12px] font-bold text-slate-700 mb-1">
                     Priority Level
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setPostPriority('normal')}
-                      className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      className={`py-2.5 rounded-2xl text-[12.5px] font-bold border transition-all cursor-pointer ${
                         postPriority === 'normal'
-                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-xs'
-                          : 'border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100'
+                          ? 'bg-blue-50/90 border-blue-400 text-blue-700 shadow-xs'
+                          : 'border-black/5 text-slate-600 bg-white/60 hover:bg-white'
                       }`}
                     >
                       Normal Info
@@ -774,10 +787,10 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setPostPriority('urgent')}
-                      className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      className={`py-2.5 rounded-2xl text-[12.5px] font-bold border transition-all cursor-pointer ${
                         postPriority === 'urgent'
-                          ? 'bg-rose-50 border-rose-500 text-rose-700 shadow-xs'
-                          : 'border-slate-200 text-slate-600 bg-slate-50 hover:bg-slate-100'
+                          ? 'bg-rose-50/90 border-rose-400 text-rose-700 shadow-xs'
+                          : 'border-black/5 text-slate-600 bg-white/60 hover:bg-white'
                       }`}
                     >
                       Urgent Alert
@@ -786,7 +799,7 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-[12px] font-bold text-slate-700 mb-1">
                     Broadcast Message *
                   </label>
                   <textarea
@@ -795,23 +808,23 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                     value={postMessage}
                     onChange={(e) => setPostMessage(e.target.value)}
                     placeholder="Provide complete details, venue adjustments, instructions..."
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none resize-none leading-relaxed"
+                    className="w-full px-3.5 py-2.5 rounded-2xl border border-black/10 bg-white/60 focus:bg-white text-[13px] text-slate-900 font-medium focus:ring-2 focus:ring-blue-500/30 outline-none resize-none leading-relaxed transition-all"
                   />
                 </div>
 
-                {/* Facebook-style Photos Upload and Previews */}
-                <div className="space-y-2 pt-1 border-t border-slate-100">
+                {/* Photos Upload and Previews */}
+                <div className="space-y-2 pt-1 border-t border-black/5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                      <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                    <label className="text-[12px] font-bold text-slate-700 flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-[#007AFF]" />
                       <span>Attach Photos ({postImages.length})</span>
                     </label>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="text-xs font-bold text-[#007AFF] hover:underline flex items-center gap-1 cursor-pointer"
+                      className="text-[12px] font-bold text-[#007AFF] hover:underline flex items-center gap-1 cursor-pointer"
                     >
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-3.5 h-3.5" />
                       <span>Add Photos</span>
                     </button>
                   </div>
@@ -828,7 +841,7 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                   {postImages.length > 0 ? (
                     <div className="grid grid-cols-3 gap-2 pt-1">
                       {postImages.map((img, idx) => (
-                        <div key={idx} className="relative rounded-xl overflow-hidden aspect-square bg-slate-100 border border-slate-200 group">
+                        <div key={idx} className="relative rounded-2xl overflow-hidden aspect-square bg-slate-100 border border-black/5 group">
                           <img
                             src={img}
                             alt={`Preview ${idx + 1}`}
@@ -848,7 +861,7 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="rounded-xl border-2 border-dashed border-slate-200 hover:border-blue-400 aspect-square flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
+                        className="rounded-2xl border-2 border-dashed border-slate-300 hover:border-blue-400 aspect-square flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer bg-white/40"
                       >
                         <Plus className="w-4 h-4" />
                         <span className="text-[10px] font-bold">Add More</span>
@@ -857,27 +870,27 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                   ) : (
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 text-center cursor-pointer transition-colors space-y-1 bg-slate-50/50 hover:bg-blue-50/30"
+                      className="border-2 border-dashed border-slate-300/80 hover:border-blue-400 rounded-2xl p-4 text-center cursor-pointer transition-colors space-y-1 bg-white/40 hover:bg-blue-50/40"
                     >
                       <ImageIcon className="w-6 h-6 mx-auto text-slate-400" />
-                      <p className="text-xs font-semibold text-slate-600">Click to add photos to this broadcast</p>
-                      <p className="text-[10px] text-slate-400">Multiple images supported (like Facebook)</p>
+                      <p className="text-[12px] font-semibold text-slate-700">Click to add photos to this broadcast</p>
+                      <p className="text-[10.5px] text-slate-400">Multiple images supported</p>
                     </div>
                   )}
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-black/5">
                   <button
                     type="button"
                     onClick={handleCloseModal}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                    className="flex-1 py-3 rounded-2xl text-[13px] font-bold text-slate-700 bg-black/5 hover:bg-black/10 transition-colors cursor-pointer text-center"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-600/20 disabled:opacity-50 cursor-pointer"
+                    className="flex-1 py-3 rounded-2xl text-[13px] font-bold text-white bg-[#007AFF] hover:bg-blue-600 shadow-md shadow-blue-500/25 active:scale-98 disabled:opacity-50 cursor-pointer text-center transition-all"
                   >
                     {isSubmitting ? 'Publishing...' : 'Publish Broadcast'}
                   </button>
@@ -1104,8 +1117,8 @@ export const ModulesView: React.FC<OtherViewProps> = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.12 }}
-              className="fixed inset-0 bg-black/45 backdrop-blur-xs"
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 bg-black/35 backdrop-blur-md"
               onClick={() => setOpenMenuCourse(null)}
             />
 
@@ -1114,87 +1127,95 @@ export const ModulesView: React.FC<OtherViewProps> = ({
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 340 }}
-              className="relative w-full max-w-lg bg-white rounded-t-[32px] p-5 pb-8 shadow-[0_-12px_40px_rgba(0,0,0,0.18)] z-10 border-t border-slate-100 flex flex-col gap-3.5"
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              className="relative w-full max-w-lg z-10 mx-auto px-3 pb-6 pt-2"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Drag Pill */}
-              <div className="w-12 h-1 rounded-full bg-slate-300 mx-auto -mt-1" />
+              <div className="glass-sheet rounded-[36px] p-5 pb-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] border border-white flex flex-col gap-3.5">
+                {/* Drag Pill */}
+                <div className="w-12 h-1.5 rounded-full bg-black/20 mx-auto -mt-1 mb-1" />
 
-              {/* Course Info Header */}
-              <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100 pt-1">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 rounded-[16px] bg-blue-50 border border-blue-200/60 flex items-center justify-center text-blue-600 font-extrabold text-sm shrink-0">
-                    {openMenuCourse.courseCode || openMenuCourse.code}
+                {/* Course Info Header */}
+                <div className="flex items-center justify-between gap-3 pb-3 border-b border-black/5">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-[16px] bg-blue-500/10 border border-blue-400/30 flex items-center justify-center text-[#007AFF] font-extrabold text-sm shrink-0">
+                      {openMenuCourse.courseCode || openMenuCourse.code}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-[15.5px] font-bold text-[#1C1C1E] tracking-tight truncate">
+                        {openMenuCourse.title || openMenuCourse.name}
+                      </h3>
+                      <p className="text-[12px] text-[#8E8E93] truncate mt-0.5">
+                        {openMenuCourse.units ? `${openMenuCourse.units} Units` : '3 Units'} • {openMenuCourse.semester || '1st Semester'}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-[15px] font-bold text-slate-900 truncate">
-                      {openMenuCourse.title || openMenuCourse.name}
-                    </h3>
-                    <p className="text-[12px] text-slate-500 truncate">
-                      {openMenuCourse.units ? `${openMenuCourse.units} Units` : '3 Units'} • {openMenuCourse.semester || '1st Semester'}
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOpenMenuCourse(null)}
+                    className="w-8 h-8 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-slate-500 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const c = openMenuCourse;
+                      setOpenMenuCourse(null);
+                      setSelectedCourseDetail(c);
+                    }}
+                    className="w-full flex items-center gap-3.5 px-4 py-3.5 text-[14px] font-bold text-slate-900 bg-white/70 hover:bg-white border border-black/5 rounded-2xl transition-all text-left shadow-2xs active:scale-[0.99] cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#007AFF] flex items-center justify-center shrink-0">
+                      <BookMarked className="w-4 h-4" />
+                    </div>
+                    <span>Open Module Materials</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const c = openMenuCourse;
+                      setOpenMenuCourse(null);
+                      setEditingCourse(c);
+                      setIsAddModalOpen(true);
+                    }}
+                    className="w-full flex items-center gap-3.5 px-4 py-3.5 text-[14px] font-bold text-slate-900 bg-white/70 hover:bg-white border border-black/5 rounded-2xl transition-all text-left shadow-2xs active:scale-[0.99] cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                      <Edit3 className="w-4 h-4" />
+                    </div>
+                    <span>Edit Course Details</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const c = openMenuCourse;
+                      setOpenMenuCourse(null);
+                      setCourseToDelete(c);
+                    }}
+                    className="w-full flex items-center gap-3.5 px-4 py-3.5 text-[14px] font-bold text-rose-600 bg-rose-50/70 hover:bg-rose-50 border border-rose-200/50 rounded-2xl transition-all text-left shadow-2xs active:scale-[0.99] cursor-pointer"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                      <Trash2 className="w-4 h-4" />
+                    </div>
+                    <span>Delete Course</span>
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => setOpenMenuCourse(null)}
-                  className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
+                  className="w-full py-3.5 rounded-2xl bg-black/5 hover:bg-black/10 text-slate-700 font-bold text-[13.5px] transition-colors text-center mt-1 cursor-pointer active:scale-98"
                 >
-                  <X className="w-4 h-4" />
+                  Cancel
                 </button>
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const c = openMenuCourse;
-                    setOpenMenuCourse(null);
-                    setSelectedCourseDetail(c);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-[13.5px] font-bold text-slate-800 hover:bg-blue-50 hover:text-blue-600 rounded-2xl transition-all text-left bg-slate-50 cursor-pointer"
-                >
-                  <BookMarked className="w-4 h-4 text-blue-500" />
-                  <span>Open Module Materials</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const c = openMenuCourse;
-                    setOpenMenuCourse(null);
-                    setEditingCourse(c);
-                    setIsAddModalOpen(true);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-[13.5px] font-bold text-slate-800 hover:bg-amber-50 hover:text-amber-700 rounded-2xl transition-all text-left bg-slate-50 cursor-pointer"
-                >
-                  <Edit3 className="w-4 h-4 text-amber-500" />
-                  <span>Edit Course Details</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const c = openMenuCourse;
-                    setOpenMenuCourse(null);
-                    setCourseToDelete(c);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-[13.5px] font-bold text-rose-600 hover:bg-rose-50 rounded-2xl transition-all text-left bg-rose-50/50 cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4 text-rose-500" />
-                  <span>Delete Course</span>
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setOpenMenuCourse(null)}
-                className="w-full py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[13.5px] transition-colors text-center mt-1 cursor-pointer"
-              >
-                Cancel
-              </button>
             </motion.div>
           </div>
         )}
@@ -1259,6 +1280,7 @@ export const ModulesView: React.FC<OtherViewProps> = ({
 export const ProfileView: React.FC<OtherViewProps> = ({
   profileImage,
   onUploadProfileImage,
+  onTriggerRefresh,
   isLoading = false,
   userSession,
   onLogout,
@@ -1273,24 +1295,23 @@ export const ProfileView: React.FC<OtherViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  // Level Advisor State with persistence
+  // Level Advisor State & Page Navigation
   const [advisorName, setAdvisorName] = useState(() => localStorage.getItem('student_level_advisor_name') || 'Prof. A. Adeleke');
-  const [advisorTitle, setAdvisorTitle] = useState(() => localStorage.getItem('student_level_advisor_title') || 'Department Level Advisor');
-  const [advisorOffice, setAdvisorOffice] = useState(() => localStorage.getItem('student_level_advisor_office') || 'Faculty of Science Complex, Block B, Room 304');
-  const [advisorPhone, setAdvisorPhone] = useState(() => localStorage.getItem('student_level_advisor_phone') || '+234 803 456 7890');
-  const [advisorEmail, setAdvisorEmail] = useState(() => localStorage.getItem('student_level_advisor_email') || 'advisor.adeleke@university.edu');
-  const [advisorHours, setAdvisorHours] = useState('Mondays & Wednesdays: 10:00 AM – 2:00 PM');
-  
-  const [isEditAdvisorOpen, setIsEditAdvisorOpen] = useState(false);
-  const [isAdvisorDetailsOpen, setIsAdvisorDetailsOpen] = useState(false);
+  const [isAdvisorPageOpen, setIsAdvisorPageOpen] = useState(false);
   const [isSupportPageOpen, setIsSupportPageOpen] = useState(false);
-  const [advisorCopiedField, setAdvisorCopiedField] = useState<string | null>(null);
 
-  const [tempAdvisorName, setTempAdvisorName] = useState(advisorName);
-  const [tempAdvisorTitle, setTempAdvisorTitle] = useState(advisorTitle);
-  const [tempAdvisorOffice, setTempAdvisorOffice] = useState(advisorOffice);
-  const [tempAdvisorPhone, setTempAdvisorPhone] = useState(advisorPhone);
-  const [tempAdvisorEmail, setTempAdvisorEmail] = useState(advisorEmail);
+  // Settings Page Navigation State
+  const [isSettingsPageOpen, setIsSettingsPageOpen] = useState(false);
+
+  // Sync advisor name if updated from LevelAdvisorPage
+  useEffect(() => {
+    const handleStorage = () => {
+      const savedName = localStorage.getItem('student_level_advisor_name');
+      if (savedName) setAdvisorName(savedName);
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   // Wallet Page Navigation State
   const [isWalletPageOpen, setIsWalletPageOpen] = useState(false);
@@ -1317,6 +1338,34 @@ export const ProfileView: React.FC<OtherViewProps> = ({
     return <ProfileSkeleton />;
   }
 
+  if (isAdvisorPageOpen) {
+    return (
+      <LevelAdvisorPage
+        onBack={() => {
+          setIsAdvisorPageOpen(false);
+          const savedName = localStorage.getItem('student_level_advisor_name');
+          if (savedName) setAdvisorName(savedName);
+        }}
+        userSession={userSession}
+        activeLevel={activeLevel}
+        activeSemester={studentCurrentSemester}
+        isCourseRep={effectiveCourseRep}
+      />
+    );
+  }
+
+  if (isSettingsPageOpen) {
+    return (
+      <SettingsPage
+        onBack={() => setIsSettingsPageOpen(false)}
+        userSession={userSession}
+        onSessionUpdated={onUpdateUserSession}
+        onTriggerRefresh={onTriggerRefresh}
+        onAddNotification={onAddNotification}
+      />
+    );
+  }
+
   if (isSupportPageOpen) {
     return (
       <SupportPage
@@ -1324,7 +1373,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
         userSession={userSession}
         onOpenAdvisorModal={() => {
           setIsSupportPageOpen(false);
-          setIsAdvisorDetailsOpen(true);
+          setIsAdvisorPageOpen(true);
         }}
       />
     );
@@ -1384,29 +1433,6 @@ export const ProfileView: React.FC<OtherViewProps> = ({
     setShowLogoutConfirm(false);
     if (onLogout) {
       onLogout();
-    }
-  };
-
-  const handleSaveAdvisor = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAdvisorName(tempAdvisorName);
-    setAdvisorTitle(tempAdvisorTitle);
-    setAdvisorOffice(tempAdvisorOffice);
-    setAdvisorPhone(tempAdvisorPhone);
-    setAdvisorEmail(tempAdvisorEmail);
-    localStorage.setItem('student_level_advisor_name', tempAdvisorName);
-    localStorage.setItem('student_level_advisor_title', tempAdvisorTitle);
-    localStorage.setItem('student_level_advisor_office', tempAdvisorOffice);
-    localStorage.setItem('student_level_advisor_phone', tempAdvisorPhone);
-    localStorage.setItem('student_level_advisor_email', tempAdvisorEmail);
-    setIsEditAdvisorOpen(false);
-  };
-
-  const handleCopyAdvisorField = (val: string, fieldName: string) => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(val);
-      setAdvisorCopiedField(fieldName);
-      setTimeout(() => setAdvisorCopiedField(null), 2000);
     }
   };
 
@@ -1518,7 +1544,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
         </div>
       </motion.div>
 
-      {/* Profile Details Card with Interactive Level Advisor */}
+      {/* Profile Details Card */}
       <motion.div
         variants={itemVariants}
         className="glass-container rounded-[26px] p-4.5 space-y-3 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 text-[13.5px]"
@@ -1536,20 +1562,14 @@ export const ProfileView: React.FC<OtherViewProps> = ({
           <span className="text-[#007AFF] font-bold">{studentCurrentSemester}</span>
         </div>
         <div
-          onClick={() => setIsAdvisorDetailsOpen(true)}
-          className="flex items-center justify-between py-1.5 px-2 -mx-2 rounded-xl hover:bg-blue-50/60 transition-all cursor-pointer group select-none"
+          onClick={() => setIsAdvisorPageOpen(true)}
+          className="flex items-center justify-between py-1.5 px-2 -mx-2 rounded-2xl hover:bg-blue-50/60 transition-all cursor-pointer group select-none"
         >
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 group-hover:bg-blue-100 text-[#007AFF] flex items-center justify-center transition-colors shrink-0">
-              <UserCheck className="w-4 h-4" />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-blue-50 group-hover:bg-blue-100 text-[#007AFF] flex items-center justify-center transition-colors shrink-0">
+              <UserCheck className="w-4.5 h-4.5" />
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[#1C1C1E] font-bold group-hover:text-blue-600 transition-colors">Level Advisor</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-blue-100/80 text-blue-700">Tap details</span>
-              </div>
-              <span className="text-[11px] text-slate-400 block truncate max-w-[170px]">{advisorTitle}</span>
-            </div>
+            <span className="text-[#1C1C1E] font-bold group-hover:text-blue-600 transition-colors">Level Advisor</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-slate-800 font-bold group-hover:text-blue-600 transition-colors">{advisorName}</span>
@@ -1562,29 +1582,18 @@ export const ProfileView: React.FC<OtherViewProps> = ({
       <motion.div
         variants={itemVariants}
         onClick={() => setIsWalletPageOpen(true)}
-        className="glass-container rounded-[26px] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
+        className="glass-container rounded-[26px] p-4.5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
       >
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-              <Wallet className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
+              <Wallet className="w-4.5 h-4.5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-[16px] font-bold text-[#1C1C1E]">Wallet</h4>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 font-mono">
-                  Active
-                </span>
-              </div>
-              <p className="text-[12px] text-slate-500 font-medium">Semester Access, Paystack Top-up &amp; Peer Transfers</p>
-            </div>
+            <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">Wallet</h4>
           </div>
           <div className="flex items-center gap-2">
-            <div className="text-right hidden sm:block">
-              <span className="text-[11px] text-slate-400 font-medium block">Balance</span>
-              <span className="text-[15px] font-black text-slate-900">₦{walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 flex items-center justify-center text-slate-400 transition-colors">
+            <span className="text-[14.5px] font-black text-slate-900">₦{walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+            <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 flex items-center justify-center text-slate-400 transition-colors">
               <ChevronRight className="w-4 h-4" />
             </div>
           </div>
@@ -1595,24 +1604,35 @@ export const ProfileView: React.FC<OtherViewProps> = ({
       <motion.div
         variants={itemVariants}
         onClick={() => setIsSupportPageOpen(true)}
-        className="glass-container rounded-[26px] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
+        className="glass-container rounded-[26px] p-4.5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
       >
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform">
-              <HelpCircle className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform">
+              <HelpCircle className="w-4.5 h-4.5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-[16px] font-bold text-[#1C1C1E]">Support</h4>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 font-mono">
-                  24/7 Desk
-                </span>
-              </div>
-              <p className="text-[12px] text-slate-500 font-medium">FAQs, Ticket Support &amp; Department Helpdesk</p>
-            </div>
+            <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">Support</h4>
           </div>
-          <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 flex items-center justify-center text-slate-400 transition-colors">
+          <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 flex items-center justify-center text-slate-400 transition-colors">
+            <ChevronRight className="w-4 h-4" />
+          </div>
+        </div>
+      </motion.div>
+
+      {/* SETTINGS LINK CARD */}
+      <motion.div
+        variants={itemVariants}
+        onClick={() => setIsSettingsPageOpen(true)}
+        className="glass-container rounded-[26px] p-4.5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-slate-700 to-slate-900 text-white flex items-center justify-center shadow-md shadow-slate-700/20 group-hover:scale-105 transition-transform">
+              <Settings className="w-4.5 h-4.5" />
+            </div>
+            <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">Settings</h4>
+          </div>
+          <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 flex items-center justify-center text-slate-400 transition-colors">
             <ChevronRight className="w-4 h-4" />
           </div>
         </div>
@@ -1632,277 +1652,33 @@ export const ProfileView: React.FC<OtherViewProps> = ({
         </motion.div>
       )}
 
-      {/* Level Advisor Details Modal */}
-      <AnimatePresence>
-        {isAdvisorDetailsOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white rounded-[28px] p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4 text-slate-900"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#007AFF] flex items-center justify-center">
-                    <UserCheck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-[16.5px] font-bold text-[#1C1C1E]">Level Advisor Details</h4>
-                    <p className="text-[11.5px] text-slate-500">{studentDepartment}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsAdvisorDetailsOpen(false)}
-                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold hover:bg-slate-200 cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Advisor Card Information */}
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3.5 text-[13px]">
-                <div>
-                  <span className="text-[10.5px] font-bold text-[#007AFF] uppercase tracking-wider block">
-                    Academic Advisor
-                  </span>
-                  <h3 className="text-[17px] font-extrabold text-slate-900 leading-tight mt-0.5">
-                    {advisorName}
-                  </h3>
-                  <p className="text-[12px] text-slate-500 font-medium">{advisorTitle}</p>
-                </div>
-
-                {/* Office Location */}
-                <div className="p-3 bg-white rounded-xl border border-slate-200/70 flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-2.5">
-                    <MapPin className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="text-[11px] font-bold text-slate-500 block">Office Location</span>
-                      <p className="text-[13px] font-semibold text-slate-800 leading-snug">{advisorOffice}</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyAdvisorField(advisorOffice, 'office')}
-                    className="p-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors text-[11px] font-bold shrink-0 cursor-pointer"
-                    title="Copy Office Location"
-                  >
-                    {advisorCopiedField === 'office' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-
-                {/* Phone Number */}
-                <div className="p-3 bg-white rounded-xl border border-slate-200/70 flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-2.5">
-                    <Phone className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="text-[11px] font-bold text-slate-500 block">Direct Contact / Phone</span>
-                      <p className="text-[13px] font-bold text-slate-900 font-mono">{advisorPhone}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <a
-                      href={`tel:${advisorPhone.replace(/\s+/g, '')}`}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-[11.5px] font-bold"
-                    >
-                      Call
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyAdvisorField(advisorPhone, 'phone')}
-                      className="p-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors text-[11px] font-bold cursor-pointer"
-                      title="Copy Phone Number"
-                    >
-                      {advisorCopiedField === 'phone' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Email Address */}
-                {advisorEmail && (
-                  <div className="p-3 bg-white rounded-xl border border-slate-200/70 flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2.5">
-                      <Mail className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                      <div>
-                        <span className="text-[11px] font-bold text-slate-500 block">University Email</span>
-                        <p className="text-[12.5px] font-semibold text-slate-800 break-all">{advisorEmail}</p>
-                      </div>
-                    </div>
-                    <a
-                      href={`mailto:${advisorEmail}`}
-                      className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#007AFF] hover:bg-blue-100 transition-colors text-[11.5px] font-bold shrink-0"
-                    >
-                      Email
-                    </a>
-                  </div>
-                )}
-
-                {/* Consultation Hours */}
-                <div className="p-3 bg-white rounded-xl border border-slate-200/70 flex items-start gap-2.5">
-                  <Clock className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="text-[11px] font-bold text-slate-500 block">Walk-in Consultation Hours</span>
-                    <p className="text-[12px] font-medium text-slate-700 leading-snug">{advisorHours}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-1">
-                {effectiveCourseRep && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAdvisorDetailsOpen(false);
-                      setTempAdvisorName(advisorName);
-                      setTempAdvisorTitle(advisorTitle);
-                      setTempAdvisorOffice(advisorOffice);
-                      setTempAdvisorPhone(advisorPhone);
-                      setTempAdvisorEmail(advisorEmail);
-                      setIsEditAdvisorOpen(true);
-                    }}
-                    className="flex-1 py-2.5 rounded-[18px] bg-slate-100 hover:bg-slate-200 text-slate-700 text-[13px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>Edit Info (Course Rep)</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setIsAdvisorDetailsOpen(false)}
-                  className="flex-1 py-2.5 rounded-[18px] bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold transition-colors cursor-pointer shadow-md shadow-blue-600/20"
-                >
-                  Done
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Edit Level Advisor Modal (Course Rep) */}
-      <AnimatePresence>
-        {isEditAdvisorOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white rounded-[26px] p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4"
-            >
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#007AFF] flex items-center justify-center">
-                    <UserCheck className="w-4 h-4" />
-                  </div>
-                  <h4 className="text-[17px] font-bold text-[#1C1C1E]">Edit Level Advisor</h4>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsEditAdvisorOpen(false)}
-                  className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold hover:bg-slate-200 cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <form onSubmit={handleSaveAdvisor} className="space-y-3.5 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Advisor Full Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={tempAdvisorName}
-                    onChange={(e) => setTempAdvisorName(e.target.value)}
-                    placeholder="e.g. Prof. A. Adeleke"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Title / Designation</label>
-                  <input
-                    type="text"
-                    required
-                    value={tempAdvisorTitle}
-                    onChange={(e) => setTempAdvisorTitle(e.target.value)}
-                    placeholder="e.g. Department Level Advisor & Associate Prof."
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Office Location</label>
-                  <input
-                    type="text"
-                    value={tempAdvisorOffice}
-                    onChange={(e) => setTempAdvisorOffice(e.target.value)}
-                    placeholder="e.g. Faculty of Science Complex, Block B, Room 304"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Contact Phone / Extension</label>
-                  <input
-                    type="text"
-                    value={tempAdvisorPhone}
-                    onChange={(e) => setTempAdvisorPhone(e.target.value)}
-                    placeholder="e.g. +234 803 456 7890"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Advisor Email</label>
-                  <input
-                    type="email"
-                    value={tempAdvisorEmail}
-                    onChange={(e) => setTempAdvisorEmail(e.target.value)}
-                    placeholder="e.g. advisor.adeleke@university.edu"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-
-                <div className="flex gap-2.5 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditAdvisorOpen(false)}
-                    className="flex-1 py-2.5 rounded-[18px] bg-slate-100 hover:bg-slate-200 text-slate-700 text-[13px] font-bold transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 py-2.5 rounded-[18px] bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold transition-colors cursor-pointer shadow-md shadow-blue-600/20"
-                  >
-                    Save Advisor
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Logout Confirmation Modal */}
+      {/* Logout Confirmation Modal - iOS Theme */}
       <AnimatePresence>
         {showLogoutConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* iOS Backdrop */}
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setShowLogoutConfirm(false)}
+              className="fixed inset-0 bg-black/35 backdrop-blur-md"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white rounded-[26px] p-6 max-w-sm w-full shadow-2xl border border-slate-100 text-center space-y-4"
+              exit={{ opacity: 0, scale: 0.94, y: 16 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 340 }}
+              className="relative z-10 glass-container-solid rounded-[32px] p-6 max-w-sm w-full shadow-[0_24px_70px_rgba(0,0,0,0.22)] border border-white text-center space-y-4"
             >
-              <div className="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center mx-auto">
+              <div className="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center mx-auto border border-red-200/60">
                 <LogOut className="w-6 h-6" />
               </div>
               <div>
-                <h4 className="text-[17px] font-bold text-[#1C1C1E]">Log out of student account?</h4>
-                <p className="text-[13px] text-[#8E8E93] mt-1 font-medium">
+                <h4 className="text-[17px] font-bold text-[#1C1C1E] tracking-tight">Log out of student account?</h4>
+                <p className="text-[13px] text-[#8E8E93] mt-1 font-medium leading-relaxed">
                   You will need your Email, Matric Number, and Password to sign back in.
                 </p>
               </div>
@@ -1910,7 +1686,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowLogoutConfirm(false)}
-                  className="flex-1 py-2.5 rounded-[18px] bg-slate-100 hover:bg-slate-200 text-slate-700 text-[13px] font-bold transition-colors cursor-pointer"
+                  className="flex-1 py-3 rounded-2xl bg-black/5 hover:bg-black/10 text-slate-700 text-[13px] font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1918,7 +1694,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
                   id="confirm-logout-btn"
                   type="button"
                   onClick={handleConfirmLogout}
-                  className="flex-1 py-2.5 rounded-[18px] bg-red-500 hover:bg-red-600 text-white text-[13px] font-bold transition-colors cursor-pointer shadow-xs"
+                  className="flex-1 py-3 rounded-2xl bg-red-500 hover:bg-red-600 text-white text-[13px] font-bold transition-all cursor-pointer shadow-md shadow-red-500/25 active:scale-98"
                 >
                   Log Out
                 </button>

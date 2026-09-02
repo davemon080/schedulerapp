@@ -547,16 +547,13 @@ export const WalletView: React.FC<WalletViewProps> = ({
         <button
           id="btn-wallet-back"
           onClick={onBack}
-          className="flex items-center gap-1.5 py-1 px-2.5 rounded-full bg-white/90 border border-slate-200 shadow-2xs hover:bg-slate-50 active:scale-95 transition-all text-slate-700 font-semibold text-[12px] cursor-pointer"
+          className="flex items-center gap-1.5 py-1.5 px-3 rounded-full bg-white/90 border border-slate-200/80 shadow-2xs hover:bg-slate-50 active:scale-95 transition-all text-slate-700 font-semibold text-[12px] cursor-pointer"
         >
           <ArrowLeft className="w-3.5 h-3.5 text-slate-600" />
           <span>Back</span>
         </button>
 
-        <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-50/90 border border-blue-200/80 text-[11px] font-bold text-[#007AFF]">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Paystack Secured</span>
-        </div>
+        <h2 className="text-[15px] font-bold text-[#1C1C1E]">Wallet</h2>
       </div>
 
       <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-3">
@@ -576,14 +573,9 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-xs">
                     <Wallet className="w-4 h-4" />
                   </div>
-                  <div>
-                    <span className="text-[13px] font-bold tracking-tight block">
-                      Campus Digital Wallet
-                    </span>
-                    <span className="text-[9.5px] text-blue-100 uppercase tracking-wider font-semibold block">
-                      {studentDepartment.replace('Department of ', '')}
-                    </span>
-                  </div>
+                  <span className="text-[13.5px] font-bold tracking-tight">
+                    Campus Wallet
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white/15 backdrop-blur-md border border-white/25 text-[10.5px] font-bold text-white shadow-2xs">
@@ -626,11 +618,8 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       <div className="w-5 h-5 rounded-full bg-emerald-400 text-emerald-950 flex items-center justify-center">
                         <Check className="w-3 h-3 stroke-[3]" />
                       </div>
-                      <span>Semester Access Registered (Active)</span>
+                      <span>Semester Access Active</span>
                     </div>
-                    <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono text-emerald-100">
-                      UNLOCKED
-                    </span>
                   </button>
                 ) : (
                   <button
@@ -644,9 +633,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       </div>
                       <span>Register Semester (₦2,000)</span>
                     </div>
-                    <span className="text-[10px] bg-amber-950/15 border border-amber-950/20 px-2 py-0.5 rounded-full font-bold">
-                      {walletBalance >= SEMESTER_FEE ? 'Pay via Balance' : 'Top up & Pay'}
-                    </span>
                   </button>
                 )}
               </div>
@@ -679,10 +665,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#007AFF] flex items-center justify-center shrink-0 group-hover:bg-[#007AFF] group-hover:text-white transition-colors shadow-2xs">
               <ArrowDownLeft className="w-4.5 h-4.5" />
             </div>
-            <div className="min-w-0">
-              <span className="text-[13px] font-bold text-slate-800 block truncate">Add Funds</span>
-              <span className="text-[10.5px] text-[#8E8E93] block truncate">Paystack Gateway</span>
-            </div>
+            <span className="text-[13.5px] font-bold text-slate-800">Add Funds</span>
           </button>
 
           {/* Transfer to Peer via Matric No */}
@@ -694,15 +677,12 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors shadow-2xs">
               <Send className="w-4.5 h-4.5" />
             </div>
-            <div className="min-w-0">
-              <span className="text-[13px] font-bold text-slate-800 block truncate">Transfer</span>
-              <span className="text-[10.5px] text-[#8E8E93] block truncate">To Student Peer</span>
-            </div>
+            <span className="text-[13.5px] font-bold text-slate-800">Transfer</span>
           </button>
         </motion.div>
 
         {/* =========================================================================
-            3. THIRD CONTAINER: SEMESTER ACCESS OVERVIEW & BENEFITS
+            3. THIRD CONTAINER: SEMESTER ACCESS OVERVIEW
             ========================================================================= */}
         <motion.div variants={itemVariants}>
           <div className={`w-full p-3 sm:p-3.5 rounded-[18px] border transition-all ${
@@ -710,7 +690,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
               ? 'bg-emerald-50/80 border-emerald-200/90 text-emerald-950'
               : 'bg-amber-50/80 border-amber-200/90 text-amber-950'
           }`}>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold shadow-xs ${
                   isPaidAccess ? 'bg-emerald-600' : 'bg-amber-600'
@@ -718,11 +698,11 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   {isPaidAccess ? <CheckCircle2 className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                 </div>
                 <div>
-                  <h4 className="text-[12.5px] font-bold">
+                  <h4 className="text-[13px] font-bold">
                     {isPaidAccess ? 'Semester Access Active' : 'Semester Access Required'}
                   </h4>
-                  <span className="text-[10.5px] opacity-80 block">
-                    {isPaidAccess ? (paidSemester || `${activeSemester} 2025/2026`) : 'Fee: ₦2,000 / Semester'}
+                  <span className="text-[11px] opacity-80 block">
+                    {isPaidAccess ? (paidSemester || `${activeSemester} 2025/2026`) : `${activeSemester} • ₦2,000`}
                   </span>
                 </div>
               </div>
@@ -730,49 +710,23 @@ export const WalletView: React.FC<WalletViewProps> = ({
               {!isPaidAccess && (
                 <button
                   onClick={() => setIsRegisterSemesterModalOpen(true)}
-                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11.5px] shadow-xs active:scale-95 transition-all cursor-pointer"
                 >
-                  Register Now
+                  Register
                 </button>
               )}
-            </div>
-
-            <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-black/5 text-[10.5px]">
-              <div className="flex items-center gap-1 font-medium opacity-90">
-                <CalendarCheck className="w-3 h-3 shrink-0 text-blue-600" />
-                <span className="truncate">Timetable</span>
-              </div>
-              <div className="flex items-center gap-1 font-medium opacity-90">
-                <BookOpen className="w-3 h-3 shrink-0 text-indigo-600" />
-                <span className="truncate">Syllabi</span>
-              </div>
-              <div className="flex items-center gap-1 font-medium opacity-90">
-                <BellRing className="w-3 h-3 shrink-0 text-amber-600" />
-                <span className="truncate">Deadlines</span>
-              </div>
             </div>
           </div>
         </motion.div>
 
         {/* =========================================================================
-            4. FOURTH CONTAINER: WALLET HISTORY & RECEIPTS (ACCESSIBLE IN WALLET VIEW)
+            4. FOURTH CONTAINER: TRANSACTION HISTORY
             ========================================================================= */}
-        <motion.div variants={itemVariants} className="space-y-2.5 pt-0.5">
+        <motion.div variants={itemVariants} className="space-y-2.5 pt-1">
           <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-[14px] font-bold text-[#1C1C1E]">
-                Wallet History &amp; Receipts
-              </h3>
-              <p className="text-[11px] text-[#8E8E93]">
-                Audit transactions &amp; download receipts
-              </p>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
-                {filteredTxns.length} {filteredTxns.length === 1 ? 'Record' : 'Records'}
-              </span>
-            </div>
+            <h3 className="text-[14.5px] font-bold text-[#1C1C1E]">
+              Transaction History
+            </h3>
           </div>
 
           {/* Filter Pills */}
@@ -804,7 +758,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search reference, student matric, or note..."
+              placeholder="Search transactions..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white border border-slate-200/80 text-[12px] placeholder-slate-400 focus:outline-none focus:border-[#007AFF] transition-colors"
@@ -817,11 +771,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
               <div className="p-6 text-center bg-white/80 rounded-[18px] border border-slate-200/70 shadow-2xs">
                 <Receipt className="w-7 h-7 text-slate-300 mx-auto mb-1.5" />
                 <p className="text-[12.5px] font-semibold text-slate-700">No transactions recorded</p>
-                <p className="text-[11px] text-[#8E8E93] mt-0.5">
-                  {searchQuery
-                    ? 'No transactions match your search query'
-                    : 'Your wallet transactions will appear here as soon as you fund, register, or transfer'}
-                </p>
               </div>
             ) : (
               filteredTxns.map((tx) => {
@@ -869,18 +818,13 @@ export const WalletView: React.FC<WalletViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 ml-2">
-                      <div className="text-right">
-                        <span
-                          className={`text-[13px] font-bold block ${
-                            isCredit ? 'text-emerald-600' : 'text-[#1C1C1E]'
-                          }`}
-                        >
-                          {isCredit ? '+' : '-'}₦{tx.amount.toLocaleString()}
-                        </span>
-                        <span className="inline-flex items-center gap-0.5 text-[9.5px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded-full border border-emerald-100">
-                          {tx.status}
-                        </span>
-                      </div>
+                      <span
+                        className={`text-[13px] font-bold block ${
+                          isCredit ? 'text-emerald-600' : 'text-[#1C1C1E]'
+                        }`}
+                      >
+                        {isCredit ? '+' : '-'}₦{tx.amount.toLocaleString()}
+                      </span>
 
                       <button
                         type="button"
@@ -890,7 +834,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                         }}
                         disabled={isDownloadingReceipt}
                         className="w-7.5 h-7.5 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-400 hover:text-[#007AFF] flex items-center justify-center transition-colors cursor-pointer"
-                        title="Download Official Receipt"
+                        title="Download Receipt"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
@@ -920,14 +864,9 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/25">
                     <Sparkles className="w-4 h-4" />
                   </div>
-                  <div>
-                    <h3 className="text-[15px] font-bold text-[#1C1C1E]">
-                      Semester Registration
-                    </h3>
-                    <p className="text-[11px] text-[#8E8E93]">
-                      Academic Session 2025/2026
-                    </p>
-                  </div>
+                  <h3 className="text-[15px] font-bold text-[#1C1C1E]">
+                    Semester Registration
+                  </h3>
                 </div>
                 <button
                   onClick={() => setIsRegisterSemesterModalOpen(false)}
@@ -942,10 +881,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950">
                     <div className="flex items-center gap-1.5 mb-1">
                       <CheckCircle2 className="w-4.5 h-4.5 text-emerald-600 shrink-0" />
-                      <span className="font-bold text-[13px]">You are already registered!</span>
+                      <span className="font-bold text-[13px]">Semester Access Active</span>
                     </div>
                     <p className="text-[11.5px] text-emerald-800 leading-relaxed">
-                      Your semester access is active for {paidSemester || `${activeSemester} 2025/2026`}. You have full access to lecture schedules, lab venues, syllabi PDFs, course rep announcements, and deadline reminders.
+                      You have full access to timetables, syllabi, announcements, and reminders for {paidSemester || `${activeSemester} 2025/2026`}.
                     </p>
                   </div>
 
@@ -961,11 +900,11 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 <div className="space-y-3">
                   <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-[12px]">
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Target Semester:</span>
+                      <span className="text-slate-500">Semester:</span>
                       <span className="font-bold text-slate-800">{activeSemester} 2025/2026</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Student Account:</span>
+                      <span className="text-slate-500">Account:</span>
                       <span className="font-bold text-slate-800">{studentMatric}</span>
                     </div>
                     <div className="flex justify-between items-center pt-1.5 border-t border-slate-200">
@@ -973,7 +912,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       <span className="font-extrabold text-[15px] text-amber-600">₦2,000</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-600">Current Balance:</span>
+                      <span className="text-slate-600">Wallet Balance:</span>
                       <span className="font-mono font-bold text-slate-800">₦{walletBalance.toLocaleString()}</span>
                     </div>
                   </div>
@@ -990,14 +929,14 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       ) : (
                         <Unlock className="w-4 h-4" />
                       )}
-                      <span>Deduct ₦2,000 &amp; Register Semester</span>
+                      <span>Pay ₦2,000 &amp; Register</span>
                     </button>
                   ) : (
                     <div className="space-y-2">
                       <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11.5px] text-amber-900 flex items-start gap-1.5">
                         <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
                         <span>
-                          You need ₦{(SEMESTER_FEE - walletBalance).toLocaleString()} more in your wallet to register for {activeSemester}.
+                          You need ₦{(SEMESTER_FEE - walletBalance).toLocaleString()} more to register for {activeSemester}.
                         </span>
                       </div>
                       <button
@@ -1010,7 +949,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                         className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-[13.5px] shadow-md shadow-blue-500/25 hover:brightness-105 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <Zap className="w-4 h-4" />
-                        <span>Fund ₦{(SEMESTER_FEE - walletBalance).toLocaleString()} with Paystack &amp; Unlock</span>
+                        <span>Fund ₦{(SEMESTER_FEE - walletBalance).toLocaleString()} with Paystack</span>
                       </button>
                     </div>
                   )}
@@ -1038,14 +977,9 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-[#007AFF]">
                     <Wallet className="w-4 h-4" />
                   </div>
-                  <div>
-                    <h3 className="text-[15px] font-bold text-[#1C1C1E]">
-                      Fund Campus Wallet
-                    </h3>
-                    <p className="text-[11px] text-[#8E8E93]">
-                      Instant deposit via Paystack Gateway
-                    </p>
-                  </div>
+                  <h3 className="text-[15px] font-bold text-[#1C1C1E]">
+                    Add Funds
+                  </h3>
                 </div>
                 <button
                   onClick={() => setIsFundModalOpen(false)}
@@ -1059,11 +993,11 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 {/* Preset Amount Pills */}
                 <div>
                   <label className="text-[11.5px] font-bold text-slate-700 block mb-1.5">
-                    Select Quick Amount (NGN)
+                    Select Amount (NGN)
                   </label>
                   <div className="grid grid-cols-4 gap-1.5">
                     {[
-                      { amt: '2000', label: '₦2,000', note: 'Semester' },
+                      { amt: '2000', label: '₦2,000' },
                       { amt: '3000', label: '₦3,000' },
                       { amt: '5000', label: '₦5,000' },
                       { amt: '10000', label: '₦10,000' },
@@ -1072,18 +1006,13 @@ export const WalletView: React.FC<WalletViewProps> = ({
                         type="button"
                         key={item.amt}
                         onClick={() => setFundAmount(item.amt)}
-                        className={`py-1.5 px-1 rounded-xl text-[11.5px] font-bold border transition-all cursor-pointer flex flex-col items-center justify-center ${
+                        className={`py-2 px-1 rounded-xl text-[12px] font-bold border transition-all cursor-pointer flex items-center justify-center ${
                           fundAmount === item.amt
                             ? 'bg-[#007AFF] text-white border-[#007AFF] shadow-xs'
                             : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                         }`}
                       >
-                        <span>{item.label}</span>
-                        {item.note && (
-                          <span className={`text-[8.5px] ${fundAmount === item.amt ? 'text-blue-100' : 'text-blue-600'} font-semibold`}>
-                            {item.note}
-                          </span>
-                        )}
+                        {item.label}
                       </button>
                     ))}
                   </div>
@@ -1092,7 +1021,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 {/* Custom Amount Input */}
                 <div>
                   <label className="text-[11.5px] font-bold text-slate-700 block mb-1">
-                    Or Enter Custom Amount (₦)
+                    Custom Amount (₦)
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-500 text-sm">
@@ -1109,15 +1038,12 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 font-bold text-[14px] focus:outline-none focus:border-[#007AFF]"
                     />
                   </div>
-                  <span className="text-[10px] text-[#8E8E93] mt-0.5 block">
-                    Minimum top-up: ₦500
-                  </span>
                 </div>
 
                 {/* Payment Method Selector */}
                 <div>
                   <label className="text-[11.5px] font-bold text-slate-700 block mb-1.5">
-                    Paystack Channel
+                    Payment Method
                   </label>
                   <div className="grid grid-cols-3 gap-1.5">
                     <button
@@ -1154,7 +1080,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       }`}
                     >
                       <Smartphone className="w-3.5 h-3.5" />
-                      <span className="text-[10.5px] font-bold">USSD Code</span>
+                      <span className="text-[10.5px] font-bold">USSD</span>
                     </button>
                   </div>
                 </div>
@@ -1165,7 +1091,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-[#007AFF] to-[#0A84FF] text-white font-bold text-[13.5px] shadow-md shadow-blue-500/25 hover:brightness-105 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer mt-1"
                 >
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Proceed with Paystack (₦{parseFloat(fundAmount || '0').toLocaleString()})</span>
+                  <span>Proceed (₦{parseFloat(fundAmount || '0').toLocaleString()})</span>
                 </button>
               </form>
             </motion.div>
@@ -1174,7 +1100,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
       </AnimatePresence>
 
       {/* =========================================================================
-          MODAL C: PAYSTACK TEST CHECKOUT OVERLAY
+          MODAL C: PAYSTACK CHECKOUT OVERLAY
           ========================================================================= */}
       <AnimatePresence>
         {isPaystackCheckoutOpen && (
@@ -1191,21 +1117,15 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   <div className="w-6 h-6 rounded-md bg-white/20 flex items-center justify-center font-extrabold text-xs tracking-tight">
                     P
                   </div>
-                  <div>
-                    <span className="text-[12.5px] font-extrabold tracking-tight">paystack</span>
-                    <span className="text-[9.5px] text-sky-100 block">Secured Payment Gateway</span>
-                  </div>
+                  <span className="text-[13px] font-extrabold tracking-tight">Paystack Gateway</span>
                 </div>
-                <div className="text-right">
-                  <span className="text-[9.5px] text-sky-100 block">Amount</span>
-                  <span className="text-[14px] font-extrabold">₦{parseFloat(fundAmount || '0').toLocaleString()}</span>
-                </div>
+                <span className="text-[14px] font-extrabold">₦{parseFloat(fundAmount || '0').toLocaleString()}</span>
               </div>
 
               <div className="p-4 space-y-3">
                 <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-[11.5px] text-slate-700">
                   <div className="flex justify-between mb-0.5">
-                    <span className="text-slate-500">Student Account:</span>
+                    <span className="text-slate-500">Student:</span>
                     <span className="font-bold text-slate-800">{studentMatric}</span>
                   </div>
                   <div className="flex justify-between">
@@ -1215,41 +1135,34 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 </div>
 
                 {fundMethod === 'card' && (
-                  <div className="space-y-2">
-                    <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 text-[11.5px]">
-                      <div className="flex items-center justify-between text-blue-900 font-bold mb-0.5">
-                        <span>Card Checkout</span>
-                        <span className="text-[9.5px] bg-blue-200/80 px-1.5 py-0.5 rounded font-mono">TEST MODE</span>
-                      </div>
-                      <p className="text-[11px] text-blue-800">
-                        Paystack test key active. Click below to verify and complete funding instantly.
-                      </p>
-                    </div>
+                  <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 text-[11.5px]">
+                    <span className="text-blue-900 font-bold block mb-0.5">Debit Card Checkout</span>
+                    <p className="text-[11px] text-blue-800">
+                      Click below to confirm payment and credit your wallet.
+                    </p>
                   </div>
                 )}
 
                 {fundMethod === 'transfer' && (
-                  <div className="space-y-2 text-[11.5px]">
-                    <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Paystack Virtual Bank</span>
-                      <p className="text-[13px] font-bold text-slate-800">Wema Bank / Paystack</p>
-                      <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200">
-                        <span className="font-mono font-bold text-[13px] text-blue-600">9938201948</span>
-                        <button
-                          type="button"
-                          onClick={() => handleCopy('9938201948', 'wema')}
-                          className="text-[10.5px] font-semibold text-blue-600 cursor-pointer"
-                        >
-                          {copiedRef === 'wema' ? 'Copied' : 'Copy'}
-                        </button>
-                      </div>
+                  <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-[11.5px]">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Paystack Virtual Bank</span>
+                    <p className="text-[13px] font-bold text-slate-800">Wema Bank</p>
+                    <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200">
+                      <span className="font-mono font-bold text-[13px] text-blue-600">9938201948</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy('9938201948', 'wema')}
+                        className="text-[10.5px] font-semibold text-blue-600 cursor-pointer"
+                      >
+                        {copiedRef === 'wema' ? 'Copied' : 'Copy'}
+                      </button>
                     </div>
                   </div>
                 )}
 
                 {fundMethod === 'ussd' && (
                   <div className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-[11.5px]">
-                    <span className="text-slate-500 block mb-1">Dial USSD Code on your registered SIM:</span>
+                    <span className="text-slate-500 block mb-1">Dial USSD Code:</span>
                     <p className="font-mono font-bold text-[13px] text-slate-800 bg-white p-1.5 rounded-lg border text-center">
                       *737*000*{fundAmount}#
                     </p>
@@ -1276,7 +1189,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                     ) : (
                       <CheckCircle2 className="w-3.5 h-3.5" />
                     )}
-                    <span>I Have Paid ₦{parseFloat(fundAmount || '0').toLocaleString()}</span>
+                    <span>Complete Payment</span>
                   </button>
                 </div>
               </div>
@@ -1302,14 +1215,9 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
                     <Send className="w-4 h-4" />
                   </div>
-                  <div>
-                    <h3 className="text-[15px] font-bold text-[#1C1C1E]">
-                      Transfer Funds to Peer
-                    </h3>
-                    <p className="text-[11px] text-[#8E8E93]">
-                      Instant transfer via Matriculation Number
-                    </p>
-                  </div>
+                  <h3 className="text-[15px] font-bold text-[#1C1C1E]">
+                    Transfer Funds
+                  </h3>
                 </div>
                 <button
                   onClick={() => {
@@ -1371,9 +1279,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
                     <label className="text-[11.5px] font-bold text-slate-700">
                       Transfer Amount (₦)
                     </label>
-                    <span className="text-[10.5px] text-[#8E8E93]">
-                      Bal: ₦{walletBalance.toLocaleString()}
-                    </span>
                   </div>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-500 text-sm">
@@ -1416,11 +1321,11 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 {/* Note */}
                 <div>
                   <label className="text-[11.5px] font-bold text-slate-700 block mb-1">
-                    Transfer Note (Optional)
+                    Note (Optional)
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Study materials / lab manuals"
+                    placeholder="e.g. Study materials"
                     value={transferNote}
                     onChange={(e) => setTransferNote(e.target.value)}
                     className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-[12.5px] focus:outline-none focus:border-indigo-500"
@@ -1437,7 +1342,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   ) : (
                     <Send className="w-4 h-4" />
                   )}
-                  <span>Send ₦{parseFloat(transferAmount || '0').toLocaleString()} to Peer</span>
+                  <span>Send ₦{parseFloat(transferAmount || '0').toLocaleString()}</span>
                 </button>
               </form>
             </motion.div>
@@ -1461,10 +1366,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 <Receipt className="w-5 h-5" />
               </div>
 
-              <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-400">
-                Official Transaction Receipt
-              </span>
-              <h3 className="text-lg font-extrabold text-[#1C1C1E] mt-0.5 mb-0.5">
+              <h3 className="text-xl font-extrabold text-[#1C1C1E] mb-0.5">
                 {selectedTxDetail.type === 'credit' ? '+' : '-'}₦{selectedTxDetail.amount.toLocaleString()}
               </h3>
               <p className="text-[12.5px] font-semibold text-slate-700 mb-3">
@@ -1505,7 +1407,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 )}
                 {selectedTxDetail.note && (
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Description / Note</span>
+                    <span className="text-slate-500">Note</span>
                     <span className="font-medium text-slate-800 text-right">{selectedTxDetail.note}</span>
                   </div>
                 )}
@@ -1538,7 +1440,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                     className="flex-1 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-[12px] transition-colors flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <Printer className="w-3.5 h-3.5" />
-                    <span>Print / PDF</span>
+                    <span>Print</span>
                   </button>
 
                   <button
