@@ -714,6 +714,11 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
                 </label>
               </div>
 
+              {/* Semester Reset Policy Notice */}
+              <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200/70 text-[11px] text-amber-900 leading-relaxed">
+                <strong>Semester Transition Policy:</strong> Schedules, deadlines, broadcasts, and dashboard notifications will be reset for the new semester term. <em>Courses on modules page, PDFs, outlines, and lecture videos will never be reset and will remain permanently for incoming students.</em>
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"

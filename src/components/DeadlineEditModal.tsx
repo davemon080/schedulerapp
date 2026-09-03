@@ -195,22 +195,22 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
     <>
       <AnimatePresence>
         <div className="fixed inset-0 z-50 flex items-end justify-center pointer-events-auto">
-          {/* Backdrop */}
+          {/* Backdrop - fast and responsive */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.22 }}
+            transition={{ duration: 0.08 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/40 backdrop-blur-md"
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs"
           />
 
-          {/* Modal Drawer sliding up from the bottom */}
+          {/* Modal Drawer sliding up from the bottom - immediate response */}
           <motion.div
-            initial={{ y: '100%', opacity: 0.9 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+            initial={{ opacity: 0, scale: 0.98, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, y: 10 }}
+            transition={{ duration: 0.08, ease: 'easeOut' }}
             className="relative w-full max-w-lg z-10 mx-auto px-3 pb-6 pt-2"
           >
             <div className="glass-container-solid rounded-[32px] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.18)] border border-white max-h-[85vh] overflow-y-auto custom-scrollbar">

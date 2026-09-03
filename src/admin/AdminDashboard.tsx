@@ -47,6 +47,9 @@ import {
   isMockAssignment,
   isMockNotification,
   purgeMockScheduleDeadlinesAndBroadcasts,
+  recordOrUpdateClassCancelledNotification,
+  recordOrUpdateDeadlineDeletedNotification,
+  recordOrUpdateBroadcastDeletedNotification,
 } from '../lib/dbService';
 
 const VALID_TABS: AdminTab[] = [
@@ -517,12 +520,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Delete Event
   const handleDeleteEvent = async (id: string) => {
+    const target = events.find((ev) => ev.id === id);
     const updated = events.filter((ev) => ev.id !== id);
     setEvents(updated);
     onGlobalSyncEvents?.(updated);
 
     await deleteScheduleActivity(id);
-    showToast('Class deleted from database');
+    if (target) {
+      const notif = await recordOrUpdateClassCancelledNotification(target, 'Course Rep / Admin');
+      if (notif) {
+        const notifsUpdated = [notif, ...notifications.filter((n) => n.id !== notif.id)];
+        setNotifications(notifsUpdated);
+        onGlobalSyncNotifications?.(notifsUpdated);
+      }
+    }
+    showToast('Class cancelled. Notification updated for students.');
   };
 
   // Add Assignment
@@ -556,12 +568,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Delete Assignment
   const handleDeleteAssignment = async (id: string) => {
+    const target = assignments.find((a) => a.id === id);
     const updated = assignments.filter((a) => a.id !== id);
     setAssignments(updated);
     onGlobalSyncAssignments?.(updated);
 
     await deleteAssignment(id);
-    showToast('Assignment removed from database');
+    if (target) {
+      const notif = await recordOrUpdateDeadlineDeletedNotification(target, 'Course Rep / Admin');
+      if (notif) {
+        const notifsUpdated = [notif, ...notifications.filter((n) => n.id !== notif.id)];
+        setNotifications(notifsUpdated);
+        onGlobalSyncNotifications?.(notifsUpdated);
+      }
+    }
+    showToast('Deadline deleted. Notification updated for students.');
   };
 
   // Add Notification / Broadcast
@@ -572,6 +593,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       id: tempId,
       time: newNotifData.time || 'Just now',
       isUnread: true,
+      timestamp: Date.now(),
     };
 
     const updated = [tempNotif, ...notifications];
@@ -612,12 +634,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Delete Notification
   const handleDeleteNotification = async (id: string) => {
-    const updated = notifications.filter((n) => n.id !== id);
+    const target = notifications.find((n) => n.id === id);
+    const originalTitle = (target?.title || 'Announcement').replace(/^Broadcast Deleted:\s*/i, '');
+    const updatedTitle = `Broadcast Deleted: ${originalTitle}`;
+    const updatedMsg = `This announcement was deleted/retracted by the Course Rep / Faculty.`;
+
+    // Instead of removing activity from notifications page, update it!
+    const updated = notifications.map((n) => {
+      if (n.id === id || n.target_id === id) {
+        return {
+          ...n,
+          title: updatedTitle,
+          message: updatedMsg,
+          type: 'alert' as const,
+          isDeleted: true,
+          is_deleted: true,
+          status: 'deleted',
+          images: [],
+          isUnread: true,
+          time: 'Just now',
+          timestamp: Date.now(),
+        };
+      }
+      return n;
+    });
     setNotifications(updated);
     onGlobalSyncNotifications?.(updated);
 
-    await deleteAnnouncement(id);
-    showToast('Announcement removed');
+    await recordOrUpdateBroadcastDeletedNotification(id, 'Course Rep / Faculty');
+    showToast('Broadcast deleted. Notification updated on dashboard.');
   };
 
   // Add Student
@@ -861,6 +906,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 students={students}
                 departments={departments}
                 searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
                 onAddStudent={handleAddStudent}
                 onUpdateStudent={handleUpdateStudent}
                 onDeleteStudent={handleDeleteStudent}

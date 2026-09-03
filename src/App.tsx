@@ -32,6 +32,8 @@ import {
   createAssignment,
   updateAssignment,
   deleteAssignment,
+  fetchAnnouncements,
+  fetchNotifications,
   fetchAnnouncementsAndNotifications,
   createAnnouncement,
   updateAnnouncement,
@@ -49,7 +51,11 @@ import {
   purgeMockScheduleDeadlinesAndBroadcasts,
   resetAllStudentsToUnpaidInDatabase,
   verifyUserActiveSession,
+  fetchStudentByEmailOrMatric,
   recordAppVisit,
+  recordOrUpdateClassCancelledNotification,
+  recordOrUpdateDeadlineDeletedNotification,
+  recordOrUpdateBroadcastDeletedNotification,
 } from './lib/dbService';
 import { CourseRecord, DepartmentRecord } from './admin/types';
 import { CourseFormData } from './components/AddCourseModal';
@@ -93,12 +99,15 @@ export default function App() {
   });
   const [events, setEvents] = useState<EventItem[]>([]);
   const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
+  const [broadcasts, setBroadcasts] = useState<NotificationItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [courses, setCourses] = useState<CourseRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
   const [currentSemester, setCurrentSemester] = useState<string>('1st Semester');
   const [activeTab, setActiveTab] = useState<NavigationTab>('Schedule');
   const [showSplash, setShowSplash] = useState(true);
+  const [isStartupVerified, setIsStartupVerified] = useState<boolean>(false);
+  const [splashStatusMessage, setSplashStatusMessage] = useState<string>('Verifying account state...');
   const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
   const [showPermissionsPrompt, setShowPermissionsPrompt] = useState(false);
 
@@ -214,10 +223,11 @@ export default function App() {
       // Enforce that all students in the database are set to unpaid and semester access is reset
       resetAllStudentsToUnpaidInDatabase().catch(() => {});
 
-      const [dbEvents, dbAssigns, dbNotifs, dbCourses, dbSem, dbDepts] = await Promise.all([
+      const [dbEvents, dbAssigns, dbBroadcasts, dbNotifs, dbCourses, dbSem, dbDepts] = await Promise.all([
         fetchScheduleActivities(),
         fetchAssignments(),
-        fetchAnnouncementsAndNotifications(),
+        fetchAnnouncements(),
+        fetchNotifications(),
         fetchCourses(),
         fetchCurrentSemester(),
         fetchDepartments(),
@@ -229,8 +239,22 @@ export default function App() {
       if (dbAssigns) {
         setAssignments(dbAssigns);
       }
+      if (dbBroadcasts) {
+        setBroadcasts(dbBroadcasts);
+      }
       if (dbNotifs) {
-        setNotifications(dbNotifs);
+        setNotifications((prev) => {
+          const localActivities = prev.filter((p) => p.id?.startsWith('act-'));
+          const combined = [...localActivities, ...dbNotifs];
+          const seen = new Set<string>();
+          const deduped: NotificationItem[] = [];
+          for (const item of combined) {
+            if (!item.id || seen.has(item.id)) continue;
+            seen.add(item.id);
+            deduped.push(item);
+          }
+          return deduped;
+        });
       }
       if (dbCourses) {
         setCourses(dbCourses);
@@ -260,6 +284,120 @@ export default function App() {
     }
   }, []);
 
+  // Active Startup Account Verification & Data Sync while on Splash Screen
+  useEffect(() => {
+    let isCancelled = false;
+
+    const performStartupVerification = async () => {
+      try {
+        if (!isCancelled) setSplashStatusMessage('Verifying account state...');
+
+        // 1. Check & verify user account session if one exists in localStorage or state
+        const savedUserRaw = localStorage.getItem('university_schedule_user');
+        const localToken = localStorage.getItem('university_active_session_token');
+
+        if (savedUserRaw) {
+          try {
+            const parsed = JSON.parse(savedUserRaw);
+            const userIdentifier = parsed.uid || parsed.matricNumber || parsed.email;
+
+            // A. Check concurrent session token on database
+            if (localToken && userIdentifier) {
+              const sessionRes = await verifyUserActiveSession(userIdentifier, localToken);
+              if (!sessionRes.isValid && sessionRes.reason === 'CONCURRENT_LOGIN_DETECTED') {
+                if (!isCancelled) {
+                  setSessionExpiredNotice(
+                    'Your student account was signed in on another device. For security and exam integrity, simultaneous logins on multiple devices are not permitted.'
+                  );
+                  setUserSession(null);
+                  try {
+                    localStorage.removeItem('university_schedule_user');
+                    localStorage.removeItem('university_active_session_token');
+                  } catch (e) {}
+                }
+              }
+            }
+
+            // B. Fetch fresh student document from Firestore to verify account validity, payment, & active term
+            if (userIdentifier) {
+              const verifiedStudent = await fetchStudentByEmailOrMatric(userIdentifier);
+              if (verifiedStudent && !isCancelled) {
+                const matchLevel = getStudentActiveLevel(verifiedStudent);
+                const matchYearLevel = `${matchLevel} Level`;
+                const matchDept = verifiedStudent.department || parsed.department;
+                const matchDeptId = verifiedStudent.department_id || parsed.department_id;
+                const matchCourseRep = Boolean(verifiedStudent.iscourserep || verifiedStudent.isCourseRep);
+                const matchAdmin = Boolean(verifiedStudent.isadmin || verifiedStudent.isAdmin);
+                const matchIsPaid = Boolean(verifiedStudent.is_paid || verifiedStudent.is_payed);
+                const matchPaidSemester = verifiedStudent.paid_semester || (verifiedStudent as any).paidSemester || undefined;
+
+                const syncedSession: UserSession = {
+                  ...parsed,
+                  fullName: verifiedStudent.full_name || verifiedStudent.name || parsed.fullName,
+                  matricNumber: verifiedStudent.matric_number || verifiedStudent.matricNumber || parsed.matricNumber,
+                  email: verifiedStudent.email || parsed.email,
+                  level: matchLevel,
+                  year_level: matchYearLevel,
+                  yearLevel: matchYearLevel,
+                  department: matchDept,
+                  department_id: matchDeptId,
+                  isCourseRep: matchCourseRep,
+                  isAdmin: matchAdmin,
+                  is_paid: matchCourseRep || matchAdmin || matchIsPaid,
+                  is_payed: matchCourseRep || matchAdmin || matchIsPaid,
+                  hasFreeAccess: matchCourseRep || matchAdmin,
+                  paid_semester: matchPaidSemester,
+                  profileImage: verifiedStudent.profile_pic_url || verifiedStudent.profileImage || parsed.profileImage || null,
+                };
+
+                setUserSession(syncedSession);
+                try {
+                  localStorage.setItem('university_schedule_user', JSON.stringify(syncedSession));
+                } catch (e) {}
+
+                if (verifiedStudent.profile_pic_url || verifiedStudent.profileImage) {
+                  setProfileImage(verifiedStudent.profile_pic_url || verifiedStudent.profileImage);
+                }
+              }
+            }
+          } catch (sessionErr) {
+            console.warn('Startup session verification warning:', sessionErr);
+          }
+        }
+
+        // 2. Fetch and synchronize timetable, deadlines, broadcasts, courses, and active semester
+        if (!isCancelled) {
+          setSplashStatusMessage('Synchronizing timetable & academic data...');
+        }
+        await syncStudentPortalData();
+
+        if (!isCancelled) {
+          setSplashStatusMessage('Ready');
+          setIsStartupVerified(true);
+        }
+      } catch (err) {
+        console.warn('Startup initialization error:', err);
+        if (!isCancelled) {
+          setIsStartupVerified(true);
+        }
+      }
+    };
+
+    performStartupVerification();
+
+    // Safeguard timeout to ensure splash dismisses even if network hangs
+    const safeguardTimer = setTimeout(() => {
+      if (!isCancelled) {
+        setIsStartupVerified(true);
+      }
+    }, 4500);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(safeguardTimer);
+    };
+  }, [syncStudentPortalData]);
+
   // On mount and when session activates, subscribe to live Firestore changes
   useEffect(() => {
     const unsubscribe = subscribeToRealtimeDatabase({
@@ -269,8 +407,24 @@ export default function App() {
       onAssignments: (dbAssigns) => {
         if (dbAssigns) setAssignments(dbAssigns);
       },
+      onBroadcasts: (dbBroadcasts) => {
+        if (dbBroadcasts) setBroadcasts(dbBroadcasts);
+      },
       onNotifications: (dbNotifs) => {
-        if (dbNotifs) setNotifications(dbNotifs);
+        if (dbNotifs) {
+          setNotifications((prev) => {
+            const localActivities = prev.filter((p) => p.id?.startsWith('act-'));
+            const combined = [...localActivities, ...dbNotifs];
+            const seen = new Set<string>();
+            const deduped: NotificationItem[] = [];
+            for (const item of combined) {
+              if (!item.id || seen.has(item.id)) continue;
+              seen.add(item.id);
+              deduped.push(item);
+            }
+            return deduped;
+          });
+        }
       },
       onCourses: (dbCourses) => {
         if (dbCourses) setCourses(dbCourses);
@@ -784,14 +938,48 @@ export default function App() {
   const handleDeleteEvent = async (eventId: string) => {
     const target = events.find((e) => e.id === eventId);
     setEvents((prev) => prev.filter((e) => e.id !== eventId));
-    showToast('Event removed from your schedule');
-    addActivityNotification(
-      'Class Removed',
-      `You removed ${target?.course || 'class'} (${target?.title || 'event'}) from your schedule.`,
-      'schedule',
-      'alert'
-    );
+    showToast('Class removed from schedule');
+
+    const courseCode = target?.course || 'Class';
+    const eventTitle = target?.title || 'Lecture';
+    const cancelledTitle = `Class Cancelled: ${courseCode}`;
+    const cancelledMsg = `The scheduled ${courseCode} class (${eventTitle})${target?.time ? ` at ${target.time}` : ''} has been cancelled by the ${isCourseRep ? 'Course Rep' : 'Faculty'}.`;
+
+    // Update or add the notification on notifications page
+    setNotifications((prev) => {
+      const existingIdx = prev.findIndex(
+        (n) =>
+          n.id === `notif_cancelled_${eventId}` ||
+          (n.target_id && n.target_id === eventId) ||
+          (n.category === 'schedule' && target?.course && n.title.includes(target.course) && !n.title.toLowerCase().includes('cancelled'))
+      );
+      const updatedItem: NotificationItem = {
+        id: `notif_cancelled_${eventId}`,
+        title: cancelledTitle,
+        message: cancelledMsg,
+        time: `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        isUnread: true,
+        type: 'alert',
+        category: 'schedule',
+        department_id: target?.department_id,
+        level: target?.level,
+        semester: target?.semester,
+        timestamp: Date.now(),
+        status: 'cancelled',
+        isCancelled: true,
+        target_id: eventId,
+      };
+
+      if (existingIdx >= 0) {
+        return [updatedItem, ...prev.filter((_, idx) => idx !== existingIdx)];
+      }
+      return [updatedItem, ...prev];
+    });
+
     await deleteScheduleActivity(eventId);
+    if (target) {
+      await recordOrUpdateClassCancelledNotification(target, isCourseRep ? 'Course Rep' : 'Faculty');
+    }
   };
 
   // Handler to Toggle Postponed status
@@ -885,7 +1073,22 @@ export default function App() {
   };
 
   const handleDeleteNotif = (notifId: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    // Instead of removing any activity from notifications page, update it as dismissed
+    setNotifications((prev) =>
+      prev.map((n) => {
+        if (n.id === notifId) {
+          const originalTitle = n.title.replace(/\s*\(Dismissed\)$/i, '');
+          return {
+            ...n,
+            isUnread: false,
+            isDismissed: true,
+            title: `${originalTitle} (Dismissed)`,
+          };
+        }
+        return n;
+      })
+    );
+    showToast('Activity updated as dismissed');
   };
 
   const handleProfileImageUpload = async (imageDataUrl: string) => {
@@ -1078,13 +1281,46 @@ export default function App() {
       setSelectedAssignmentForDetails(null);
     }
     showToast(`Deleted deadline: ${target?.title || ''}`);
-    addActivityNotification(
-      'Deadline Removed',
-      `Deleted ${target?.course || ''} assignment deadline.`,
-      'deadline',
-      'alert'
-    );
+
+    const courseCode = target?.course || '';
+    const assignmentTitle = target?.title || 'Assignment';
+    const deletedTitle = `Deadline Deleted: ${courseCode ? courseCode + ' - ' : ''}${assignmentTitle}`;
+    const deletedMsg = `The deadline for ${courseCode || 'course'} (${assignmentTitle})${target?.dueDate ? ` originally due ${target.dueDate}` : ''} has been deleted by the ${isCourseRep ? 'Course Rep' : 'Faculty'}.`;
+
+    // Update or add the notification on the notifications page: "Deadline Deleted"
+    setNotifications((prev) => {
+      const existingIdx = prev.findIndex(
+        (n) =>
+          n.id === `notif_deadline_deleted_${id}` ||
+          (n.target_id && n.target_id === id) ||
+          (n.category === 'deadline' && target?.title && n.title.includes(target.title) && !n.title.toLowerCase().includes('deleted'))
+      );
+      const updatedItem: NotificationItem = {
+        id: `notif_deadline_deleted_${id}`,
+        title: deletedTitle,
+        message: deletedMsg,
+        time: `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        isUnread: true,
+        type: 'alert',
+        category: 'deadline',
+        department_id: target?.department_id,
+        level: target?.level,
+        semester: target?.semester,
+        timestamp: Date.now(),
+        status: 'deleted',
+        target_id: id,
+      };
+
+      if (existingIdx >= 0) {
+        return [updatedItem, ...prev.filter((_, idx) => idx !== existingIdx)];
+      }
+      return [updatedItem, ...prev];
+    });
+
     await deleteAssignment(id);
+    if (target) {
+      await recordOrUpdateDeadlineDeletedNotification(target, isCourseRep ? 'Course Rep' : 'Faculty');
+    }
   };
 
   const handleAddImagesToAssignment = (id: string, newImages: string[]) => {
@@ -1151,14 +1387,23 @@ export default function App() {
         images: data.images || [],
       });
       if (created) {
-        setNotifications((prev) => [created, ...prev.filter((n) => n.id !== created.id)]);
+        const broadcastItem: NotificationItem = {
+          ...created,
+          timestamp: created.timestamp || Date.now(),
+        };
+        // Add to dedicated broadcasts state
+        setBroadcasts((prev) => [
+          broadcastItem,
+          ...prev.filter(
+            (b) =>
+              b.id !== broadcastItem.id &&
+              !(
+                b.title.trim().toLowerCase() === broadcastItem.title.trim().toLowerCase() &&
+                b.message.trim().toLowerCase() === broadcastItem.message.trim().toLowerCase()
+              )
+          ),
+        ]);
         showToast('Broadcast published to students!');
-        addActivityNotification(
-          'Broadcast Published',
-          `Notice "${data.title}" was broadcasted to ${activeLevel}L students.`,
-          'broadcast',
-          'success'
-        );
         return true;
       }
     } catch (err) {
@@ -1170,13 +1415,13 @@ export default function App() {
 
   const handleAddImagesToBroadcast = async (id: string, newImages: string[]) => {
     let updatedList: string[] = [];
-    setNotifications((prev) =>
-      prev.map((n) => {
-        if (n.id === id) {
-          const current = n.images || [];
+    setBroadcasts((prev) =>
+      prev.map((b) => {
+        if (b.id === id) {
+          const current = b.images || [];
           updatedList = [...current, ...newImages];
           const updated = {
-            ...n,
+            ...b,
             images: updatedList,
           };
           if (selectedBroadcastForDetails?.id === id) {
@@ -1184,7 +1429,7 @@ export default function App() {
           }
           return updated;
         }
-        return n;
+        return b;
       })
     );
     showToast(`Added ${newImages.length} image${newImages.length > 1 ? 's' : ''}`);
@@ -1203,13 +1448,13 @@ export default function App() {
 
   const handleDeleteBroadcastImage = async (id: string, imageIndex: number) => {
     let updatedList: string[] = [];
-    setNotifications((prev) =>
-      prev.map((n) => {
-        if (n.id === id) {
-          const current = n.images || [];
+    setBroadcasts((prev) =>
+      prev.map((b) => {
+        if (b.id === id) {
+          const current = b.images || [];
           updatedList = current.filter((_, idx) => idx !== imageIndex);
           const updated = {
-            ...n,
+            ...b,
             images: updatedList,
           };
           if (selectedBroadcastForDetails?.id === id) {
@@ -1217,7 +1462,7 @@ export default function App() {
           }
           return updated;
         }
-        return n;
+        return b;
       })
     );
     showToast('Image removed from notice');
@@ -1230,16 +1475,43 @@ export default function App() {
 
   const handleDeleteBroadcast = async (id: string) => {
     try {
-      const target = notifications.find((n) => n.id === id);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-      showToast('Broadcast notice removed');
-      addActivityNotification(
-        'Broadcast Removed',
-        `Deleted broadcast: ${target?.title || ''}`,
-        'broadcast',
-        'alert'
-      );
-      await deleteAnnouncement(id);
+      const target = broadcasts.find((b) => b.id === id) || notifications.find((n) => n.id === id);
+      showToast('Broadcast deleted');
+
+      // Remove immediately from broadcasts state
+      setBroadcasts((prev) => prev.filter((b) => b.id !== id));
+
+      const originalTitle = (target?.title || 'Announcement').replace(/^Broadcast Deleted:\s*/i, '');
+      const updatedTitle = `Broadcast Deleted: ${originalTitle}`;
+      const updatedMsg = `This broadcast notice was deleted/retracted by the ${isCourseRep ? 'Course Rep' : 'Faculty'}.`;
+
+      // Prepend deletion notification to standard notifications (activity feed)
+      setNotifications((prev) => {
+        const targetNotif = prev.find((n) => n.id === id || n.target_id === id);
+        const updatedItem: NotificationItem = {
+          ...(targetNotif || {}),
+          id: targetNotif?.id || `notif-del-${id}`,
+          title: updatedTitle,
+          message: updatedMsg,
+          type: 'alert',
+          category: 'broadcast',
+          isDeleted: true,
+          is_deleted: true,
+          status: 'deleted',
+          images: [],
+          isUnread: true,
+          time: `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+          timeAgo: 'Just now',
+          timestamp: Date.now(),
+        };
+        return [updatedItem, ...prev.filter((n) => n.id !== id && n.target_id !== id)];
+      });
+
+      if (selectedBroadcastForDetails?.id === id) {
+        setSelectedBroadcastForDetails(null);
+      }
+
+      await recordOrUpdateBroadcastDeletedNotification(id, isCourseRep ? 'Course Rep' : 'Faculty');
       return true;
     } catch (err) {
       console.error('Error deleting broadcast:', err);
@@ -1351,13 +1623,15 @@ export default function App() {
 
   return (
     <ErrorBoundary fallbackTitle="Student Portal Safe Mode">
-      <div className="min-h-screen bg-[#F5F5F7] text-[#1C1C1E] relative overflow-x-hidden flex flex-col items-center">
+      <div className="min-h-screen bg-[#F5F5F7] text-[#1C1C1E] relative overflow-x-clip flex flex-col items-center">
         {/* Splash Screen */}
         <AnimatePresence mode="wait">
           {showSplash && (
             <SplashScreen
               onComplete={() => setShowSplash(false)}
               appName="Scheduler"
+              isReady={isStartupVerified}
+              statusMessage={splashStatusMessage}
             />
           )}
         </AnimatePresence>
@@ -1384,33 +1658,38 @@ export default function App() {
             <div className="fixed bottom-[-60px] left-[15%] w-[380px] h-[380px] rounded-full bg-gradient-to-tr from-sky-200/35 to-emerald-100/30 blur-[110px] pointer-events-none -z-10" />
 
             {/* Main Container mimicking iOS screen boundaries */}
-            <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-3 pb-32 relative">
+            <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-1 pb-32 relative">
+              {/* Standalone User Profile Pill & Icons fixed in position (No visible header bar) */}
+              {activeTab !== 'Notifications' && (
+                <div className="sticky top-2 z-30 pointer-events-none mb-1">
+                  <div className="pointer-events-auto">
+                    <HeaderSection
+                      onOpenNotifications={() => {
+                        if (!isPaidAccess) return;
+                        setActiveTab('Notifications');
+                      }}
+                      onOpenCalendarView={() => {
+                        if (!isPaidAccess) return;
+                        setActiveTab(activeTab === 'Calendar' ? 'Schedule' : 'Calendar');
+                        setSelectedAssignmentForDetails(null);
+                        setSelectedBroadcastForDetails(null);
+                        setSelectedCourseForDetails(null);
+                      }}
+                      onOpenProfileTab={() => setActiveTab('Profile')}
+                      unreadCount={unreadNotifCount}
+                      profileImage={profileImage}
+                      onUploadProfileImage={handleProfileImageUpload}
+                      isNotificationsActive={false}
+                      isCalendarActive={activeTab === 'Calendar'}
+                      userSession={userSession}
+                      isAccessBlocked={!isPaidAccess}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* iOS Dynamic Header & Status Bar Area */}
-              <div className="space-y-4 flex-1">
-                {/* Top Header Row */}
-                {activeTab !== 'Notifications' && (
-                  <HeaderSection
-                    onOpenNotifications={() => {
-                      if (!isPaidAccess) return;
-                      setActiveTab('Notifications');
-                    }}
-                    onOpenCalendarView={() => {
-                      if (!isPaidAccess) return;
-                      setActiveTab(activeTab === 'Calendar' ? 'Schedule' : 'Calendar');
-                      setSelectedAssignmentForDetails(null);
-                      setSelectedBroadcastForDetails(null);
-                      setSelectedCourseForDetails(null);
-                    }}
-                    onOpenProfileTab={() => setActiveTab('Profile')}
-                    unreadCount={unreadNotifCount}
-                    profileImage={profileImage}
-                    onUploadProfileImage={handleProfileImageUpload}
-                    isNotificationsActive={false}
-                    isCalendarActive={activeTab === 'Calendar'}
-                    userSession={userSession}
-                    isAccessBlocked={!isPaidAccess}
-                  />
-                )}
+              <div className="space-y-4 flex-1 pt-2">
 
                 {/* Conditional View by Active Navigation Tab */}
                 <AnimatePresence mode="wait">
@@ -1564,6 +1843,7 @@ export default function App() {
                         <BroadcastsView
                           onBackToSchedule={() => setActiveTab('Schedule')}
                           isLoading={isDataLoading}
+                          broadcasts={broadcasts}
                           notifications={notifications}
                           userSession={userSession}
                           isCourseRep={isCourseRep}
@@ -1633,7 +1913,10 @@ export default function App() {
                         onBackToSchedule={() => setActiveTab('Schedule')}
                         profileImage={profileImage}
                         onUploadProfileImage={handleProfileImageUpload}
-                        onReplaySplash={() => setShowSplash(true)}
+                        onReplaySplash={() => {
+                          setIsStartupVerified(true);
+                          setShowSplash(true);
+                        }}
                         onTriggerRefresh={handleTriggerRefresh}
                         isLoading={isDataLoading}
                         userSession={userSession}
@@ -1686,21 +1969,14 @@ export default function App() {
                 )}
             </AnimatePresence>
 
-            {/* Standalone Bottom Navigation Bar */}
+            {/* Standalone Bottom Navigation Bar - Fixed at position */}
             <AnimatePresence>
-              {activeTab !== 'Notifications' &&
-                !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) &&
-                !(activeTab === 'Broadcasts' && selectedBroadcastForDetails !== null) &&
-                !(activeTab === 'Modules' && selectedCourseForDetails !== null) && (
+              {activeTab !== 'Notifications' && (
                 <motion.div
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{
-                    opacity: isAnyDrawerOpen ? 0 : 1,
-                    y: isAnyDrawerOpen ? 30 : 0,
-                    pointerEvents: isAnyDrawerOpen ? 'none' : 'auto',
-                  }}
-                  exit={{ opacity: 0, y: 30 }}
-                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 16 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
                 >
                   <BottomNavBar
                     activeTab={activeTab}

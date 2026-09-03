@@ -17,6 +17,7 @@ import { SettingsPage } from './SettingsPage';
 import { getStudentActiveLevel, getStudentActiveSemester, normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
 import { DepartmentRecord } from '../admin/types';
 import { LevelAdvisorPage } from './LevelAdvisorPage';
+import { formatBroadcastTimestamp } from '../lib/dbService';
 
 interface OtherViewProps {
   onBackToSchedule: () => void;
@@ -27,6 +28,7 @@ interface OtherViewProps {
   isLoading?: boolean;
   assignments?: AssignmentItem[];
   notifications?: NotificationItem[];
+  broadcasts?: NotificationItem[];
   courses?: any[];
   availableDepartments?: DepartmentRecord[];
   onSelectAssignment?: (assignment: AssignmentItem) => void;
@@ -59,21 +61,18 @@ const containerVariants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.03,
-      delayChildren: 0.01,
+      staggerChildren: 0.01,
     },
   },
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 6, scale: 0.99 },
+  hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    y: 0,
-    scale: 1,
     transition: {
-      duration: 0.16,
-      ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+      duration: 0.06,
+      ease: 'easeOut' as const,
     },
   },
 };
@@ -324,6 +323,7 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
 export const BroadcastsView: React.FC<OtherViewProps> = ({
   isLoading = false,
   notifications = [],
+  broadcasts,
   userSession,
   isCourseRep = false,
   currentSemester = '1st Semester',
@@ -338,6 +338,8 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
 }) => {
   const [filter, setFilter] = useState<'all' | 'urgent' | 'timetable' | 'academic'>('all');
   const [internalIsPostModalOpen, setInternalIsPostModalOpen] = useState(false);
+  const [broadcastToDelete, setBroadcastToDelete] = useState<NotificationItem | null>(null);
+  const [isDeletingBroadcast, setIsDeletingBroadcast] = useState(false);
   const [postTitle, setPostTitle] = useState('');
   const [postMessage, setPostMessage] = useState('');
   const [postPriority, setPostPriority] = useState<'normal' | 'urgent'>('normal');
@@ -379,19 +381,29 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
   const activeSemester = normalizeSemester(activeSemesterProp || getStudentActiveSemester(userSession, currentSemester));
 
   // Filter broadcast announcements strictly to student's department, level, and semester, ensuring each appears ONLY ONCE
+  // Broadcasts are completely separate from standard system notifications
+  const rawList = broadcasts !== undefined ? broadcasts : notifications;
   const scopedBroadcasts = useMemo(() => {
     const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
     const list: any[] = [];
 
-    (notifications || []).forEach((b: any) => {
-      // 0. Exclude internal app activity logs (e.g. "Broadcast Published", "Class Added", "Signed in")
-      if (b.id?.startsWith('act-') && b.category !== 'broadcast') return;
-      if (b.category === 'schedule' || b.category === 'profile') return;
+    (rawList || []).forEach((b: any) => {
+      // 0. Exclude internal app activity logs and non-broadcast categories
+      if (b.id?.startsWith('act-')) return;
+      if (b.category === 'schedule' || b.category === 'profile' || b.category === 'wallet' || b.category === 'modules') return;
+      if (b.isDeleted || b.is_deleted || b.status === 'deleted') return;
+      if (b.title === 'Broadcast Published' || b.title?.startsWith('Broadcast Deleted:')) return;
 
-      // 1. Ensure unique broadcast (no duplicates)
-      const uniqueKey = b.id || `${b.title}-${b.message}`;
-      if (seenIds.has(uniqueKey)) return;
-      seenIds.add(uniqueKey);
+      // 1. Ensure unique broadcast (no duplicates by id, target_id, or identical content)
+      if (b.id && seenIds.has(b.id)) return;
+      if (b.target_id && seenIds.has(b.target_id)) return;
+      const contentKey = `${(b.title || '').trim().toLowerCase()}::${(b.message || b.body || '').trim().toLowerCase()}`;
+      if (seenKeys.has(contentKey)) return;
+
+      if (b.id) seenIds.add(b.id);
+      if (b.target_id) seenIds.add(b.target_id);
+      seenKeys.add(contentKey);
 
       // 2. Department match
       const bDeptId = b.department_id || '';
@@ -416,19 +428,35 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
     });
 
     // Sort latest broadcasts first (descending by timestamp / creation date)
+    const getScore = (item: any): number => {
+      if (typeof item.timestamp === 'number' && !isNaN(item.timestamp) && item.timestamp > 0) return item.timestamp;
+      if (item.updated_at) {
+        const parsed = new Date(item.updated_at).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      if (item.createdat) {
+        const parsed = new Date(item.createdat).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      if (item.created_at) {
+        const parsed = new Date(item.created_at).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+      if (item.id) {
+        const m = item.id.match(/(\d{10,13})/);
+        if (m) {
+          const num = Number(m[1]);
+          const ms = num < 1e11 ? num * 1000 : num;
+          if (ms > 1577836800000 && ms < 2500000000000) return ms;
+        }
+      }
+      if (item.time === 'Just now' || item.timeAgo === 'Just now') {
+        return Date.now();
+      }
+      return 0;
+    };
+
     list.sort((a, b) => {
-      const getScore = (item: any): number => {
-        if (typeof item.timestamp === 'number' && item.timestamp > 0) return item.timestamp;
-        if (item.createdat) {
-          const parsed = new Date(item.createdat).getTime();
-          if (!isNaN(parsed) && parsed > 0) return parsed;
-        }
-        if (item.created_at) {
-          const parsed = new Date(item.created_at).getTime();
-          if (!isNaN(parsed) && parsed > 0) return parsed;
-        }
-        return 0;
-      };
       const scoreA = getScore(a);
       const scoreB = getScore(b);
       if (scoreB !== scoreA) return scoreB - scoreA;
@@ -589,15 +617,18 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-[#8E8E93]">{b.time || 'Today'}</span>
+                    <span className="text-[11.5px] text-[#8E8E93] font-medium inline-flex items-center gap-1 bg-black/5 px-2 py-0.5 rounded-md">
+                      <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{formatBroadcastTimestamp(b)}</span>
+                    </span>
                     {effectiveCourseRep && onDeleteBroadcast && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeleteBroadcast(b.id);
+                          setBroadcastToDelete(b);
                         }}
-                        className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                         title="Delete Broadcast"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -722,16 +753,16 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.08 }}
               onClick={handleCloseModal}
-              className="fixed inset-0 bg-black/35 backdrop-blur-md"
+              className="fixed inset-0 bg-black/35 backdrop-blur-xs"
             />
 
             <motion.div
-              initial={{ opacity: 0, scale: 0.94, y: 16 }}
+              initial={{ opacity: 0, scale: 0.98, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.94, y: 16 }}
-              transition={{ type: 'spring', damping: 26, stiffness: 340 }}
+              exit={{ opacity: 0, scale: 0.98, y: 10 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
               className="relative z-10 glass-container-solid rounded-[32px] max-w-md w-full p-6 shadow-[0_24px_70px_rgba(0,0,0,0.22)] border border-white space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-900"
             >
               <div className="flex items-center justify-between pb-3 border-b border-black/5">
@@ -900,6 +931,30 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Confirm Broadcast Deletion Modal for Course Rep */}
+      <ConfirmDeleteModal
+        isOpen={!!broadcastToDelete}
+        title="Delete Faculty Broadcast"
+        description="Are you sure you want to permanently delete this broadcast announcement? Students will no longer see this notice in their feed."
+        itemName={broadcastToDelete?.title || 'Broadcast Announcement'}
+        itemType="Broadcast"
+        confirmLabel="Delete Broadcast"
+        isDeleting={isDeletingBroadcast}
+        onConfirm={async () => {
+          if (!broadcastToDelete) return;
+          setIsDeletingBroadcast(true);
+          try {
+            if (onDeleteBroadcast) {
+              await onDeleteBroadcast(broadcastToDelete.id);
+            }
+            setBroadcastToDelete(null);
+          } finally {
+            setIsDeletingBroadcast(false);
+          }
+        }}
+        onClose={() => setBroadcastToDelete(null)}
+      />
     </motion.div>
   );
 };

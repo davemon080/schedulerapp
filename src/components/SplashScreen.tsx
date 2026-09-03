@@ -5,21 +5,44 @@ import { CalendarDays } from 'lucide-react';
 interface SplashScreenProps {
   onComplete: () => void;
   appName?: string;
+  isReady?: boolean;
+  statusMessage?: string;
 }
 
 export const SplashScreen: React.FC<SplashScreenProps> = ({
   onComplete,
   appName = 'Scheduler',
+  isReady = true,
+  statusMessage,
 }) => {
-  useEffect(() => {
-    // Fixed smooth splash duration
-    const timer = setTimeout(() => {
-      onComplete();
-    }, 2200);
+  const [minTimeElapsed, setMinTimeElapsed] = React.useState(false);
 
-    return () => {
-      clearTimeout(timer);
-    };
+  useEffect(() => {
+    // Minimum smooth splash duration for high-end branded look
+    const timer = setTimeout(() => {
+      setMinTimeElapsed(true);
+    }, 1800);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // When BOTH minimum time has elapsed AND the app account state & data are verified
+  useEffect(() => {
+    if (minTimeElapsed && isReady) {
+      const exitTimer = setTimeout(() => {
+        onComplete();
+      }, 120);
+      return () => clearTimeout(exitTimer);
+    }
+  }, [minTimeElapsed, isReady, onComplete]);
+
+  // Safeguard: Dismiss after 5.0 seconds under any circumstance (e.g. extreme network freeze)
+  useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      onComplete();
+    }, 5000);
+
+    return () => clearTimeout(safetyTimer);
   }, [onComplete]);
 
   return (
@@ -141,6 +164,20 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
             </defs>
           </svg>
         </motion.div>
+
+        {/* Dynamic Verification / Status Message */}
+        {statusMessage && (
+          <motion.div
+            key={statusMessage}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="mt-4 flex items-center justify-center gap-2 text-[12px] font-medium text-slate-500 tracking-tight"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#007AFF] animate-pulse" />
+            <span>{statusMessage}</span>
+          </motion.div>
+        )}
       </div>
 
       {/* Footer Branding: Powered by Nexlify Innovation (No skip button) */}

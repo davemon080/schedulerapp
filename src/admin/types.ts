@@ -182,6 +182,9 @@ export interface StudentProfileRecord {
   profileImage?: string;
   photo_url?: string;
   photoURL?: string;
+  phone?: string;
+  phone_number?: string;
+  phoneNumber?: string;
   activesessionid?: string;
   active_session_token?: string;
   password_changed?: boolean;

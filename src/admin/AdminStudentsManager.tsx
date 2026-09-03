@@ -48,7 +48,8 @@ import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 interface AdminStudentsManagerProps {
   students: StudentProfileRecord[];
   departments?: DepartmentRecord[];
-  searchQuery: string;
+  searchQuery?: string;
+  onSearchChange?: (q: string) => void;
   onAddStudent: (student: StudentProfileRecord) => Promise<void>;
   onUpdateStudent?: (student: StudentProfileRecord) => Promise<boolean>;
   onDeleteStudent: (email: string) => Promise<void>;
@@ -65,7 +66,8 @@ interface AdminStudentsManagerProps {
 export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   students,
   departments: propDepartments,
-  searchQuery,
+  searchQuery = '',
+  onSearchChange,
   onAddStudent,
   onUpdateStudent,
   onDeleteStudent,
@@ -75,6 +77,22 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   onRunBackgroundTask,
   onManualSync,
 }) => {
+  const [internalSearch, setInternalSearch] = useState<string>(searchQuery || '');
+
+  // Keep internal search synchronized with external searchQuery prop
+  useEffect(() => {
+    if (searchQuery !== undefined && searchQuery !== internalSearch) {
+      setInternalSearch(searchQuery);
+    }
+  }, [searchQuery]);
+
+  const handleSearchChange = (val: string) => {
+    setInternalSearch(val);
+    if (onSearchChange) {
+      onSearchChange(val);
+    }
+  };
+
   const [isSaving, setIsSaving] = useState(false);
   const [deletingStudent, setDeletingStudent] = useState<StudentProfileRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -166,11 +184,14 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     return counts;
   }, [pureStudents, departments]);
 
-  // Strict, isolated department and level filtering
+  // Strict, isolated department, level, and comprehensive search filtering
   const filteredStudents = useMemo(() => {
+    const q = (internalSearch || searchQuery || '').toLowerCase().trim();
+
     return pureStudents.filter((s) => {
-      const q = searchQuery.toLowerCase().trim();
       const sInfo = getStudentDepartmentInfo(s, departments);
+      const isRep = Boolean(s.iscourserep || s.isCourseRep || (s as any).role === 'course_rep');
+      const isPaid = Boolean(s.is_payed || s.is_paid);
 
       const matchesSearch = !q || (
         (s.full_name && s.full_name.toLowerCase().includes(q)) ||
@@ -178,10 +199,19 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         (s.email && s.email.toLowerCase().includes(q)) ||
         (s.matric_number && s.matric_number.toLowerCase().includes(q)) ||
         (s.matricNumber && s.matricNumber.toLowerCase().includes(q)) ||
-        (sInfo.code.toLowerCase() === q) ||
+        (s.phone && s.phone.toLowerCase().includes(q)) ||
+        (Boolean((s as any).phoneNumber) && String((s as any).phoneNumber).toLowerCase().includes(q)) ||
+        (sInfo.code.toLowerCase().includes(q)) ||
         (sInfo.name.toLowerCase().includes(q)) ||
+        (s.department && s.department.toLowerCase().includes(q)) ||
+        (s.year_level && s.year_level.toLowerCase().includes(q)) ||
+        (s.yearLevel && s.yearLevel.toLowerCase().includes(q)) ||
         (s.id && s.id.toLowerCase().includes(q)) ||
-        (s.uid && s.uid.toLowerCase().includes(q))
+        (s.uid && s.uid.toLowerCase().includes(q)) ||
+        (q === 'rep' && isRep) ||
+        (q === 'course rep' && isRep) ||
+        (q === 'paid' && isPaid) ||
+        (q === 'unpaid' && !isPaid)
       );
 
       // Strict department matching - ICH vs CHM vs others
@@ -211,7 +241,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
 
       return matchesSearch && matchesDept && matchesLevel;
     });
-  }, [students, searchQuery, selectedDeptFilter, selectedLevelFilter, departments]);
+  }, [pureStudents, internalSearch, searchQuery, selectedDeptFilter, selectedLevelFilter, departments]);
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -653,6 +683,91 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         </div>
       )}
 
+      {/* Dedicated Student Directory Search Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          {/* Search Input Box */}
+          <div className="relative flex-1">
+            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              <Search className="w-4 h-4 text-emerald-600" />
+            </div>
+            <input
+              type="text"
+              value={internalSearch}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search students by name, matric no., email, phone, or department..."
+              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-xl text-[13px] font-medium text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+            />
+            {internalSearch && (
+              <button
+                type="button"
+                onClick={() => handleSearchChange('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200/60 transition-colors cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Matches Count & Clear */}
+          <div className="flex items-center gap-2 shrink-0 justify-between sm:justify-end">
+            <div className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+              <span className="text-slate-400 font-normal">Found:</span>
+              <span className="font-mono text-emerald-700 font-bold">{filteredStudents.length}</span>
+              <span className="text-slate-400">/</span>
+              <span className="font-mono text-slate-600">{pureStudents.length}</span>
+              <span className="text-[11px] text-slate-500">students</span>
+            </div>
+
+            {internalSearch && (
+              <button
+                type="button"
+                onClick={() => handleSearchChange('')}
+                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-slate-200"
+              >
+                <RotateCcw className="w-3 h-3 text-slate-500" />
+                <span>Clear</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Filter Suggestion Chips */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-0.5 text-[11px]">
+          <span className="text-slate-400 font-medium mr-1 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+            <span>Quick search:</span>
+          </span>
+          {[
+            { label: 'All', query: '' },
+            { label: 'ICH', query: 'ICH' },
+            { label: 'CHM', query: 'CHM' },
+            { label: '100 Level', query: '100' },
+            { label: '200 Level', query: '200' },
+            { label: 'Course Reps', query: 'rep' },
+            { label: 'Paid', query: 'paid' },
+            { label: 'Unpaid', query: 'unpaid' },
+          ].map((tag) => {
+            const isActive = tag.query === '' ? !internalSearch : internalSearch.toLowerCase() === tag.query.toLowerCase();
+            return (
+              <button
+                key={tag.label}
+                type="button"
+                onClick={() => handleSearchChange(tag.query)}
+                className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                }`}
+              >
+                {tag.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Department Filter Bar & Quick Selectors */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -954,13 +1069,33 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                           ? `No students found matching department filter "${selectedDeptFilter}".` 
                           : 'No students matching the current search query.'}
                       </p>
-                      {selectedDeptFilter !== 'all' && (
-                        <button
-                          onClick={() => setSelectedDeptFilter('all')}
-                          className="mt-2 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
-                        >
-                          View All Students
-                        </button>
+                      {(internalSearch || selectedDeptFilter !== 'all' || selectedLevelFilter !== 'all') && (
+                        <div className="flex items-center gap-2 mt-2">
+                          {internalSearch && (
+                            <button
+                              onClick={() => handleSearchChange('')}
+                              className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Clear Search
+                            </button>
+                          )}
+                          {selectedDeptFilter !== 'all' && (
+                            <button
+                              onClick={() => setSelectedDeptFilter('all')}
+                              className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Reset Dept Filter
+                            </button>
+                          )}
+                          {selectedLevelFilter !== 'all' && (
+                            <button
+                              onClick={() => setSelectedLevelFilter('all')}
+                              className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Reset Level Filter
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </td>

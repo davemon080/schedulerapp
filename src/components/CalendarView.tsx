@@ -247,7 +247,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           key={ev.id}
                           className="text-[10px] font-bold text-[#1C1C1E] bg-black/[0.04] px-1.5 py-0.5 border border-black/5 truncate flex items-center justify-between rounded-none"
                         >
-                          <span className="truncate">{ev.course}</span>
+                          <span className="truncate">{ev.course && ev.course.trim() && ev.course.toUpperCase() !== 'OTHER' ? ev.course : ev.title}</span>
                           {ev.deliveryMode === 'online' || ev.meetingLink ? (
                             <Video className="w-2.5 h-2.5 text-emerald-600 shrink-0 ml-1" />
                           ) : null}

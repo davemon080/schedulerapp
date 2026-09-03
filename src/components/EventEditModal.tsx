@@ -57,12 +57,10 @@ const PRESET_TIMES = [
 
 const ACTIVITY_TYPES = [
   { id: 'Lecture', label: 'Lecture' },
-  { id: 'Lab Practical', label: 'Lab Practical' },
-  { id: 'Quiz / Test', label: 'Quiz / Test' },
-  { id: 'Departmental Meeting', label: 'Meeting' },
-  { id: 'Seminar / Workshop', label: 'Seminar' },
-  { id: 'Revision Class', label: 'Revision' },
-  { id: 'Other Activity', label: 'Other' },
+  { id: 'Test', label: 'Test' },
+  { id: 'Exam', label: 'Exam' },
+  { id: 'Practicals', label: 'Practicals' },
+  { id: 'Other', label: 'Other' },
 ];
 
 export const EventEditModal: React.FC<EventEditModalProps> = ({
@@ -144,17 +142,27 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
       setIsPostponed(Boolean(event.isPostponed));
 
       // Extract existing activity type if present in tags
-      const foundType = ACTIVITY_TYPES.find((at) => event.tags?.includes(at.id) || event.tags?.includes(at.label));
+      const foundType = ACTIVITY_TYPES.find(
+        (at) => event.tags?.some((t) => t.toLowerCase() === at.id.toLowerCase() || t.toLowerCase() === at.label.toLowerCase())
+      );
       if (foundType) {
         setActivityType(foundType.id);
+      } else if (event.tags?.some((t) => t.toLowerCase().includes('test') || t.toLowerCase().includes('quiz'))) {
+        setActivityType('Test');
+      } else if (event.tags?.some((t) => t.toLowerCase().includes('exam'))) {
+        setActivityType('Exam');
+      } else if (event.tags?.some((t) => t.toLowerCase().includes('practical') || t.toLowerCase().includes('lab'))) {
+        setActivityType('Practicals');
+      } else if (event.tags?.some((t) => t.toLowerCase().includes('lecture') || t.toLowerCase().includes('class'))) {
+        setActivityType('Lecture');
       } else {
-        setActivityType(event.tags?.find((t) => !t.includes('Class')) || 'Lecture');
+        setActivityType('Other');
       }
     } else {
       const initialCourse = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : 'ICH 101';
       const initialTitle = semesterCourses.length > 0 ? (semesterCourses[0].title || semesterCourses[0].name) : 'General Chemistry';
       setCourse(initialCourse);
-      setTitle(initialTitle);
+      setTitle(`${initialTitle} Lecture`);
       setActivityType('Lecture');
       setStartTime('08:00');
       setEndTime('10:00');
@@ -167,62 +175,44 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
 
   if (!isOpen) return null;
 
-  // When Course Rep selects an activity category, automatically preset Course Code and Title
+  // When Course Rep selects an activity category (Lecture, Test, Exam, Practicals, Other)
   const handleSelectActivityCategory = (typeId: string) => {
     setActivityType(typeId);
 
+    if (typeId === 'Other') {
+      // "Other" schedule items do not carry any course code
+      setCourse('');
+      if (!title || title.includes('Lecture') || title.includes('Test') || title.includes('Exam') || title.includes('Practical')) {
+        setTitle('General Activity');
+      }
+      return;
+    }
+
+    // For academic activities, ensure a registered course code is assigned
+    const matched = semesterCourses.find(
+      (c) => (c.courseCode || c.code)?.toUpperCase() === course?.toUpperCase()
+    ) || semesterCourses[0];
+
+    const courseCodeStr = matched ? (matched.courseCode || matched.code) : (course || 'ICH 101');
+    const courseTitleStr = matched ? (matched.title || matched.name) : 'General Chemistry';
+
+    setCourse(courseCodeStr);
+
     switch (typeId) {
-      case 'Lecture': {
-        const defaultCourse = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : 'ICH 101';
-        const defaultTitle = semesterCourses.length > 0 ? (semesterCourses[0].title || semesterCourses[0].name) : 'General Chemistry';
-        setCourse(defaultCourse);
-        setTitle(defaultTitle);
+      case 'Lecture':
+        setTitle(`${courseTitleStr} Lecture`);
         break;
-      }
-      case 'Lab Practical': {
-        const labCourse = semesterCourses.find(c => {
-          const code = (c.courseCode || c.code || '').toUpperCase();
-          const t = (c.title || c.name || '').toUpperCase();
-          return code.includes('LAB') || code.includes('107') || code.includes('108') || t.includes('PRACTICAL') || t.includes('LAB');
-        });
-        if (labCourse) {
-          setCourse(labCourse.courseCode || labCourse.code);
-          setTitle(labCourse.title || labCourse.name || 'Lab Practical Session');
-        } else {
-          const base = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : 'ICH 107';
-          setCourse(`${base} LAB`);
-          setTitle('Chemistry Laboratory Practical');
-        }
+      case 'Test':
+        setTitle(`${courseTitleStr} Test`);
         break;
-      }
-      case 'Quiz / Test': {
-        const base = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : 'ICH 101';
-        setCourse(`${base} TEST`);
-        setTitle('Continuous Assessment Test / Quiz');
+      case 'Exam':
+        setTitle(`${courseTitleStr} Examination`);
         break;
-      }
-      case 'Departmental Meeting': {
-        setCourse('DEPT MEETING');
-        setTitle('Departmental Congress & Meeting');
+      case 'Practicals':
+        setTitle(`${courseTitleStr} Practical`);
         break;
-      }
-      case 'Seminar / Workshop': {
-        setCourse('SEMINAR');
-        setTitle('Departmental Seminar & Workshop');
-        break;
-      }
-      case 'Revision Class': {
-        const base = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : 'ICH 101';
-        setCourse(`${base} REVISION`);
-        setTitle('Revision & Tutorial Class');
-        break;
-      }
-      case 'Other Activity': {
-        setCourse('ACTIVITY');
-        setTitle('Departmental Academic Activity');
-        break;
-      }
       default:
+        setTitle(courseTitleStr);
         break;
     }
   };
@@ -262,7 +252,9 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!course.trim() || !title.trim()) return;
+    const isOther = activityType === 'Other';
+    if (!isOther && !course.trim()) return;
+    if (!title.trim()) return;
 
     const resolvedDeptId = deptId || 'dept-ich';
     const formattedTime = `${format24hTo12h(startTime)} - ${format24hTo12h(endTime)}`;
@@ -280,7 +272,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
 
     const savedEvent: EventItem = {
       id: event?.id || `evt-${Date.now()}`,
-      course: course.trim().toUpperCase(),
+      course: isOther ? '' : course.trim().toUpperCase(),
       title: title.trim(),
       time: formattedTime,
       startTime: `${startTime}:00`,
@@ -305,22 +297,22 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
     <>
       <AnimatePresence>
         <div className="fixed inset-0 z-50 flex items-end justify-center pointer-events-auto">
-          {/* Backdrop */}
+          {/* Backdrop - fast & responsive */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.22 }}
+            transition={{ duration: 0.08 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/40 backdrop-blur-md"
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs"
           />
 
           {/* Modal Window / Drawer sliding from bottom */}
           <motion.div
-            initial={{ y: '100%', opacity: 0.9 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+            initial={{ opacity: 0, scale: 0.98, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, y: 10 }}
+            transition={{ duration: 0.08, ease: 'easeOut' }}
             className="relative w-full max-w-lg z-10 mx-auto px-3 pb-6 pt-2"
           >
             <div className="glass-sheet rounded-[32px] p-6 max-h-[88vh] overflow-y-auto no-scrollbar shadow-[0_20px_60px_rgba(0,0,0,0.22)] border border-white">
@@ -352,7 +344,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* 1. Activity Type Category Selector */}
+                {/* 1. Activity Type Category Selector: Lecture, Test, Exam, Practicals, Other */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-[12px] font-semibold text-[#1C1C1E] flex items-center gap-1.5">
@@ -361,7 +353,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                       <span className="text-red-500">*</span>
                     </label>
                     <span className="text-[11px] font-medium text-slate-400">
-                      Auto-sets course code & title
+                      Select activity type
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -385,38 +377,64 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                   </div>
                 </div>
 
-                {/* 2. Course / Activity Identifier (Dropdown of registered courses + auto-switches) */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-[12px] font-semibold text-[#1C1C1E] flex items-center gap-1.5">
-                      <BookOpen className="w-3.5 h-3.5 text-[#007AFF]" />
-                      <span>Course / Activity Code</span>
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <span className="text-[11px] text-slate-400 font-medium">
-                      {semesterCourses.length} courses registered
-                    </span>
+                {/* 2. Course Code Dropdown (Strictly Registered Department Courses) */}
+                {activityType === 'Other' ? (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center text-xs font-bold">
+                      ℹ️
+                    </div>
+                    <div>
+                      <p className="text-[12.5px] font-bold text-amber-950">Category: Other Activity</p>
+                      <p className="text-[11px] text-amber-700">This scheduled item will not carry any course code.</p>
+                    </div>
                   </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-[12px] font-semibold text-[#1C1C1E] flex items-center gap-1.5">
+                        <BookOpen className="w-3.5 h-3.5 text-[#007AFF]" />
+                        <span>Course Code</span>
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        {semesterCourses.length} courses registered
+                      </span>
+                    </div>
 
-                  <div className="relative">
-                    <select
-                      value={course}
-                      onChange={(e) => {
-                        const selectedVal = e.target.value;
-                        setCourse(selectedVal);
-                        const matched = semesterCourses.find(
-                          (c) => (c.courseCode || c.code)?.toUpperCase() === selectedVal.toUpperCase()
-                        );
-                        if (matched) {
-                          setTitle(matched.title || matched.name || '');
-                        }
-                      }}
-                      className="w-full px-3.5 py-2.5 rounded-[18px] bg-white/90 border border-slate-200 text-[13.5px] text-[#1C1C1E] font-bold focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30 focus:border-[#007AFF] shadow-xs cursor-pointer appearance-none transition-all"
-                      required
-                    >
-                      <option value="" disabled>-- Select Registered Course or Activity --</option>
-                      {/* Registered Course Options from Modules Page */}
-                      <optgroup label="Registered Department Courses">
+                    <div className="relative">
+                      <select
+                        value={course}
+                        onChange={(e) => {
+                          const selectedVal = e.target.value;
+                          setCourse(selectedVal);
+                          const matched = semesterCourses.find(
+                            (c) => (c.courseCode || c.code)?.toUpperCase() === selectedVal.toUpperCase()
+                          );
+                          if (matched) {
+                            const base = matched.title || matched.name || '';
+                            switch (activityType) {
+                              case 'Lecture':
+                                setTitle(`${base} Lecture`);
+                                break;
+                              case 'Test':
+                                setTitle(`${base} Test`);
+                                break;
+                              case 'Exam':
+                                setTitle(`${base} Examination`);
+                                break;
+                              case 'Practicals':
+                                setTitle(`${base} Practical`);
+                                break;
+                              default:
+                                setTitle(base);
+                                break;
+                            }
+                          }
+                        }}
+                        className="w-full px-3.5 py-2.5 rounded-[18px] bg-white/90 border border-slate-200 text-[13.5px] text-[#1C1C1E] font-bold focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30 focus:border-[#007AFF] shadow-xs cursor-pointer appearance-none transition-all"
+                        required
+                      >
+                        <option value="" disabled>-- Select Registered Course --</option>
                         {semesterCourses.map((crs: any) => {
                           const directCode = crs.courseCode || crs.code;
                           const courseTitle = crs.title || crs.name;
@@ -426,28 +444,18 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                             </option>
                           );
                         })}
-                      </optgroup>
-                      {/* Activity specific options */}
-                      <optgroup label="Other Activity Identifiers">
-                        <option value="DEPT MEETING">DEPT MEETING — Departmental Congress & Meeting</option>
-                        <option value="SEMINAR">SEMINAR — Departmental Seminar & Workshop</option>
-                        <option value="PRACTICAL LAB">PRACTICAL LAB — Laboratory Practical</option>
-                        <option value="TUTORIAL / REVISION">TUTORIAL / REVISION — Tutorial & Revision Session</option>
-                        <option value="TEST / QUIZ">TEST / QUIZ — Continuous Assessment Test</option>
-                        <option value="EXAM">EXAM — Faculty / Department Examination</option>
-                        <option value="ACTIVITY">ACTIVITY — General Academic Activity</option>
-                      </optgroup>
-                      {course && !semesterCourses.some((c) => (c.courseCode || c.code)?.toUpperCase() === course.toUpperCase()) && !['DEPT MEETING', 'SEMINAR', 'PRACTICAL LAB', 'TUTORIAL / REVISION', 'TEST / QUIZ', 'EXAM', 'ACTIVITY'].includes(course) && (
-                        <option value={course}>{course}</option>
-                      )}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500">
-                      <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
-                        <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path>
-                      </svg>
+                        {course && !semesterCourses.some((c) => (c.courseCode || c.code)?.toUpperCase() === course.toUpperCase()) && (
+                          <option value={course}>{course}</option>
+                        )}
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500">
+                        <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                          <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path>
+                        </svg>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* 3. Activity / Course Title */}
                 <div>
@@ -456,7 +464,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Organic Chemistry Lecture, Departmental Congress, Lab Practical"
+                    placeholder="e.g. Organic Chemistry Lecture, Continuous Assessment Test, Laboratory Practical"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-[16px] bg-white/80 backdrop-blur-md border border-slate-200 text-[#1C1C1E] text-[14px] font-semibold focus:outline-none focus:ring-2 focus:ring-[#007AFF] shadow-xs transition-all"

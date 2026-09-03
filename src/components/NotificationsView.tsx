@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { NotificationItem } from '../types';
 import {
@@ -39,24 +39,158 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     return <NotificationsSkeleton />;
   }
 
-  const filteredNotifications = notifications
-    .filter((n) => {
-      if (activeFilter === 'unread') return n.isUnread;
-      if (activeFilter === 'schedule') return n.category === 'schedule';
-      if (activeFilter === 'deadline') return n.category === 'deadline';
-      if (activeFilter === 'broadcast') return n.category === 'broadcast';
-      if (activeFilter === 'modules') return n.category === 'modules';
-      if (activeFilter === 'wallet') return n.category === 'wallet';
-      return true;
-    })
-    .sort((a, b) => {
-      const timeA = a.timestamp || 0;
-      const timeB = b.timestamp || 0;
+  // Comprehensive helper to extract or infer numeric timestamp accurately for chronological ordering
+  const getNotificationTimestamp = (n: NotificationItem): number => {
+    if (!n) return 0;
+
+    // 1. Explicit numeric timestamp
+    if (typeof n.timestamp === 'number' && !isNaN(n.timestamp) && n.timestamp > 0) {
+      return n.timestamp;
+    }
+
+    const anyN = n as any;
+
+    // 2. Updated at / Deleted at / Created at ISO strings or epoch numbers
+    const dateCandidates = [anyN.updated_at, anyN.deleted_at, anyN.createdat, anyN.created_at];
+    for (const dVal of dateCandidates) {
+      if (dVal) {
+        if (typeof dVal === 'number' && !isNaN(dVal) && dVal > 0) return dVal;
+        const parsed = new Date(dVal).getTime();
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+
+    // 3. Check for unix timestamp embedded in the ID (e.g. act-1741078000000-xyz, notif_1741078000000)
+    if (n.id) {
+      const idMatch = n.id.match(/(\d{10,13})/);
+      if (idMatch) {
+        const num = Number(idMatch[1]);
+        const ms = num < 1e11 ? num * 1000 : num;
+        if (ms > 1577836800000 && ms < 2500000000000) {
+          return ms;
+        }
+      }
+    }
+
+    // 4. Parse human readable relative or calendar strings
+    const rawTime = (n.time || anyN.timeAgo || '').trim();
+    if (rawTime) {
+      const lower = rawTime.toLowerCase();
+      if (lower === 'just now' || lower === 'recent' || lower.includes('moment')) {
+        return Date.now();
+      }
+
+      // "X min ago"
+      const mMatch = lower.match(/(\d+)\s*(?:m|min|minute)s?\s*ago/);
+      if (mMatch) {
+        return Date.now() - parseInt(mMatch[1], 10) * 60 * 1000;
+      }
+
+      // "X hr ago"
+      const hMatch = lower.match(/(\d+)\s*(?:h|hr|hour)s?\s*ago/);
+      if (hMatch) {
+        return Date.now() - parseInt(hMatch[1], 10) * 3600 * 1000;
+      }
+
+      // "X day ago"
+      const dMatch = lower.match(/(\d+)\s*(?:d|day)s?\s*ago/);
+      if (dMatch) {
+        return Date.now() - parseInt(dMatch[1], 10) * 86400 * 1000;
+      }
+
+      // "Today, HH:MM" or "Today, HH:MM AM/PM"
+      if (lower.startsWith('today')) {
+        const now = new Date();
+        const timePart = rawTime.split(',')[1]?.trim() || rawTime.replace(/today/i, '').trim();
+        if (timePart) {
+          const parsed = new Date(`${now.toDateString()} ${timePart}`).getTime();
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+        return now.getTime();
+      }
+
+      // "Yesterday, HH:MM"
+      if (lower.startsWith('yesterday')) {
+        const yest = new Date(Date.now() - 86400000);
+        const timePart = rawTime.split(',')[1]?.trim() || rawTime.replace(/yesterday/i, '').trim();
+        if (timePart) {
+          const parsed = new Date(`${yest.toDateString()} ${timePart}`).getTime();
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+        return yest.getTime();
+      }
+
+      // Try standard Date parsing
+      const parsedDate = Date.parse(rawTime);
+      if (!isNaN(parsedDate) && parsedDate > 0) {
+        return parsedDate;
+      }
+    }
+
+    // 5. If marked unread, prioritize above older items
+    if (n.isUnread) {
+      return Date.now() - 30000;
+    }
+
+    return 0;
+  };
+
+  // Deduplicate notifications so identical notices or notifications don't duplicate
+  const deduplicatedNotifications = useMemo(() => {
+    const seenIds = new Set<string>();
+    const seenTargets = new Set<string>();
+    const seenContent = new Set<string>();
+    const indexedItems: { item: NotificationItem; origIndex: number }[] = [];
+
+    const rawList = notifications || [];
+    for (let i = 0; i < rawList.length; i++) {
+      const n = rawList[i];
+      if (!n) continue;
+      if (n.id && seenIds.has(n.id)) continue;
+      if (n.target_id && seenTargets.has(n.target_id)) continue;
+
+      const contentKey = `${(n.title || '').trim().toLowerCase()}::${(n.message || '').trim().toLowerCase()}::${n.category || ''}`;
+      if (seenContent.has(contentKey)) continue;
+
+      if (n.id) seenIds.add(n.id);
+      if (n.target_id) seenTargets.add(n.target_id);
+      seenContent.add(contentKey);
+      indexedItems.push({ item: n, origIndex: i });
+    }
+
+    // Sort strictly newest first (descending by timestamp; preserving arrival order when equal)
+    indexedItems.sort((a, b) => {
+      const timeA = getNotificationTimestamp(a.item);
+      const timeB = getNotificationTimestamp(b.item);
       if (timeB !== timeA) return timeB - timeA;
-      return (b.id || '').localeCompare(a.id || '');
+      // Preserve array insertion order (index 0 prepended items come first)
+      if (a.origIndex !== b.origIndex) return a.origIndex - b.origIndex;
+      return (b.item.id || '').localeCompare(a.item.id || '');
     });
 
+    return indexedItems.map((entry) => entry.item);
+  }, [notifications]);
+
+  const filteredNotifications = deduplicatedNotifications.filter((n) => {
+    if (activeFilter === 'unread') return n.isUnread;
+    if (activeFilter === 'schedule') return n.category === 'schedule';
+    if (activeFilter === 'deadline') return n.category === 'deadline';
+    if (activeFilter === 'broadcast') return n.category === 'broadcast';
+    if (activeFilter === 'modules') return n.category === 'modules';
+    if (activeFilter === 'wallet') return n.category === 'wallet';
+    return true;
+  });
+
   const getIcon = (n: NotificationItem) => {
+    if (n.isCancelled || n.title.toLowerCase().includes('cancelled')) {
+      return <AlertTriangle className="w-4 h-4 text-rose-500" />;
+    }
+    if (n.isDeleted || n.title.toLowerCase().includes('deleted')) {
+      return <AlertTriangle className="w-4 h-4 text-amber-500" />;
+    }
+    if (n.isDismissed) {
+      return <CheckCircle2 className="w-4 h-4 text-slate-400" />;
+    }
     if (n.category === 'wallet') {
       return <Wallet className="w-4 h-4 text-emerald-600" />;
     }
@@ -87,10 +221,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     return <Info className="w-4 h-4 text-[#007AFF]" />;
   };
 
-  const unreadCount = notifications.filter((n) => n.isUnread).length;
+  const unreadCount = deduplicatedNotifications.filter((n) => n.isUnread).length;
 
   const filterOptions: { id: FilterType; label: string }[] = [
-    { id: 'all', label: `All (${notifications.length})` },
+    { id: 'all', label: `All (${deduplicatedNotifications.length})` },
     { id: 'unread', label: `Unread (${unreadCount})` },
     { id: 'schedule', label: 'Schedule' },
     { id: 'deadline', label: 'Deadlines' },
@@ -193,17 +327,32 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-1.5">
-                    <h4 className="text-[14px] font-bold text-[#1C1C1E] tracking-tight leading-tight">
-                      {n.title}
-                    </h4>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h4 className="text-[14px] font-bold text-[#1C1C1E] tracking-tight leading-tight">
+                        {n.title}
+                      </h4>
+                      {n.isCancelled || n.title.toLowerCase().includes('cancelled') ? (
+                        <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                          Cancelled
+                        </span>
+                      ) : n.isDeleted || n.title.toLowerCase().includes('deleted') ? (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                          Deleted
+                        </span>
+                      ) : n.isDismissed ? (
+                        <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                          Dismissed
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
                       {n.isUnread && (
                         <span className="w-2.5 h-2.5 rounded-full bg-[#007AFF] shrink-0 ring-2 ring-white" />
                       )}
                       <button
                         onClick={() => onDeleteNotif(n.id)}
                         className="text-slate-300 hover:text-red-500 active:scale-90 transition-all p-1 rounded-full hover:bg-red-50/50 cursor-pointer"
-                        title="Delete notification"
+                        title="Dismiss notification"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

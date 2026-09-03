@@ -1533,25 +1533,93 @@ export async function deleteAssignment(id: string): Promise<boolean> {
 }
 
 // =================== 5. ANNOUNCEMENTS & NOTIFICATIONS API ===================
-export async function fetchAnnouncementsAndNotifications(): Promise<NotificationItem[]> {
-  try {
-    const [annSnap, notifSnap] = await Promise.all([
-      getDocs(collection(db, 'announcements')),
-      getDocs(collection(db, 'notifications')),
-    ]);
 
+/**
+ * Formats a broadcast timestamp into a clear human-readable string with date and time.
+ * e.g. "Today at 10:30 AM", "Yesterday at 4:15 PM", "Oct 14 • 2:30 PM"
+ */
+export function formatBroadcastTimestamp(item: { timestamp?: number; created_at?: string; createdat?: string; time?: string }): string {
+  let dateObj: Date | null = null;
+  if (typeof item.timestamp === 'number' && !isNaN(item.timestamp) && item.timestamp > 0) {
+    dateObj = new Date(item.timestamp);
+  } else if (item.created_at) {
+    const d = new Date(item.created_at);
+    if (!isNaN(d.getTime())) dateObj = d;
+  } else if (item.createdat) {
+    const d = new Date(item.createdat);
+    if (!isNaN(d.getTime())) dateObj = d;
+  }
+
+  if (!dateObj || isNaN(dateObj.getTime())) {
+    return item.time || 'Recent';
+  }
+
+  const now = new Date();
+  const isToday =
+    dateObj.getDate() === now.getDate() &&
+    dateObj.getMonth() === now.getMonth() &&
+    dateObj.getFullYear() === now.getFullYear();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    dateObj.getDate() === yesterday.getDate() &&
+    dateObj.getMonth() === yesterday.getMonth() &&
+    dateObj.getFullYear() === yesterday.getFullYear();
+
+  const timePart = dateObj.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+
+  if (isToday) {
+    return `Today at ${timePart}`;
+  }
+  if (isYesterday) {
+    return `Yesterday at ${timePart}`;
+  }
+
+  const datePart = dateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${datePart} • ${timePart}`;
+}
+
+/**
+ * Fetches broadcasts strictly from the 'announcements' collection.
+ * Completely separate from general notifications.
+ */
+export async function fetchAnnouncements(): Promise<NotificationItem[]> {
+  try {
+    const annSnap = await getDocs(collection(db, 'announcements'));
     const items: NotificationItem[] = [];
+
+    const resolveTs = (d: any): number => {
+      if (typeof d.timestamp === 'number' && !isNaN(d.timestamp) && d.timestamp > 0) return d.timestamp;
+      if (d.updated_at) {
+        const t = new Date(d.updated_at).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      if (d.createdat) {
+        const t = new Date(d.createdat).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      if (d.created_at) {
+        const t = new Date(d.created_at).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      return Date.now();
+    };
 
     if (!annSnap.empty) {
       annSnap.forEach((dSnap) => {
         if (isMockNotification(dSnap.id)) return;
         const d = dSnap.data();
         const imagesList: string[] = Array.isArray(d.images) ? d.images : (d.attachmentUrl ? [d.attachmentUrl] : []);
-        const ts = d.createdat ? new Date(d.createdat).getTime() : (d.created_at ? new Date(d.created_at).getTime() : Date.now());
+        const ts = resolveTs(d);
+        const isDeleted = Boolean(d.is_deleted || d.isDeleted || d.status === 'deleted');
+        if (isDeleted) return; // Do not display deleted announcements in the live broadcast feed
+        const cleanTitle = (d.title || 'Official Announcement').trim();
+
         items.push({
           id: dSnap.id,
-          title: d.title || 'Official Announcement',
-          message: d.body || '',
+          title: cleanTitle,
+          message: d.body || d.message || '',
           time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
           isUnread: true,
           type: d.priority === 'urgent' ? 'alert' : 'info',
@@ -1559,42 +1627,130 @@ export async function fetchAnnouncementsAndNotifications(): Promise<Notification
           department_id: d.department_id || 'dept-ich',
           level: d.level !== undefined ? d.level : 100,
           semester: d.semester || '1st Semester',
-          author: d.author || 'Department Admin',
-          sender: d.author || 'Department Admin',
+          author: d.author || 'Department Rep',
+          sender: d.author || d.sender || 'Department Rep',
           priority: d.priority || 'normal',
           images: imagesList,
+          isDeleted: false,
+          status: d.status,
           timestamp: ts,
+          createdat: d.createdat,
+          created_at: d.created_at,
         });
       });
     }
+
+    items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+    // Deduplicate
+    const seen = new Set<string>();
+    const seenContent = new Set<string>();
+    const deduped: NotificationItem[] = [];
+    for (const it of items) {
+      if (!it.id || seen.has(it.id)) continue;
+      const key = `${(it.title || '').trim().toLowerCase()}::${(it.message || '').trim().toLowerCase()}`;
+      if (seenContent.has(key)) continue;
+      seen.add(it.id);
+      seenContent.add(key);
+      deduped.push(it);
+    }
+
+    return deduped;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'announcements');
+    return [];
+  }
+}
+
+/**
+ * Fetches notifications strictly from the 'notifications' collection.
+ * (e.g. Class Cancelled notices, Deadline Deleted notices, System reminders)
+ */
+export async function fetchNotifications(): Promise<NotificationItem[]> {
+  try {
+    const notifSnap = await getDocs(collection(db, 'notifications'));
+    const items: NotificationItem[] = [];
+
+    const resolveTs = (d: any): number => {
+      if (typeof d.timestamp === 'number' && !isNaN(d.timestamp) && d.timestamp > 0) return d.timestamp;
+      if (d.updated_at) {
+        const t = new Date(d.updated_at).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      if (d.createdat) {
+        const t = new Date(d.createdat).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      if (d.created_at) {
+        const t = new Date(d.created_at).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      return Date.now();
+    };
 
     if (!notifSnap.empty) {
       notifSnap.forEach((dSnap) => {
         if (isMockNotification(dSnap.id)) return;
         const d = dSnap.data();
-        const ts = d.createdat ? new Date(d.createdat).getTime() : (d.created_at ? new Date(d.created_at).getTime() : Date.now());
+        const ts = resolveTs(d);
+        const isCancelled = Boolean(d.isCancelled || d.status === 'cancelled');
+        const isDeleted = Boolean(d.isDeleted || d.is_deleted || d.isDeletedDeadline || d.status === 'deleted');
         items.push({
           id: dSnap.id,
           title: d.title || 'Notice',
-          message: d.body || '',
+          message: d.body || d.message || '',
           time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
           isUnread: d.isRead !== true,
-          type: d.type === 'timetable' ? 'alert' : 'info',
-          category: 'schedule',
+          type: (isCancelled || isDeleted || d.priority === 'urgent') ? 'alert' : (d.type || 'info'),
+          category: d.category || 'system',
           department_id: d.department_id || 'dept-ich',
           level: d.level !== undefined ? d.level : 100,
           semester: d.semester || '1st Semester',
-          author: d.author || 'Timetable Coordinator',
-          sender: d.author || 'Timetable Coordinator',
+          author: d.author || 'Faculty',
+          sender: d.sender || d.author || 'Faculty',
+          priority: d.priority || 'normal',
+          isCancelled: isCancelled,
+          isDeleted: isDeleted,
+          status: d.status,
+          target_id: d.target_id,
           timestamp: ts,
         });
       });
     }
 
-    // Sort newest announcements/notifications first
     items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-    return items;
+    const seen = new Set<string>();
+    const seenContent = new Set<string>();
+    const deduped: NotificationItem[] = [];
+    for (const it of items) {
+      if (!it.id || seen.has(it.id)) continue;
+      if (it.target_id && seen.has(it.target_id)) continue;
+      const key = `${(it.title || '').trim().toLowerCase()}::${(it.message || '').trim().toLowerCase()}`;
+      if (seenContent.has(key)) continue;
+      seen.add(it.id);
+      if (it.target_id) seen.add(it.target_id);
+      seenContent.add(key);
+      deduped.push(it);
+    }
+
+    return deduped;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'notifications');
+    return [];
+  }
+}
+
+export async function fetchAnnouncementsAndNotifications(): Promise<NotificationItem[]> {
+  try {
+    const [broadcasts, notifs] = await Promise.all([
+      fetchAnnouncements(),
+      fetchNotifications(),
+    ]);
+
+    const combined = [...broadcasts, ...notifs];
+    combined.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    return combined;
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'announcements');
     return [];
@@ -1615,6 +1771,8 @@ export async function createAnnouncement(data: {
   try {
     const deptId = data.department_id || (await getDefaultDepartmentId());
     const imagesList: string[] = data.images && data.images.length > 0 ? data.images : (data.attachmentUrl ? [data.attachmentUrl] : []);
+    const nowMs = Date.now();
+    const nowIso = new Date().toISOString();
     const payload = {
       title: data.title.trim(),
       body: data.message.trim(),
@@ -1625,7 +1783,9 @@ export async function createAnnouncement(data: {
       images: imagesList,
       level: data.level || 100,
       semester: data.semester || '1st Semester',
-      createdat: new Date().toISOString(),
+      createdat: nowIso,
+      created_at: nowIso,
+      timestamp: nowMs,
     };
 
     const docRef = await addDoc(collection(db, 'announcements'), payload);
@@ -1635,6 +1795,7 @@ export async function createAnnouncement(data: {
       title: payload.title,
       message: payload.body,
       time: 'Just now',
+      timeAgo: 'Just now',
       isUnread: true,
       type: payload.priority === 'urgent' ? 'alert' : 'info',
       category: 'broadcast',
@@ -1645,6 +1806,9 @@ export async function createAnnouncement(data: {
       sender: payload.author,
       priority: payload.priority,
       images: imagesList,
+      timestamp: nowMs,
+      createdat: nowIso,
+      created_at: nowIso,
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, 'announcements');
@@ -1672,13 +1836,310 @@ export async function updateAnnouncement(id: string, fields: Partial<{ title: st
   }
 }
 
-export async function deleteAnnouncement(id: string): Promise<boolean> {
+export async function deleteAnnouncement(id: string, hardDelete: boolean = false): Promise<boolean> {
   try {
-    await deleteDoc(doc(db, 'announcements', id));
-    return true;
+    if (hardDelete) {
+      await deleteDoc(doc(db, 'announcements', id));
+      return true;
+    }
+    return await recordOrUpdateBroadcastDeletedNotification(id);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `announcements/${id}`);
     return false;
+  }
+}
+
+/**
+ * Records or updates a class cancelled notification in Firestore and local state.
+ * Triggered when a Course Rep or Admin deletes a schedule activity.
+ */
+export async function recordOrUpdateClassCancelledNotification(
+  eventData: {
+    id: string;
+    course?: string;
+    title?: string;
+    time?: string;
+    department_id?: string;
+    level?: number;
+    semester?: string;
+  },
+  actorName?: string
+): Promise<NotificationItem | null> {
+  try {
+    const courseCode = (eventData.course || 'Class').trim();
+    const eventTitle = (eventData.title || 'Lecture').trim();
+    const timeStr = eventData.time ? ` at ${eventData.time}` : '';
+    const notifId = `notif_cancelled_${eventData.id}`;
+    const nowIso = new Date().toISOString();
+    const author = actorName || 'Course Rep';
+
+    const notifPayload = {
+      title: `Class Cancelled: ${courseCode}`,
+      body: `The scheduled ${courseCode} class (${eventTitle})${timeStr} has been cancelled by the ${author}.`,
+      message: `The scheduled ${courseCode} class (${eventTitle})${timeStr} has been cancelled by the ${author}.`,
+      type: 'timetable',
+      category: 'schedule',
+      priority: 'urgent',
+      isRead: false,
+      isUnread: true,
+      status: 'cancelled',
+      isCancelled: true,
+      target_id: eventData.id,
+      department_id: eventData.department_id || 'dept-ich',
+      level: eventData.level || 100,
+      semester: eventData.semester || '1st Semester',
+      author: author,
+      sender: author,
+      createdat: nowIso,
+      created_at: nowIso,
+      updated_at: nowIso,
+      timestamp: Date.now(),
+    };
+
+    // Save to Firestore notifications collection so all students receive it in real-time
+    await setDoc(doc(db, 'notifications', notifId), notifPayload, { merge: true });
+
+    return {
+      id: notifId,
+      title: notifPayload.title,
+      message: notifPayload.body,
+      time: `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      isUnread: true,
+      type: 'alert',
+      category: 'schedule',
+      department_id: notifPayload.department_id,
+      level: notifPayload.level,
+      semester: notifPayload.semester,
+      author: author,
+      sender: author,
+      timestamp: notifPayload.timestamp,
+      status: 'cancelled',
+      isCancelled: true,
+      target_id: eventData.id,
+    };
+  } catch (err) {
+    console.warn('Error recording class cancelled notification:', err);
+    return null;
+  }
+}
+
+/**
+ * Records or updates a deadline deleted notification in Firestore.
+ * Triggered when a Course Rep or Admin deletes an assignment deadline.
+ */
+export async function recordOrUpdateDeadlineDeletedNotification(
+  assignmentData: {
+    id: string;
+    course?: string;
+    title?: string;
+    dueDate?: string;
+    department_id?: string;
+    level?: number;
+    semester?: string;
+  },
+  actorName?: string
+): Promise<NotificationItem | null> {
+  try {
+    const courseCode = (assignmentData.course || '').trim();
+    const title = (assignmentData.title || 'Assignment').trim();
+    const dueStr = assignmentData.dueDate ? ` originally due ${assignmentData.dueDate}` : '';
+    const notifId = `notif_deadline_deleted_${assignmentData.id}`;
+    const nowIso = new Date().toISOString();
+    const author = actorName || 'Course Rep';
+
+    const notifPayload = {
+      title: `Deadline Deleted: ${courseCode ? courseCode + ' - ' : ''}${title}`,
+      body: `The deadline for ${courseCode || 'course'} (${title})${dueStr} has been deleted by the ${author}.`,
+      message: `The deadline for ${courseCode || 'course'} (${title})${dueStr} has been deleted by the ${author}.`,
+      type: 'alert',
+      category: 'deadline',
+      priority: 'urgent',
+      isRead: false,
+      isUnread: true,
+      status: 'deleted',
+      isDeletedDeadline: true,
+      target_id: assignmentData.id,
+      department_id: assignmentData.department_id || 'dept-ich',
+      level: assignmentData.level || 100,
+      semester: assignmentData.semester || '1st Semester',
+      author: author,
+      sender: author,
+      createdat: nowIso,
+      created_at: nowIso,
+      updated_at: nowIso,
+      timestamp: Date.now(),
+    };
+
+    await setDoc(doc(db, 'notifications', notifId), notifPayload, { merge: true });
+
+    return {
+      id: notifId,
+      title: notifPayload.title,
+      message: notifPayload.body,
+      time: `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      isUnread: true,
+      type: 'alert',
+      category: 'deadline',
+      department_id: notifPayload.department_id,
+      level: notifPayload.level,
+      semester: notifPayload.semester,
+      author: author,
+      sender: author,
+      timestamp: notifPayload.timestamp,
+      status: 'deleted',
+      target_id: assignmentData.id,
+    };
+  } catch (err) {
+    console.warn('Error recording deadline deleted notification:', err);
+    return null;
+  }
+}
+
+/**
+ * Updates a broadcast announcement in Firestore when deleted by Course Rep or Admin,
+ * marking it as deleted/retracted with title and message updated, rather than purging it from notifications.
+ */
+export async function recordOrUpdateBroadcastDeletedNotification(
+  id: string,
+  actorName?: string
+): Promise<boolean> {
+  try {
+    const docRef = doc(db, 'announcements', id);
+    const snap = await getDoc(docRef);
+    const author = actorName || 'Course Rep';
+    let originalTitle = 'Announcement';
+    if (snap.exists()) {
+      const data = snap.data();
+      originalTitle = (data.title || 'Announcement').replace(/^Broadcast Deleted:\s*/i, '');
+    }
+
+    const updatedTitle = `Broadcast Deleted: ${originalTitle}`;
+    const updatedBody = `This broadcast announcement was deleted/retracted by the ${author}.`;
+
+    await setDoc(
+      docRef,
+      {
+        title: updatedTitle,
+        body: updatedBody,
+        is_deleted: true,
+        isDeleted: true,
+        status: 'deleted',
+        priority: 'normal',
+        images: [],
+        deleted_at: new Date().toISOString(),
+        deleted_by: author,
+        updated_at: new Date().toISOString(),
+        timestamp: Date.now(),
+      },
+      { merge: true }
+    );
+
+    // Also mirror to notifications collection so any notification subscriber catches it
+    try {
+      await setDoc(
+        doc(db, 'notifications', `notif_broadcast_deleted_${id}`),
+        {
+          title: updatedTitle,
+          body: updatedBody,
+          category: 'broadcast',
+          type: 'alert',
+          isRead: false,
+          isUnread: true,
+          status: 'deleted',
+          isDeleted: true,
+          target_id: id,
+          author: author,
+          timestamp: Date.now(),
+          updated_at: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch {}
+
+    return true;
+  } catch (err) {
+    console.warn('Error updating broadcast as deleted:', err);
+    return false;
+  }
+}
+
+/**
+ * Resets all schedules (activities), deadlines, broadcasts (announcements), and dashboard notifications for a new semester.
+ * CRITICAL RULE: Courses on the modules page, along with all attached PDF documents and lecture videos,
+ * are NEVER reset and remain permanently available for incoming / new students.
+ */
+export async function resetSemesterSchedulesDeadlinesAndBroadcasts(): Promise<{
+  success: boolean;
+  deletedActivities: number;
+  deletedDeadlines: number;
+  deletedAnnouncements: number;
+  deletedNotifications: number;
+  error?: string;
+}> {
+  let deletedActivities = 0;
+  let deletedDeadlines = 0;
+  let deletedAnnouncements = 0;
+  let deletedNotifications = 0;
+
+  try {
+    // 1. Wipe activities (schedules)
+    const actSnap = await getDocs(collection(db, 'activities'));
+    for (const d of actSnap.docs) {
+      await deleteDoc(doc(db, 'activities', d.id));
+      deletedActivities++;
+    }
+
+    // 2. Wipe deadlines
+    const deadSnap = await getDocs(collection(db, 'deadlines'));
+    for (const d of deadSnap.docs) {
+      await deleteDoc(doc(db, 'deadlines', d.id));
+      deletedDeadlines++;
+    }
+
+    // 3. Wipe announcements (broadcasts)
+    const annSnap = await getDocs(collection(db, 'announcements'));
+    for (const d of annSnap.docs) {
+      await deleteDoc(doc(db, 'announcements', d.id));
+      deletedAnnouncements++;
+    }
+
+    // 4. Wipe notifications
+    const notifSnap = await getDocs(collection(db, 'notifications'));
+    for (const d of notifSnap.docs) {
+      await deleteDoc(doc(db, 'notifications', d.id));
+      deletedNotifications++;
+    }
+
+    // Clear unread notification local caches
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('unread_notifs_') || key.startsWith('notif_'))) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch {}
+
+    // NOTE: 'courses' collection is deliberately UNTOUCHED.
+    // Modules, course descriptions, PDFs, and video lectures remain permanently for incoming students.
+
+    return {
+      success: true,
+      deletedActivities,
+      deletedDeadlines,
+      deletedAnnouncements,
+      deletedNotifications,
+    };
+  } catch (err: any) {
+    console.error('Error in resetSemesterSchedulesDeadlinesAndBroadcasts:', err);
+    return {
+      success: false,
+      deletedActivities,
+      deletedDeadlines,
+      deletedAnnouncements,
+      deletedNotifications,
+      error: err?.message || 'Failed to reset semester schedules, deadlines and broadcasts.',
+    };
   }
 }
 
@@ -3168,6 +3629,15 @@ export async function transitionAcademicSemester(
       console.warn('Student sync during semester transition:', uErr);
     }
 
+    // When students move to the next semester:
+    // Reset all schedules, deadlines, broadcasts, and notifications from the dashboard
+    // CRITICAL: Courses on modules page, PDFs, and videos are NEVER reset and remain permanently intact!
+    try {
+      await resetSemesterSchedulesDeadlinesAndBroadcasts();
+    } catch (resetErr) {
+      console.warn('Error resetting schedules and deadlines during semester transition:', resetErr);
+    }
+
     return { success: true, promotedCount, demotedCount };
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, 'current_semester/transition');
@@ -3180,6 +3650,7 @@ export interface RealtimeSubscriptionCallbacks {
   onEvents?: (events: EventItem[]) => void;
   onAssignments?: (assignments: AssignmentItem[]) => void;
   onNotifications?: (notifications: NotificationItem[]) => void;
+  onBroadcasts?: (broadcasts: NotificationItem[]) => void;
   onStudents?: (students: StudentProfileRecord[]) => void;
   onDepartments?: (departments: DepartmentRecord[]) => void;
   onCourses?: (courses: CourseRecord[]) => void;
@@ -3287,38 +3758,147 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
       );
     }
 
-    // 3. Announcements & Notifications
-    if (callbacks.onNotifications) {
+    // 3. Announcements & Notifications (Separate Streams)
+    if (callbacks.onNotifications || callbacks.onBroadcasts) {
+      let cachedAnnouncements: NotificationItem[] = [];
+      let cachedNotifications: NotificationItem[] = [];
+
+      const resolveNotifTs = (item: any): number => {
+        if (typeof item.timestamp === 'number' && !isNaN(item.timestamp) && item.timestamp > 0) return item.timestamp;
+        if (item.updated_at) {
+          const t = new Date(item.updated_at).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (item.deleted_at) {
+          const t = new Date(item.deleted_at).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (item.createdat) {
+          const t = new Date(item.createdat).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (item.created_at) {
+          const t = new Date(item.created_at).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (item.time === 'Just now' || item.timeAgo === 'Just now') {
+          return Date.now();
+        }
+        return 0;
+      };
+
+      const emitSeparatedOrMerged = () => {
+        if (callbacks.onBroadcasts) {
+          // Dedicated broadcasts stream - filter out deleted broadcasts
+          const activeBroadcasts = cachedAnnouncements.filter((b) => !b.isDeleted && b.status !== 'deleted');
+          activeBroadcasts.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          callbacks.onBroadcasts(activeBroadcasts);
+        }
+
+        if (callbacks.onNotifications) {
+          if (callbacks.onBroadcasts) {
+            // Notifications callback gets only notifications
+            cachedNotifications.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            callbacks.onNotifications(cachedNotifications);
+          } else {
+            // Fallback for legacy caller expecting combined notifications
+            const combined = [...cachedNotifications, ...cachedAnnouncements];
+            combined.sort((a, b) => resolveNotifTs(b) - resolveNotifTs(a));
+            const seenIds = new Set<string>();
+            const uniqueMerged: NotificationItem[] = [];
+            for (const item of combined) {
+              if (!item.id || seenIds.has(item.id)) continue;
+              seenIds.add(item.id);
+              uniqueMerged.push(item);
+            }
+            callbacks.onNotifications(uniqueMerged);
+          }
+        }
+      };
+
       unsubscribes.push(
         onSnapshot(
           collection(db, 'announcements'),
           (snap) => {
-            const notifications: NotificationItem[] = snap.docs
+            cachedAnnouncements = snap.docs
               .filter((dSnap) => !isMockNotification(dSnap.id))
               .map((dSnap) => {
                 const d = dSnap.data();
                 const imagesList: string[] = Array.isArray(d.images) ? d.images : (d.attachmentUrl ? [d.attachmentUrl] : []);
+                const isDeleted = Boolean(d.is_deleted || d.isDeleted || d.status === 'deleted');
+                const cleanTitle = (d.title || 'Official Announcement').trim();
+                const cleanBody = d.body || d.message || '';
+                const ts = resolveNotifTs(d);
                 return {
                   id: dSnap.id,
-                  title: d.title || 'Official Announcement',
-                  message: d.body || '',
+                  title: isDeleted && !cleanTitle.toLowerCase().includes('deleted')
+                    ? `Broadcast Deleted: ${cleanTitle}`
+                    : cleanTitle,
+                  message: isDeleted
+                    ? (cleanBody || 'This broadcast notice was deleted/retracted by the Course Rep.')
+                    : cleanBody,
                   time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
                   isUnread: true,
-                  type: d.priority === 'urgent' ? 'alert' : 'info',
+                  type: isDeleted ? 'alert' : (d.priority === 'urgent' ? 'alert' : 'info'),
                   category: 'broadcast',
                   department_id: d.department_id || 'dept-ich',
                   level: d.level !== undefined ? d.level : 100,
                   semester: d.semester || '1st Semester',
-                  author: d.author || 'Department Admin',
-                  sender: d.author || 'Department Admin',
+                  author: d.author || 'Department Rep',
+                  sender: d.author || d.sender || 'Department Rep',
                   priority: d.priority || 'normal',
-                  images: imagesList,
+                  images: isDeleted ? [] : imagesList,
+                  isDeleted: isDeleted,
+                  is_deleted: isDeleted,
+                  status: d.status,
+                  timestamp: ts,
+                  createdat: d.createdat,
+                  created_at: d.created_at,
                 };
               });
-            callbacks.onNotifications?.(notifications);
+            emitSeparatedOrMerged();
           },
           (err) => {
             handleFirestoreError(err, OperationType.GET, 'announcements');
+          }
+        )
+      );
+
+      unsubscribes.push(
+        onSnapshot(
+          collection(db, 'notifications'),
+          (snap) => {
+            cachedNotifications = snap.docs
+              .filter((dSnap) => !isMockNotification(dSnap.id))
+              .map((dSnap) => {
+                const d = dSnap.data();
+                const isCancelled = Boolean(d.isCancelled || d.status === 'cancelled');
+                const isDeleted = Boolean(d.isDeleted || d.is_deleted || d.isDeletedDeadline || d.status === 'deleted');
+                return {
+                  id: dSnap.id,
+                  title: d.title || 'Notification',
+                  message: d.message || d.body || '',
+                  time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+                  isUnread: d.isUnread !== undefined ? d.isUnread : true,
+                  type: (isCancelled || isDeleted || d.priority === 'urgent') ? 'alert' : (d.type || 'info'),
+                  category: d.category || 'system',
+                  department_id: d.department_id || 'dept-ich',
+                  level: d.level !== undefined ? d.level : 100,
+                  semester: d.semester || '1st Semester',
+                  author: d.author || 'Faculty',
+                  sender: d.sender || d.author || 'Faculty',
+                  priority: d.priority || 'normal',
+                  isCancelled: isCancelled,
+                  isDeleted: isDeleted,
+                  status: d.status,
+                  target_id: d.target_id,
+                  timestamp: resolveNotifTs(d),
+                };
+              });
+            emitSeparatedOrMerged();
+          },
+          (err) => {
+            handleFirestoreError(err, OperationType.GET, 'notifications');
           }
         )
       );

@@ -179,4 +179,12 @@ export interface NotificationItem {
   sender?: string;
   priority?: 'urgent' | 'normal';
   images?: string[];
+  isCancelled?: boolean;
+  isDeleted?: boolean;
+  is_deleted?: boolean;
+  isDismissed?: boolean;
+  status?: string;
+  target_id?: string;
+  createdat?: string;
+  created_at?: string;
 }

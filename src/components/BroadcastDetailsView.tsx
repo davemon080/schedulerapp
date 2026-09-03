@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
+import { formatBroadcastTimestamp } from '../lib/dbService';
 
 interface BroadcastDetailsViewProps {
   broadcast: NotificationItem;
@@ -272,9 +273,11 @@ export const BroadcastDetailsView: React.FC<BroadcastDetailsViewProps> = ({
                 </span>
                 <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 fill-blue-50" />
               </div>
-              <p className="text-[11.5px] text-slate-500 flex items-center gap-1 mt-0.5">
-                <Clock className="w-3 h-3 text-slate-400" />
-                <span>{broadcast.time || 'Today'}</span>
+              <p className="text-[11.5px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                <span className="inline-flex items-center gap-1 bg-black/5 px-2 py-0.5 rounded-md font-medium text-slate-600">
+                  <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                  <span>{formatBroadcastTimestamp(broadcast)}</span>
+                </span>
                 {broadcast.level && (
                   <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-200/70 text-slate-700 ml-1">
                     {broadcast.level}L

@@ -49,12 +49,12 @@ export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
           className="fixed inset-0 bg-black/35 backdrop-blur-md"
         />
 
-        {/* Frosted Glass Bottom Sheet Container */}
+        {/* Frosted Glass Bottom Sheet Container - immediate responsiveness */}
         <motion.div
-          initial={{ y: '100%', opacity: 0.9 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: '100%', opacity: 0 }}
-          transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+          initial={{ opacity: 0, scale: 0.98, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.98, y: 10 }}
+          transition={{ duration: 0.08, ease: 'easeOut' }}
           className="relative w-full max-w-lg z-10 mx-auto px-3 pb-6 pt-3"
         >
           <div className="glass-container-solid rounded-[32px] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.18)] border border-white">
@@ -65,9 +65,11 @@ export const EventBottomSheet: React.FC<EventBottomSheetProps> = ({
             <div className="flex items-start justify-between gap-3 pb-4 mb-2 border-b border-black/5">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-bold text-[#007AFF] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200/50">
-                    {event.course}
-                  </span>
+                  {event.course && event.course.trim() && event.course.trim().toUpperCase() !== 'OTHER' ? (
+                    <span className="text-[12px] font-bold text-[#007AFF] bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200/50">
+                      {event.course}
+                    </span>
+                  ) : null}
                   {event.isPostponed && (
                     <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300">
                       Postponed

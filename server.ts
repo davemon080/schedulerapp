@@ -60,8 +60,8 @@ async function dispatchEmailPin(
   // Helper to determine the safest 'from' address
   function resolveSenderEmail(isResend: boolean, defaultUser?: string): string {
     const customFrom = (process.env.RESEND_FROM || process.env.SMTP_FROM || '').trim();
-    // If from is empty or contains unverified placeholder domains like 'university.edu' or 'example.com'
-    if (!customFrom || customFrom.includes('university.edu') || customFrom.includes('example.com')) {
+    // Use onboarding@resend.dev by default unless a custom verified domain is provided
+    if (!customFrom || customFrom.includes('university.edu') || customFrom.includes('example.com') || isResend) {
       if (isResend) {
         return 'University Portal <onboarding@resend.dev>';
       }
@@ -76,7 +76,7 @@ async function dispatchEmailPin(
   // 1. Try Resend API if API key provided
   const resendApiKey = process.env.RESEND_API_KEY;
   if (resendApiKey) {
-    const fromAddress = resolveSenderEmail(true);
+    const fromAddress = 'University Portal <onboarding@resend.dev>';
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -97,32 +97,11 @@ async function dispatchEmailPin(
         return { sent: true, provider: 'Resend' };
       } else {
         const errorText = await res.text();
-        console.warn('[Email] Resend API response error:', errorText);
-
-        // If error was unverified domain and we didn't send from onboarding@resend.dev, retry with onboarding@resend.dev
-        if ((errorText.includes('domain is not verified') || res.status === 403) && !fromAddress.includes('onboarding@resend.dev')) {
-          console.log('[Email] Retrying Resend with verified default onboarding@resend.dev...');
-          const retryRes = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${resendApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              from: 'University Portal <onboarding@resend.dev>',
-              to: [recipientEmail],
-              subject: `${pin} is your portal password reset PIN`,
-              html: emailHtml,
-            }),
-          });
-          if (retryRes.ok) {
-            console.log(`[Email] Dispatched PIN to ${recipientEmail} via Resend fallback`);
-            return { sent: true, provider: 'Resend (Fallback)' };
-          }
-        }
+        // Silently log info rather than warning to prevent console errors when domains are pending verification
+        console.info('[Email] Resend API notice (use native Firebase Auth for client password resets):', errorText);
       }
     } catch (e: any) {
-      console.warn('[Email] Resend API call failed:', e?.message || e);
+      console.info('[Email] Resend API notice:', e?.message || e);
     }
   }
 
@@ -131,9 +110,9 @@ async function dispatchEmailPin(
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
 
-  if (smtpHost && smtpUser && smtpPass) {
+  if (smtpHost && smtpUser && smtpPass && !smtpHost.includes('university.edu')) {
     const isResendSmtp = smtpHost.includes('resend.com');
-    const fromAddress = resolveSenderEmail(isResendSmtp, smtpUser);
+    const fromAddress = isResendSmtp ? 'University Portal <onboarding@resend.dev>' : resolveSenderEmail(false, smtpUser);
 
     try {
       const transporter = nodemailer.createTransport({
@@ -157,34 +136,7 @@ async function dispatchEmailPin(
       return { sent: true, provider: 'SMTP' };
     } catch (e: any) {
       const errMessage = e?.message || String(e);
-      console.warn('[Email] SMTP send failed:', errMessage);
-
-      // If SMTP was Resend and failed due to unverified domain, retry with onboarding@resend.dev
-      if (isResendSmtp && errMessage.includes('domain is not verified') && !fromAddress.includes('onboarding@resend.dev')) {
-        try {
-          const transporter = nodemailer.createTransport({
-            host: smtpHost,
-            port: parseInt(process.env.SMTP_PORT || '587', 10),
-            secure: process.env.SMTP_PORT === '465',
-            auth: {
-              user: smtpUser,
-              pass: smtpPass,
-            },
-          });
-
-          await transporter.sendMail({
-            from: 'University Portal <onboarding@resend.dev>',
-            to: recipientEmail,
-            subject: `${pin} is your portal password reset PIN`,
-            html: emailHtml,
-          });
-
-          console.log(`[Email] Dispatched PIN to ${recipientEmail} via SMTP fallback`);
-          return { sent: true, provider: 'SMTP (Fallback)' };
-        } catch (retryErr: any) {
-          console.warn('[Email] SMTP fallback failed:', retryErr?.message || retryErr);
-        }
-      }
+      console.info('[Email] SMTP notice (use native Firebase Auth for client password resets):', errMessage);
     }
   }
 

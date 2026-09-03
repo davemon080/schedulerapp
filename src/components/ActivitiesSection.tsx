@@ -242,16 +242,15 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
                 <motion.div
                   key={event.id}
                   layout
-                  initial={{ opacity: 0, y: 18, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -14, scale: 0.97 }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
                   transition={{
-                    duration: 0.28,
-                    delay: index * 0.05,
-                    ease: [0.21, 0.85, 0.36, 1],
+                    duration: 0.08,
+                    ease: 'easeOut',
                   }}
                   onClick={() => onSelectCard?.(event)}
-                  className={`glass-container rounded-[24px] sm:rounded-[26px] p-4.5 sm:p-5.5 transition-all duration-200 hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:border-white relative group cursor-pointer ${
+                  className={`glass-container rounded-[24px] sm:rounded-[26px] p-4.5 sm:p-5.5 transition-colors hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:border-white relative group cursor-pointer ${
                     isLive
                       ? 'ring-2 ring-rose-500/80 bg-rose-50/30 shadow-[0_8px_24px_rgba(244,63,94,0.12)]'
                       : isEnded
@@ -262,14 +261,16 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
                   {/* Top Row: Course Code + Badges + Three-Dot Action Menu */}
                   <div className="flex items-start justify-between gap-2.5 mb-2.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                      {/* Course Code Tag */}
-                      <span className={`px-3 py-1 rounded-xl text-[13px] font-extrabold tracking-tight border shadow-2xs ${
-                        isEnded
-                          ? 'bg-slate-100 text-slate-600 border-slate-200'
-                          : 'bg-[#007AFF]/10 text-[#007AFF] border-blue-400/25'
-                      }`}>
-                        {event.course}
-                      </span>
+                      {/* Course Code Tag - only rendered if event has an academic course code */}
+                      {event.course && event.course.trim() && event.course.trim().toUpperCase() !== 'OTHER' ? (
+                        <span className={`px-3 py-1 rounded-xl text-[13px] font-extrabold tracking-tight border shadow-2xs ${
+                          isEnded
+                            ? 'bg-slate-100 text-slate-600 border-slate-200'
+                            : 'bg-[#007AFF]/10 text-[#007AFF] border-blue-400/25'
+                        }`}>
+                          {event.course}
+                        </span>
+                      ) : null}
 
                       {/* Online vs Physical badge */}
                       {isOnline ? (
