@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, BookOpen, Hash, Check, AlertCircle } from 'lucide-react';
-import { DepartmentRecord } from '../admin/types';
+import { DepartmentRecord } from '@admin/types';
 
 export interface CourseFormData {
   courseCode: string;

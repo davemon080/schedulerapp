@@ -17,7 +17,7 @@ import { SemesterAccessLockView } from './components/SemesterAccessLockView';
 import { WalletView } from './components/WalletView';
 import { LoginPage } from './components/LoginPage';
 import { PermissionsPromptModal } from './components/PermissionsPromptModal';
-import { AdminDashboard } from './admin/AdminDashboard';
+import { AdminDashboard } from '@admin/AdminDashboard';
 import { INITIAL_DAYS, getWeekDaysForDate } from './data/mockData';
 import { AssignmentItem, EventItem, NavigationTab, NotificationItem, UserSession } from './types';
 import { Plus, Check, CheckCheck, Trash2, ShieldAlert, Smartphone } from 'lucide-react';
@@ -57,7 +57,7 @@ import {
   recordOrUpdateDeadlineDeletedNotification,
   recordOrUpdateBroadcastDeletedNotification,
 } from './lib/dbService';
-import { CourseRecord, DepartmentRecord } from './admin/types';
+import { CourseRecord, DepartmentRecord } from '@admin/types';
 import { CourseFormData } from './components/AddCourseModal';
 import { getStudentActiveLevel, getStudentActiveSemester } from './lib/academicScope';
 import { isChannelNotificationEnabled } from './lib/notificationSettings';
@@ -145,12 +145,38 @@ export default function App() {
           current_semester: parsed.current_semester || '1st Semester',
           session: parsed.session || '2025/2026',
           academic_session: parsed.academic_session || '2025/2026',
-          // If not course rep or admin, enforce unpaid status and clear semester access by default
-          is_paid: (isAdmin || isRep) ? Boolean(parsed.is_paid ?? parsed.is_payed) : false,
-          is_payed: (isAdmin || isRep) ? Boolean(parsed.is_payed ?? parsed.is_paid) : false,
-          hasFreeAccess: isAdmin || isRep,
-          paid_semester: (isAdmin || isRep) ? parsed.paid_semester : undefined,
-          paid_at: (isAdmin || isRep) ? parsed.paid_at : undefined,
+          is_paid: Boolean(
+            isAdmin ||
+            isRep ||
+            parsed.hasFreeAccess ||
+            parsed.has_free_access ||
+            parsed.free_access ||
+            parsed.freeSemesterGranted ||
+            parsed.is_paid ||
+            parsed.is_payed
+          ),
+          is_payed: Boolean(
+            isAdmin ||
+            isRep ||
+            parsed.hasFreeAccess ||
+            parsed.has_free_access ||
+            parsed.free_access ||
+            parsed.freeSemesterGranted ||
+            parsed.is_paid ||
+            parsed.is_payed
+          ),
+          hasFreeAccess: Boolean(
+            isAdmin ||
+            isRep ||
+            parsed.hasFreeAccess ||
+            parsed.has_free_access ||
+            parsed.free_access ||
+            parsed.freeSemesterGranted ||
+            parsed.is_paid ||
+            parsed.is_payed
+          ),
+          paid_semester: parsed.paid_semester || (isAdmin || isRep || parsed.hasFreeAccess ? (parsed.semester || '1st Semester') : undefined),
+          paid_at: parsed.paid_at,
         };
       }
     } catch (e) {
@@ -218,11 +244,6 @@ export default function App() {
   // Sync Student Portal with Firebase Firestore
   const syncStudentPortalData = useCallback(async () => {
     try {
-      // Purge any lingering mock schedule/deadline/broadcast records from Firestore
-      purgeMockScheduleDeadlinesAndBroadcasts().catch(() => {});
-      // Enforce that all students in the database are set to unpaid and semester access is reset
-      resetAllStudentsToUnpaidInDatabase().catch(() => {});
-
       const [dbEvents, dbAssigns, dbBroadcasts, dbNotifs, dbCourses, dbSem, dbDepts] = await Promise.all([
         fetchScheduleActivities(),
         fetchAssignments(),
@@ -328,8 +349,23 @@ export default function App() {
                 const matchDeptId = verifiedStudent.department_id || parsed.department_id;
                 const matchCourseRep = Boolean(verifiedStudent.iscourserep || verifiedStudent.isCourseRep);
                 const matchAdmin = Boolean(verifiedStudent.isadmin || verifiedStudent.isAdmin);
-                const matchIsPaid = Boolean(verifiedStudent.is_paid || verifiedStudent.is_payed);
-                const matchPaidSemester = verifiedStudent.paid_semester || (verifiedStudent as any).paidSemester || undefined;
+                const matchHasFreeAccess = Boolean(
+                  matchCourseRep ||
+                  matchAdmin ||
+                  verifiedStudent.hasFreeAccess ||
+                  (verifiedStudent as any).has_free_access ||
+                  (verifiedStudent as any).free_access ||
+                  (verifiedStudent as any).freeSemesterGranted ||
+                  parsed.hasFreeAccess
+                );
+                const matchIsPaid = Boolean(
+                  matchHasFreeAccess ||
+                  verifiedStudent.is_paid ||
+                  verifiedStudent.is_payed ||
+                  parsed.is_paid ||
+                  parsed.is_payed
+                );
+                const matchPaidSemester = verifiedStudent.paid_semester || (verifiedStudent as any).paidSemester || (matchHasFreeAccess ? (parsed.semester || '1st Semester') : undefined);
 
                 const syncedSession: UserSession = {
                   ...parsed,
@@ -343,9 +379,9 @@ export default function App() {
                   department_id: matchDeptId,
                   isCourseRep: matchCourseRep,
                   isAdmin: matchAdmin,
-                  is_paid: matchCourseRep || matchAdmin || matchIsPaid,
-                  is_payed: matchCourseRep || matchAdmin || matchIsPaid,
-                  hasFreeAccess: matchCourseRep || matchAdmin,
+                  is_paid: matchIsPaid,
+                  is_payed: matchIsPaid,
+                  hasFreeAccess: matchHasFreeAccess,
                   paid_semester: matchPaidSemester,
                   profileImage: verifiedStudent.profile_pic_url || verifiedStudent.profileImage || parsed.profileImage || null,
                 };
@@ -469,8 +505,18 @@ export default function App() {
             const matchCourseRep = Boolean(matched.iscourserep || matched.isCourseRep);
             const matchAdmin = Boolean(matched.isadmin || matched.isAdmin);
             const matchSemester = getStudentActiveSemester(matched, currentSemester);
-            const matchIsPaid = Boolean(matched.is_paid || matched.is_payed);
-            const matchPaidSemester = matched.paid_semester || (matched as any).paidSemester || undefined;
+            const matchHasFreeAccess = Boolean(
+              matchCourseRep ||
+              matchAdmin ||
+              matched.hasFreeAccess ||
+              (matched as any).has_free_access ||
+              (matched as any).free_access ||
+              (matched as any).freeSemesterGranted ||
+              matched.is_paid ||
+              matched.is_payed
+            );
+            const matchIsPaid = matchHasFreeAccess;
+            const matchPaidSemester = matched.paid_semester || (matched as any).paidSemester || (matchHasFreeAccess ? (userSession.semester || '1st Semester') : undefined);
 
             if (
               userSession.level !== matchLevel ||
@@ -478,8 +524,9 @@ export default function App() {
               userSession.department !== matchDept ||
               userSession.isCourseRep !== matchCourseRep ||
               userSession.isAdmin !== matchAdmin ||
-              userSession.is_paid !== (matchCourseRep || matchAdmin || matchIsPaid) ||
-              userSession.is_payed !== (matchCourseRep || matchAdmin || matchIsPaid) ||
+              userSession.is_paid !== matchIsPaid ||
+              userSession.is_payed !== matchIsPaid ||
+              userSession.hasFreeAccess !== matchHasFreeAccess ||
               userSession.paid_semester !== matchPaidSemester
             ) {
               const syncedSession: UserSession = {
@@ -493,9 +540,9 @@ export default function App() {
                 department_id: matchDeptId,
                 isCourseRep: matchCourseRep,
                 isAdmin: matchAdmin,
-                is_paid: matchCourseRep || matchAdmin || matchIsPaid,
-                is_payed: matchCourseRep || matchAdmin || matchIsPaid,
-                hasFreeAccess: matchCourseRep || matchAdmin,
+                is_paid: matchIsPaid,
+                is_payed: matchIsPaid,
+                hasFreeAccess: matchHasFreeAccess,
                 paid_semester: matchPaidSemester,
               };
               setUserSession(syncedSession);
@@ -806,7 +853,10 @@ export default function App() {
   const isPaidAccess = Boolean(
     isActualCourseRep ||
     userSession?.is_paid ||
-    userSession?.is_payed
+    userSession?.is_payed ||
+    userSession?.hasFreeAccess ||
+    (userSession as any)?.has_free_access ||
+    (userSession as any)?.free_access
   );
 
   const unreadNotifCount = useMemo(() => {
@@ -1659,9 +1709,9 @@ export default function App() {
 
             {/* Main Container mimicking iOS screen boundaries */}
             <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-1 pb-32 relative">
-              {/* Standalone User Profile Pill & Icons fixed in position (No visible header bar) */}
+              {/* Standalone User Profile Pill & Icons fixed in position hovering over content */}
               {activeTab !== 'Notifications' && (
-                <div className="sticky top-2 z-30 pointer-events-none mb-1">
+                <div className="fixed top-2.5 inset-x-0 max-w-lg mx-auto px-4 sm:px-5 z-40 pointer-events-none">
                   <div className="pointer-events-auto">
                     <HeaderSection
                       onOpenNotifications={() => {
@@ -1689,7 +1739,7 @@ export default function App() {
               )}
 
               {/* iOS Dynamic Header & Status Bar Area */}
-              <div className="space-y-4 flex-1 pt-2">
+              <div className={`space-y-4 flex-1 ${activeTab !== 'Notifications' ? 'pt-[84px] sm:pt-[88px]' : 'pt-2'}`}>
 
                 {/* Conditional View by Active Navigation Tab */}
                 <AnimatePresence mode="wait">

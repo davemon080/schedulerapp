@@ -75,7 +75,7 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
       {/* Standalone Profile Card / User Info Pill */}
       <div 
         onClick={onOpenProfileTab}
-        className="flex items-center gap-3 bg-white/80 backdrop-blur-2xl py-1.5 px-3.5 rounded-[24px] shadow-[0_8px_30px_rgba(0,0,0,0.06)] border border-white/90 cursor-pointer active:scale-98 hover:scale-[1.02] hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(0,122,255,0.14)] hover:border-blue-200/80 transition-all duration-200 group"
+        className="flex items-center gap-3 bg-white/95 backdrop-blur-2xl py-1.5 px-3.5 rounded-[24px] shadow-[0_10px_30px_rgba(0,0,0,0.10)] border border-white/95 cursor-pointer active:scale-98 hover:scale-[1.02] hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(0,122,255,0.18)] hover:border-blue-200/80 transition-all duration-200 group"
       >
         {/* Profile Image: Click to upload from device */}
         <div
@@ -128,7 +128,7 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
               ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
               : isCalendarActive
               ? 'bg-blue-500/15 border-2 border-[#007AFF] text-[#007AFF] shadow-xs active:scale-95 hover:scale-105 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,122,255,0.2)] cursor-pointer'
-              : 'bg-white/80 backdrop-blur-2xl border border-white/90 text-[#1C1C1E] shadow-[0_8px_30px_rgba(0,0,0,0.06)] active:scale-95 hover:scale-105 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,122,255,0.15)] hover:border-blue-400/40 cursor-pointer'
+              : 'bg-white/95 backdrop-blur-2xl border border-white/95 text-[#1C1C1E] shadow-[0_10px_30px_rgba(0,0,0,0.10)] active:scale-95 hover:scale-105 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,122,255,0.15)] hover:border-blue-400/40 cursor-pointer'
           }`}
           title={isAccessBlocked ? "Access locked - activate semester access to view calendar" : "Monthly Academic Calendar"}
         >
@@ -145,7 +145,7 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
               ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
               : isNotificationsActive
               ? 'bg-blue-500/15 border-2 border-[#007AFF] text-[#007AFF] shadow-xs active:scale-95 hover:scale-105 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,122,255,0.2)] cursor-pointer'
-              : 'bg-white/80 backdrop-blur-2xl border border-white/90 text-[#1C1C1E] shadow-[0_8px_30px_rgba(0,0,0,0.06)] active:scale-95 hover:scale-105 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,122,255,0.15)] hover:border-blue-400/40 cursor-pointer'
+              : 'bg-white/95 backdrop-blur-2xl border border-white/95 text-[#1C1C1E] shadow-[0_10px_30px_rgba(0,0,0,0.10)] active:scale-95 hover:scale-105 hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(0,122,255,0.15)] hover:border-blue-400/40 cursor-pointer'
           }`}
           title={isAccessBlocked ? "Access locked - activate semester access to view notifications" : "Notifications & Activities Page"}
         >

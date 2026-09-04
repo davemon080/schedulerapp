@@ -18,7 +18,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
-import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
+import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
 import { formatBroadcastTimestamp } from '../lib/dbService';
 
 interface BroadcastDetailsViewProps {
@@ -103,7 +103,7 @@ export const BroadcastDetailsView: React.FC<BroadcastDetailsViewProps> = ({
   };
 
   return (
-    <div className="space-y-4 pb-20 pt-1">
+    <div className="space-y-4 pb-20 pt-0">
       {/* Top Bar with Back Button & Actions */}
       <div className="flex items-center justify-between gap-3 px-1">
         <motion.button

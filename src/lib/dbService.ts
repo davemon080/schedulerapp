@@ -28,7 +28,7 @@ import {
   AnnouncementRecord, 
   FeedbackRecord, 
   CurrentSemesterRecord 
-} from '../admin/types';
+} from '@admin/types';
 
 export type { 
   DepartmentRecord, 
@@ -560,9 +560,6 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
       },
     ];
 
-    for (const d of initialDepts) {
-      await setDoc(doc(db, 'departments', d.id), d);
-    }
     updateCachedDepartments(initialDepts);
     return initialDepts;
   } catch (error) {
@@ -996,16 +993,6 @@ export async function fetchCourses(): Promise<CourseRecord[]> {
         } as CourseRecord;
       });
     }
-
-    // Seed comprehensive course offerings across departments, levels, and semesters with clean empty materials
-    for (const crs of COMPREHENSIVE_SEEDED_COURSES) {
-      await setDoc(doc(db, 'courses', crs.id), {
-        ...crs,
-        pdfModules: [],
-        videoModules: [],
-        created_at: new Date().toISOString(),
-      });
-    }
     return COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
       ...crs,
       pdfModules: [],
@@ -1282,10 +1269,14 @@ export async function fetchScheduleActivities(): Promise<EventItem[]> {
             ? row.tags
             : [row.type || 'Lecture', deliveryMode === 'online' ? 'Online Class' : 'Physical Class'];
 
+          const rawCourse = (row.courseCode !== undefined ? row.courseCode : (row.course || '')).trim();
+          const isOther = rawCourse.toUpperCase() === 'OTHER' || (Array.isArray(row.tags) && row.tags.some((t: string) => t.toLowerCase() === 'other'));
+          const finalCourse = isOther ? '' : rawCourse;
+
           return {
             id: dSnap.id,
-            course: row.courseCode || 'GEN101',
-            title: row.title || 'Lecture',
+            course: finalCourse,
+            title: row.title || (isOther ? 'General Activity' : 'Lecture'),
             time: formatTimeRange(startTime, endTime),
             startTime,
             endTime,
@@ -1297,7 +1288,7 @@ export async function fetchScheduleActivities(): Promise<EventItem[]> {
             isPostponed,
             instructor: row.lecturer || 'Faculty Lecturer',
             dayKey,
-            colorAccent: getCourseAccentColor(row.courseCode || 'GEN'),
+            colorAccent: getCourseAccentColor(finalCourse || 'GEN'),
             notes: row.notes || undefined,
             department_id: row.department_id,
             level: row.level || 100,
@@ -1322,11 +1313,14 @@ export async function createScheduleActivity(event: Omit<EventItem, 'id'> & { de
     const deliveryMode = event.deliveryMode || (event.meetingLink ? 'online' : 'physical');
     const meetingLink = event.meetingLink ? event.meetingLink.trim() : '';
 
+    const isOther = event.tags?.some((t) => t.toLowerCase() === 'other') || !event.course || event.course.trim().toUpperCase() === 'OTHER';
+    const finalCourseCode = isOther ? '' : event.course.trim().toUpperCase();
+
     const payload = {
-      courseCode: event.course.trim().toUpperCase(),
+      courseCode: finalCourseCode,
       title: event.title.trim(),
-      type: event.tags?.[0] || 'Lecture',
-      tags: event.tags || ['Lecture', deliveryMode === 'online' ? 'Online Class' : 'Physical Class'],
+      type: isOther ? 'Other' : (event.tags?.[0] || 'Lecture'),
+      tags: event.tags || [isOther ? 'Other' : 'Lecture', deliveryMode === 'online' ? 'Online Class' : 'Physical Class'],
       day,
       dayKey: event.dayKey || mapDbDayToDayKey(day),
       startTime: event.startTime || startTime,
@@ -1375,7 +1369,10 @@ export async function createScheduleActivity(event: Omit<EventItem, 'id'> & { de
 export async function updateScheduleActivity(id: string, fields: Partial<EventItem> & { department_id?: string; level?: number; semester?: string }): Promise<boolean> {
   try {
     const payload: Record<string, any> = {};
-    if (fields.course) payload.courseCode = fields.course.trim().toUpperCase();
+    if (fields.course !== undefined) {
+      const isOther = (fields.tags && fields.tags.some((t) => t.toLowerCase() === 'other')) || !fields.course || fields.course.trim().toUpperCase() === 'OTHER';
+      payload.courseCode = isOther ? '' : fields.course.trim().toUpperCase();
+    }
     if (fields.title) payload.title = fields.title.trim();
     if (fields.location) payload.venue = fields.location.trim();
     if (fields.instructor !== undefined) payload.lecturer = fields.instructor;
@@ -2168,7 +2165,14 @@ export async function fetchStudents(): Promise<StudentProfileRecord[]> {
           const resolvedDeptId = d.department_id || detected.department_id;
           const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
           const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-          const isPaid = Boolean(d.is_payed ?? d.is_paid ?? false);
+          const hasFreeAccess = Boolean(
+            d.hasFreeAccess ??
+            d.has_free_access ??
+            d.free_access ??
+            d.freeSemesterGranted ??
+            false
+          );
+          const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
           const pwdVal = d.password || d.portal_password;
           const isCustomPwd = Boolean(
             (pwdVal && pwdVal !== '123456') ||
@@ -2202,7 +2206,7 @@ export async function fetchStudents(): Promise<StudentProfileRecord[]> {
             isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
             is_payed: isPaid,
             is_paid: isPaid,
-            hasFreeAccess: isPaid,
+            hasFreeAccess: hasFreeAccess || isPaid,
             wallet_balance: wBal,
             walletBalance: wBal,
             paid_semester: d.paid_semester || d.paidSemester,
@@ -2236,7 +2240,14 @@ export async function fetchStudentByAuthUid(uid: string): Promise<StudentProfile
       const resolvedDeptId = d.department_id || detected.department_id;
       const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
       const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-      const isPaid = Boolean(d.is_payed ?? d.is_paid ?? false);
+      const hasFreeAccess = Boolean(
+        d.hasFreeAccess ??
+        d.has_free_access ??
+        d.free_access ??
+        d.freeSemesterGranted ??
+        false
+      );
+      const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
 
       const pwdVal = d.password || d.portal_password;
       const isCustomPwd = Boolean(
@@ -2306,7 +2317,14 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
           : detected.department;
         const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
         const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-        const isPaid = Boolean(d.is_payed ?? d.is_paid ?? false);
+        const hasFreeAccess = Boolean(
+          d.hasFreeAccess ??
+          d.has_free_access ??
+          d.free_access ??
+          d.freeSemesterGranted ??
+          false
+        );
+        const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
 
         const pwdVal = d.password || d.portal_password;
         const isCustomPwd = Boolean(
@@ -2365,7 +2383,14 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
         : detected.department;
       const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
       const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-      const isPaid = Boolean(d.is_payed ?? d.is_paid ?? false);
+      const hasFreeAccess = Boolean(
+        d.hasFreeAccess ??
+        d.has_free_access ??
+        d.free_access ??
+        d.freeSemesterGranted ??
+        false
+      );
+      const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
       const pwdVal = d.password || d.portal_password;
       const isCustomPwd = Boolean(
         (pwdVal && pwdVal !== '123456') ||
@@ -2422,7 +2447,14 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
         : detected.department;
       const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
       const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-      const isPaid = Boolean(d.is_payed ?? d.is_paid ?? false);
+      const hasFreeAccess = Boolean(
+        d.hasFreeAccess ??
+        d.has_free_access ??
+        d.free_access ??
+        d.freeSemesterGranted ??
+        false
+      );
+      const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
       const pwdVal = d.password || d.portal_password;
       const isCustomPwd = Boolean(
         (pwdVal && pwdVal !== '123456') ||
@@ -2481,7 +2513,14 @@ export async function fetchStudentByEmailOrMatric(identifier: string): Promise<S
             : detected.department;
           const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
           const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-          const isPaid = Boolean(d.is_payed ?? d.is_paid ?? false);
+          const hasFreeAccess = Boolean(
+            d.hasFreeAccess ??
+            d.has_free_access ??
+            d.free_access ??
+            d.freeSemesterGranted ??
+            false
+          );
+          const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
           const pwdVal = d.password || d.portal_password;
           const isCustomPwd = Boolean(
             (pwdVal && pwdVal !== '123456') ||
@@ -3076,7 +3115,6 @@ export async function fetchCurrentSemester(): Promise<CurrentSemesterRecord | nu
       semester_code: '1st Semester 2025/2026',
       is_active: true,
     };
-    await setDoc(doc(db, 'current_semester', defaultSem.id), defaultSem);
     return defaultSem;
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, 'current_semester');
@@ -3684,10 +3722,14 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
                   ? row.tags
                   : [row.type || 'Lecture', deliveryMode === 'online' ? 'Online Class' : 'Physical Class'];
 
+                const rawCourse = (row.courseCode !== undefined ? row.courseCode : (row.course || '')).trim();
+                const isOther = rawCourse.toUpperCase() === 'OTHER' || (Array.isArray(row.tags) && row.tags.some((t: string) => t.toLowerCase() === 'other'));
+                const finalCourse = isOther ? '' : rawCourse;
+
                 return {
                   id: dSnap.id,
-                  course: row.courseCode || 'GEN101',
-                  title: row.title || 'Lecture',
+                  course: finalCourse,
+                  title: row.title || (isOther ? 'General Activity' : 'Lecture'),
                   time: formatTimeRange(startTime, endTime),
                   startTime,
                   endTime,
@@ -3699,7 +3741,7 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
                   isPostponed,
                   instructor: row.lecturer || 'Faculty Lecturer',
                   dayKey,
-                  colorAccent: getCourseAccentColor(row.courseCode || 'GEN'),
+                  colorAccent: getCourseAccentColor(finalCourse || 'GEN'),
                   notes: row.notes || undefined,
                   department_id: row.department_id,
                   level: row.level || 100,

@@ -12,7 +12,7 @@ import {
   Trash2,
   Maximize2,
 } from 'lucide-react';
-import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
+import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
 
 interface ImageViewerModalProps {
   isOpen: boolean;

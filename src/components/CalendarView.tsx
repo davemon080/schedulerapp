@@ -115,7 +115,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   return (
     <div className="w-full pb-20 rounded-none">
       {/* Calendar Header Bar - Squared & Direct on App */}
-      <div className="flex items-center justify-between py-3 mb-2 border-b border-black/10 rounded-none">
+      <div className="flex items-center justify-between pt-0.5 pb-2.5 mb-2 border-b border-black/10 rounded-none">
         <div className="flex items-baseline gap-3">
           <h1 className="text-[22px] sm:text-[26px] font-extrabold text-[#1C1C1E] tracking-tight">
             {MONTH_NAMES[currentMonthIndex]} {currentYear}

@@ -20,7 +20,7 @@ import {
   Clock,
   BookOpen,
 } from 'lucide-react';
-import { CourseVideoModule } from '../admin/types';
+import { CourseVideoModule } from '@admin/types';
 
 interface VideoPlayerPageProps {
   video: CourseVideoModule;

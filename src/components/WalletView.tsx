@@ -103,8 +103,24 @@ export const WalletView: React.FC<WalletViewProps> = ({
     (userSession as any)?.isadmin
   );
 
-  // Balance & Visibility State
-  const [showBalance, setShowBalance] = useState(true);
+  // Balance & Visibility State (Persisted in localStorage across sessions & views)
+  const [showBalance, setShowBalance] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wallet_balance_hidden') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleBalanceVisibility = () => {
+    const nextVal = !showBalance;
+    setShowBalance(nextVal);
+    try {
+      localStorage.setItem('wallet_balance_hidden', nextVal ? 'false' : 'true');
+      window.dispatchEvent(new Event('wallet_balance_visibility_changed'));
+    } catch (e) {}
+  };
+
   const [walletBalance, setWalletBalance] = useState<number>(() => {
     return typeof userSession?.wallet_balance === 'number'
       ? userSession.wallet_balance
@@ -114,7 +130,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
   const [isPaidAccess, setIsPaidAccess] = useState<boolean>(() => {
     return isActualCourseRep || Boolean(
       userSession?.is_paid ||
-      userSession?.is_payed
+      userSession?.is_payed ||
+      userSession?.hasFreeAccess ||
+      (userSession as any)?.has_free_access ||
+      (userSession as any)?.free_access
     );
   });
 
@@ -589,7 +608,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 <div className="flex items-center gap-2 text-blue-100 text-[11.5px] font-medium mb-0.5">
                   <span>Available Balance</span>
                   <button
-                    onClick={() => setShowBalance(!showBalance)}
+                    onClick={toggleBalanceVisibility}
                     className="p-0.5 hover:text-white transition-colors cursor-pointer"
                     title={showBalance ? 'Hide Balance' : 'Show Balance'}
                   >

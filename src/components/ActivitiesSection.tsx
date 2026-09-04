@@ -170,10 +170,6 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
     return [...events].sort((a, b) => getSortMinutes(a) - getSortMinutes(b));
   }, [events]);
 
-  if (isLoading) {
-    return <ActivitiesSkeleton />;
-  }
-
   const isDayToday = isDateToday(selectedDayName);
 
   const handleJoinMeeting = (e: React.MouseEvent, rawUrl?: string) => {
@@ -212,8 +208,36 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
 
       {/* Activity Cards List with Entry & Exit Animations */}
       <div className="space-y-3.5 min-h-[140px] relative">
+        {isLoading && sortedEvents.length > 0 && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500/30 overflow-hidden rounded-full z-10">
+            <div className="w-1/3 h-full bg-[#007AFF] animate-pulse rounded-full" />
+          </div>
+        )}
+
         <AnimatePresence mode="popLayout">
-          {sortedEvents.length === 0 ? (
+          {isLoading && sortedEvents.length === 0 ? (
+            <motion.div
+              key="activities-skeleton"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-3.5"
+            >
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="glass-container rounded-[24px] sm:rounded-[26px] p-4.5 sm:p-5.5 space-y-3 animate-pulse">
+                  <div className="flex items-center justify-between">
+                    <div className="h-6 w-24 bg-slate-200/80 rounded-xl" />
+                    <div className="h-5 w-20 bg-slate-200/60 rounded-full" />
+                  </div>
+                  <div className="h-6 w-3/4 bg-slate-200/80 rounded-lg" />
+                  <div className="flex gap-4">
+                    <div className="h-4 w-28 bg-slate-200/60 rounded" />
+                    <div className="h-4 w-32 bg-slate-200/60 rounded" />
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+          ) : sortedEvents.length === 0 ? (
             <motion.div
               key={`empty-${selectedDayName}`}
               initial={{ opacity: 0, y: 12, scale: 0.98 }}

@@ -9,13 +9,13 @@ import {
   ProfileSkeleton,
 } from './Skeletons';
 import { AddCourseModal, CourseFormData } from './AddCourseModal';
-import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
+import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
 import { CourseDetailView } from './CourseDetailView';
 import { WalletView } from './WalletView';
 import { SupportPage } from './SupportPage';
 import { SettingsPage } from './SettingsPage';
 import { getStudentActiveLevel, getStudentActiveSemester, normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
-import { DepartmentRecord } from '../admin/types';
+import { DepartmentRecord } from '@admin/types';
 import { LevelAdvisorPage } from './LevelAdvisorPage';
 import { formatBroadcastTimestamp } from '../lib/dbService';
 
@@ -93,7 +93,7 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  if (isLoading) {
+  if (isLoading && assignments.length === 0) {
     return <DeadlinesSkeleton />;
   }
 
@@ -366,7 +366,10 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
     setPostImages([]);
   };
 
-  if (isLoading) {
+  // Broadcasts are completely separate from standard system notifications
+  const rawList = broadcasts !== undefined ? broadcasts : notifications;
+
+  if (isLoading && (!rawList || rawList.length === 0)) {
     return <BroadcastsSkeleton />;
   }
 
@@ -380,9 +383,6 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
   const activeLevel = activeLevelProp || getStudentActiveLevel(userSession);
   const activeSemester = normalizeSemester(activeSemesterProp || getStudentActiveSemester(userSession, currentSemester));
 
-  // Filter broadcast announcements strictly to student's department, level, and semester, ensuring each appears ONLY ONCE
-  // Broadcasts are completely separate from standard system notifications
-  const rawList = broadcasts !== undefined ? broadcasts : notifications;
   const scopedBroadcasts = useMemo(() => {
     const seenIds = new Set<string>();
     const seenKeys = new Set<string>();
@@ -1368,8 +1368,30 @@ export const ProfileView: React.FC<OtherViewProps> = ({
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // Wallet Page Navigation State
+  // Wallet Page Navigation State & Hidden Balance Sync
   const [isWalletPageOpen, setIsWalletPageOpen] = useState(false);
+  const [isBalanceHidden, setIsBalanceHidden] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wallet_balance_hidden') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const handleVisibilityUpdate = () => {
+      try {
+        setIsBalanceHidden(localStorage.getItem('wallet_balance_hidden') === 'true');
+      } catch {}
+    };
+    window.addEventListener('storage', handleVisibilityUpdate);
+    window.addEventListener('wallet_balance_visibility_changed', handleVisibilityUpdate);
+    return () => {
+      window.removeEventListener('storage', handleVisibilityUpdate);
+      window.removeEventListener('wallet_balance_visibility_changed', handleVisibilityUpdate);
+    };
+  }, []);
+
   const currentBal = typeof userSession?.wallet_balance === 'number'
     ? userSession.wallet_balance
     : (typeof (userSession as any)?.walletBalance === 'number' ? (userSession as any).walletBalance : 0);
@@ -1439,6 +1461,9 @@ export const ProfileView: React.FC<OtherViewProps> = ({
       <WalletView
         onBack={() => {
           setIsWalletPageOpen(false);
+          try {
+            setIsBalanceHidden(localStorage.getItem('wallet_balance_hidden') === 'true');
+          } catch {}
         }}
         userSession={userSession}
         activeLevel={activeLevel}
@@ -1647,7 +1672,9 @@ export const ProfileView: React.FC<OtherViewProps> = ({
             <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">Wallet</h4>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[14.5px] font-black text-slate-900">₦{walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+            <span className="text-[14.5px] font-black text-slate-900">
+              {isBalanceHidden ? '••••••••' : `₦${walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`}
+            </span>
             <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 flex items-center justify-center text-slate-400 transition-colors">
               <ChevronRight className="w-4 h-4" />
             </div>

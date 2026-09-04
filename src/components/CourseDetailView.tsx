@@ -28,8 +28,8 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
-import { CourseRecord, CourseMaterialPdf, CourseMaterialVideo } from '../admin/types';
-import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
+import { CourseRecord, CourseMaterialPdf, CourseMaterialVideo } from '@admin/types';
+import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
 import { addCoursePdfModule, deleteCoursePdfModule, addCourseVideoModule, deleteCourseVideoModule } from '../lib/dbService';
 import { PdfViewerPage } from './PdfViewerPage';
 import { VideoPlayerPage } from './VideoPlayerPage';
@@ -401,7 +401,7 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
       className="space-y-4 pb-12"
     >
       {/* Top Header: Back Button at Top Left + Clean Course Info (NO delete icon here) */}
-      <div className="flex items-center justify-between gap-3 pt-1">
+      <div className="flex items-center justify-between gap-3 pt-0">
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"

@@ -21,7 +21,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
-import { ConfirmDeleteModal } from '../admin/ConfirmDeleteModal';
+import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
 
 interface AssignmentDetailsViewProps {
   assignment: AssignmentItem;
@@ -115,7 +115,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
       : 'text-blue-700 bg-blue-50 border-blue-200/80';
 
   return (
-    <div className="space-y-4 pb-20 pt-1">
+    <div className="space-y-4 pb-20 pt-0">
       {/* Top Bar with Back Button & Actions */}
       <div className="flex items-center justify-between gap-3 px-1">
         <motion.button

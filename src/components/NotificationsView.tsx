@@ -25,7 +25,7 @@ interface NotificationsViewProps {
   isLoading?: boolean;
 }
 
-type FilterType = 'all' | 'unread' | 'schedule' | 'deadline' | 'broadcast' | 'modules' | 'wallet';
+type FilterType = 'all' | 'unread' | 'schedule' | 'deadline' | 'modules' | 'wallet';
 
 export const NotificationsView: React.FC<NotificationsViewProps> = ({
   notifications,
@@ -34,10 +34,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   isLoading = false,
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
-
-  if (isLoading) {
-    return <NotificationsSkeleton />;
-  }
 
   // Comprehensive helper to extract or infer numeric timestamp accurately for chronological ordering
   const getNotificationTimestamp = (n: NotificationItem): number => {
@@ -146,6 +142,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     for (let i = 0; i < rawList.length; i++) {
       const n = rawList[i];
       if (!n) continue;
+      // Broadcasts on student dashboard are completely separate from notifications
+      if (n.category === 'broadcast' || (n.type === 'alert' && n.title?.toLowerCase().includes('broadcast'))) continue;
       if (n.id && seenIds.has(n.id)) continue;
       if (n.target_id && seenTargets.has(n.target_id)) continue;
 
@@ -175,7 +173,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     if (activeFilter === 'unread') return n.isUnread;
     if (activeFilter === 'schedule') return n.category === 'schedule';
     if (activeFilter === 'deadline') return n.category === 'deadline';
-    if (activeFilter === 'broadcast') return n.category === 'broadcast';
     if (activeFilter === 'modules') return n.category === 'modules';
     if (activeFilter === 'wallet') return n.category === 'wallet';
     return true;
@@ -228,7 +225,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     { id: 'unread', label: `Unread (${unreadCount})` },
     { id: 'schedule', label: 'Schedule' },
     { id: 'deadline', label: 'Deadlines' },
-    { id: 'broadcast', label: 'Broadcasts' },
     { id: 'modules', label: 'Modules' },
     { id: 'wallet', label: 'Wallet' },
   ];
@@ -284,7 +280,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
       {/* Notification Cards List (Smoothly scrolls under the fixed bottom action overlay) */}
       <div className="space-y-2.5 min-h-[220px]">
-        {filteredNotifications.length === 0 ? (
+        {isLoading && filteredNotifications.length === 0 ? (
+          <NotificationsSkeleton />
+        ) : filteredNotifications.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}

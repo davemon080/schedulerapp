@@ -71,6 +71,8 @@ export interface UserSession {
   is_payed?: boolean;
   is_paid?: boolean;
   hasFreeAccess?: boolean;
+  has_free_access?: boolean;
+  freeSemesterGranted?: boolean;
   wallet_balance?: number;
   walletBalance?: number;
   paid_semester?: string;

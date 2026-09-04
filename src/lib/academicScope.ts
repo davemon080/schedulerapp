@@ -1,5 +1,5 @@
 import { UserSession } from '../types';
-import { StudentProfileRecord } from '../admin/types';
+import { StudentProfileRecord } from '@admin/types';
 
 /**
  * Universal normalization for academic semester string.

@@ -24,7 +24,7 @@ import {
   Smartphone,
   Sparkles,
 } from 'lucide-react';
-import { CoursePdfModule } from '../admin/types';
+import { CoursePdfModule } from '@admin/types';
 
 interface PdfViewerPageProps {
   pdf: CoursePdfModule;

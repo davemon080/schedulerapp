@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EventItem, DayTimelineItem } from '../types';
 import { X, Check, Clock, MapPin, Video, Globe, Building2, Link as LinkIcon, BookOpen, Layers, ChevronRight } from 'lucide-react';
@@ -111,13 +111,34 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
   // Filter semester courses strictly by student department, level, and semester
   const semesterCourses = filterCoursesForStudentScope(courses, deptId, activeLevel, activeSemester);
 
+  // Activities should not show in course dropdown on add schedule page
+  const registeredCourses = useMemo(() => {
+    return semesterCourses.filter((crs: any) => {
+      // Exclude schedule activities or events that might have been merged
+      if (crs.dayKey || crs.day || crs.startTime || crs.endTime || crs.venue || crs.deliveryMode) {
+        return false;
+      }
+      const rawCode = (crs.courseCode || crs.code || '').trim();
+      if (!rawCode) return false;
+      const upper = rawCode.toUpperCase();
+      const activityWords = ['LECTURE', 'TEST', 'EXAM', 'PRACTICALS', 'PRACTICAL', 'OTHER', 'ACTIVITY', 'SCHEDULE'];
+      if (activityWords.includes(upper)) return false;
+      return true;
+    });
+  }, [semesterCourses]);
+
   // Resolve matching day label if available
   const matchedDayObj = days.find((d) => d.id === selectedDayKey);
   const displayDayLabel = matchedDayObj ? `${matchedDayObj.dayName}, ${matchedDayObj.fullDate}` : selectedDayKey;
 
   useEffect(() => {
     if (event) {
-      setCourse(event.course);
+      const isOtherEvent =
+        !event.course ||
+        event.course.trim().toUpperCase() === 'OTHER' ||
+        event.tags?.some((t) => t.toLowerCase() === 'other');
+
+      setCourse(isOtherEvent ? '' : event.course);
       setTitle(event.title);
 
       // Parse time range
@@ -141,29 +162,33 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
       setLocation(event.location);
       setIsPostponed(Boolean(event.isPostponed));
 
-      // Extract existing activity type if present in tags
-      const foundType = ACTIVITY_TYPES.find(
-        (at) => event.tags?.some((t) => t.toLowerCase() === at.id.toLowerCase() || t.toLowerCase() === at.label.toLowerCase())
-      );
-      if (foundType) {
-        setActivityType(foundType.id);
-      } else if (event.tags?.some((t) => t.toLowerCase().includes('test') || t.toLowerCase().includes('quiz'))) {
-        setActivityType('Test');
-      } else if (event.tags?.some((t) => t.toLowerCase().includes('exam'))) {
-        setActivityType('Exam');
-      } else if (event.tags?.some((t) => t.toLowerCase().includes('practical') || t.toLowerCase().includes('lab'))) {
-        setActivityType('Practicals');
-      } else if (event.tags?.some((t) => t.toLowerCase().includes('lecture') || t.toLowerCase().includes('class'))) {
-        setActivityType('Lecture');
-      } else {
+      if (isOtherEvent) {
         setActivityType('Other');
+      } else {
+        // Extract existing activity type if present in tags
+        const foundType = ACTIVITY_TYPES.find(
+          (at) => event.tags?.some((t) => t.toLowerCase() === at.id.toLowerCase() || t.toLowerCase() === at.label.toLowerCase())
+        );
+        if (foundType) {
+          setActivityType(foundType.id);
+        } else if (event.tags?.some((t) => t.toLowerCase().includes('test') || t.toLowerCase().includes('quiz'))) {
+          setActivityType('Test');
+        } else if (event.tags?.some((t) => t.toLowerCase().includes('exam'))) {
+          setActivityType('Exam');
+        } else if (event.tags?.some((t) => t.toLowerCase().includes('practical') || t.toLowerCase().includes('lab'))) {
+          setActivityType('Practicals');
+        } else if (event.tags?.some((t) => t.toLowerCase().includes('lecture') || t.toLowerCase().includes('class'))) {
+          setActivityType('Lecture');
+        } else {
+          setActivityType('Other');
+        }
       }
     } else {
-      const initialCourse = semesterCourses.length > 0 ? (semesterCourses[0].courseCode || semesterCourses[0].code) : 'ICH 101';
-      const initialTitle = semesterCourses.length > 0 ? (semesterCourses[0].title || semesterCourses[0].name) : 'General Chemistry';
+      const initialCourse = registeredCourses.length > 0 ? (registeredCourses[0].courseCode || registeredCourses[0].code) : '';
+      const initialTitle = registeredCourses.length > 0 ? (registeredCourses[0].title || registeredCourses[0].name) : 'Academic';
       setCourse(initialCourse);
-      setTitle(`${initialTitle} Lecture`);
-      setActivityType('Lecture');
+      setTitle(initialCourse ? `${initialTitle} Lecture` : 'General Activity');
+      setActivityType(initialCourse ? 'Lecture' : 'Other');
       setStartTime('08:00');
       setEndTime('10:00');
       setDeliveryMode('physical');
@@ -171,7 +196,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
       setLocation('Lecture Theatre 1');
       setIsPostponed(false);
     }
-  }, [event, isOpen, selectedDayKey]);
+  }, [event, isOpen, selectedDayKey, registeredCourses]);
 
   if (!isOpen) return null;
 
@@ -188,28 +213,28 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
       return;
     }
 
-    // For academic activities, ensure a registered course code is assigned
-    const matched = semesterCourses.find(
+    // For academic activities, ensure a registered course code is assigned (activities excluded)
+    const matched = registeredCourses.find(
       (c) => (c.courseCode || c.code)?.toUpperCase() === course?.toUpperCase()
-    ) || semesterCourses[0];
+    ) || registeredCourses[0];
 
-    const courseCodeStr = matched ? (matched.courseCode || matched.code) : (course || 'ICH 101');
-    const courseTitleStr = matched ? (matched.title || matched.name) : 'General Chemistry';
+    const courseCodeStr = matched ? (matched.courseCode || matched.code) : '';
+    const courseTitleStr = matched ? (matched.title || matched.name) : 'Course Activity';
 
     setCourse(courseCodeStr);
 
     switch (typeId) {
       case 'Lecture':
-        setTitle(`${courseTitleStr} Lecture`);
+        setTitle(courseTitleStr ? `${courseTitleStr} Lecture` : 'Lecture');
         break;
       case 'Test':
-        setTitle(`${courseTitleStr} Test`);
+        setTitle(courseTitleStr ? `${courseTitleStr} Test` : 'Test');
         break;
       case 'Exam':
-        setTitle(`${courseTitleStr} Examination`);
+        setTitle(courseTitleStr ? `${courseTitleStr} Examination` : 'Examination');
         break;
       case 'Practicals':
-        setTitle(`${courseTitleStr} Practical`);
+        setTitle(courseTitleStr ? `${courseTitleStr} Practical` : 'Practical');
         break;
       default:
         setTitle(courseTitleStr);
@@ -219,7 +244,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
 
   const handleSelectQuickCourse = (selectedCode: string) => {
     setCourse(selectedCode);
-    const matched = semesterCourses.find(
+    const matched = registeredCourses.find(
       (c) => (c.courseCode || c.code)?.toUpperCase() === selectedCode.toUpperCase()
     );
     if (matched) {
@@ -397,7 +422,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                         <span className="text-red-500">*</span>
                       </label>
                       <span className="text-[11px] text-slate-400 font-medium">
-                        {semesterCourses.length} courses registered
+                        {registeredCourses.length} courses registered
                       </span>
                     </div>
 
@@ -407,7 +432,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                         onChange={(e) => {
                           const selectedVal = e.target.value;
                           setCourse(selectedVal);
-                          const matched = semesterCourses.find(
+                          const matched = registeredCourses.find(
                             (c) => (c.courseCode || c.code)?.toUpperCase() === selectedVal.toUpperCase()
                           );
                           if (matched) {
@@ -435,7 +460,7 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                         required
                       >
                         <option value="" disabled>-- Select Registered Course --</option>
-                        {semesterCourses.map((crs: any) => {
+                        {registeredCourses.map((crs: any) => {
                           const directCode = crs.courseCode || crs.code;
                           const courseTitle = crs.title || crs.name;
                           return (
@@ -444,9 +469,6 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                             </option>
                           );
                         })}
-                        {course && !semesterCourses.some((c) => (c.courseCode || c.code)?.toUpperCase() === course.toUpperCase()) && (
-                          <option value={course}>{course}</option>
-                        )}
                       </select>
                       <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500">
                         <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">

@@ -18,6 +18,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@admin/*": [
+        "./admin/*"
+      ],
+      "@src/*": [
+        "./src/*"
       ]
     },
     "allowImportingTsExtensions": true,

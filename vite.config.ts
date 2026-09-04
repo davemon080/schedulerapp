@@ -9,6 +9,8 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@admin': path.resolve(__dirname, 'admin'),
+        '@src': path.resolve(__dirname, 'src'),
       },
     },
     server: {
