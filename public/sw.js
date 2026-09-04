@@ -3,13 +3,16 @@
  * Standard offline-ready installation, network pass-through, and Web Push notifications
  */
 
-const CACHE_NAME = 'ich100l-cache-v4';
+const CACHE_NAME = 'ich100l-cache-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/app-icon.png',
   '/logo-192.png',
   '/logo-512.png',
+  '/apple-touch-icon.png',
+  '/favicon.png',
   '/logo.svg',
   '/offline.html'
 ];

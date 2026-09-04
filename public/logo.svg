@@ -1,77 +1,188 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
-  <!-- Definitions of vibrant gradients and glows -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="100%" height="100%">
   <defs>
-    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#312e81" stop-opacity="0.8"/>
-      <stop offset="100%" stop-color="#020617" stop-opacity="1"/>
-    </radialGradient>
-    <linearGradient id="flaskGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#818cf8"/>
-      <stop offset="50%" stop-color="#4f46e5"/>
-      <stop offset="100%" stop-color="#312e81"/>
-    </linearGradient>
-    <linearGradient id="liquidGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#10b981"/>
-      <stop offset="60%" stop-color="#059669"/>
-      <stop offset="100%" stop-color="#064e3b"/>
-    </linearGradient>
-    <linearGradient id="foamGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#34d399"/>
-      <stop offset="50%" stop-color="#a7f3d0"/>
-      <stop offset="100%" stop-color="#34d399"/>
-    </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="15" result="blur" />
-      <feMerge>
-        <feMergeNode in="blur" />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
+    <!-- Background squircle shadow -->
+    <filter id="squircleShadow" x="-10%" y="-10%" width="125%" height="125%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#0F172A" flood-opacity="0.10" />
     </filter>
+    
+    <!-- Element soft shadows -->
+    <filter id="capShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="-2" dy="14" stdDeviation="12" flood-color="#0F172A" flood-opacity="0.22" />
+    </filter>
+
+    <filter id="checkShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="4" dy="12" stdDeviation="10" flood-color="#0F172A" flood-opacity="0.25" />
+    </filter>
+    
+    <filter id="calShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1E3A8A" flood-opacity="0.16" />
+    </filter>
+
+    <clipPath id="squircleClip">
+      <rect x="44" y="44" width="936" height="936" rx="216" ry="216" />
+    </clipPath>
   </defs>
 
-  <!-- Deep Cosmic Background -->
-  <rect width="100%" height="100%" fill="url(#bgGlow)" rx="112" />
+  <!-- Base App Icon Squircle -->
+  <rect x="44" y="44" width="936" height="936" rx="216" ry="216" fill="#FFFFFF" filter="url(#squircleShadow)" />
 
-  <!-- Outer Ring Elements (Chemical orbit path) -->
-  <circle cx="256" cy="256" r="190" fill="none" stroke="#4f46e5" stroke-width="4" stroke-opacity="0.3" stroke-dasharray="16 12" />
-  <circle cx="256" cy="256" r="190" fill="none" stroke="#10b981" stroke-width="2" stroke-opacity="0.2" stroke-dasharray="4 8" />
+  <g clip-path="url(#squircleClip)">
+    <!-- Main Content Group -->
+    <g transform="translate(0, 0)">
+      
+      <!-- ========================================== -->
+      <!-- 1. BLUE CALENDAR BASE & GRID               -->
+      <!-- ========================================== -->
+      <!-- Calendar shadow + outer blue container -->
+      <!-- Calendar bounds: x: 272, y: 356, w: 576, h: 494, rx: 42 -->
+      <g filter="url(#calShadow)">
+        <rect x="272" y="356" width="576" height="494" rx="42" fill="#2B7FFF" />
+      </g>
 
-  <!-- Orbiting atomic electron paths -->
-  <circle cx="390" cy="160" r="12" fill="#10b981" filter="url(#glow)"/>
-  <circle cx="122" cy="352" r="8" fill="#818cf8" filter="url(#glow)"/>
+      <!-- Calendar White Binder Clip / Hook (Top Right) -->
+      <!-- Positioned above col 4: x: 702, y: 316, w: 44, h: 104 -->
+      <g>
+        <!-- Clip shadow -->
+        <rect x="702" y="318" width="44" height="106" rx="22" fill="#1D4ED8" opacity="0.3" />
+        <!-- Clip white body -->
+        <rect x="702" y="316" width="44" height="104" rx="22" fill="#FFFFFF" />
+        <!-- Inner cutout pill -->
+        <rect x="714" y="340" width="20" height="56" rx="10" fill="#2B7FFF" />
+      </g>
 
-  <!-- Glowing background aura behind the chemistry flask -->
-  <circle cx="256" cy="270" r="90" fill="#4f46e5" opacity="0.15" filter="url(#glow)" />
+      <!-- Calendar Header Band (Darker blue accent under the top curve) -->
+      <path d="M 272 414 C 272 382 298 356 330 356 L 790 356 C 822 356 848 382 848 414 L 848 474 L 272 474 Z" fill="#2563EB" opacity="0.45" />
 
-  <!-- The Styled Chemistry Erlenmeyer Flask -->
-  <g filter="url(#glow)">
-    <!-- Liquid inside the flask -->
-    <path d="M 205 350 L 307 350 C 314 350 345 390 355 408 C 360 417 353 428 342 428 L 170 428 C 159 428 152 417 157 408 C 167 390 198 350 205 350 Z" fill="url(#liquidGrad)" />
-    
-    <!-- Bubbles/Foam Top layer inside liquid -->
-    <ellipse cx="256" cy="350" rx="51" ry="8" fill="url(#foamGrad)" />
-    
-    <!-- Bubble circles rising up inside flask/liquid -->
-    <circle cx="230" cy="325" r="7" fill="#34d399" opacity="0.8"/>
-    <circle cx="280" cy="300" r="10" fill="#10b981" opacity="0.6"/>
-    <circle cx="250" cy="270" r="6" fill="#6ee7b7" opacity="0.9"/>
-    <circle cx="270" cy="340" r="4" fill="#a7f3d0" opacity="0.7"/>
-    <circle cx="215" cy="370" r="5" fill="#34d399" opacity="0.5"/>
+      <!-- Calendar Cells (White background tiles inside the blue grid) -->
+      <!-- 4 Columns across, 3 Rows down. Total width = 536 (from x=292 to x=828), Total height = 348 (from y=478 to y=826) -->
+      <!-- Col x: 312, 442, 572, 702 (width ~116 each, gap ~14) -->
+      <!-- Row y: 478, 594, 710 (height ~102 each, gap ~14) -->
+      
+      <!-- ROW 1 (y: 478, h: 102) -->
+      <!-- Col 1 (partially covered by cap) -->
+      <rect x="312" y="478" width="116" height="102" rx="10" fill="#EBF3FF" />
+      <!-- Col 2 -->
+      <rect x="442" y="478" width="116" height="102" rx="10" fill="#FFFFFF" />
+      <!-- Col 3 -->
+      <rect x="572" y="478" width="116" height="102" rx="10" fill="#FFFFFF" />
+      <!-- Col 4 -->
+      <rect x="702" y="478" width="116" height="102" rx="10" fill="#FFFFFF" />
 
-    <!-- Main Glass Outlines representing structure -->
-    <!-- Flask Neck and lip -->
-    <rect x="234" y="140" width="44" height="110" fill="none" stroke="url(#flaskGrad)" stroke-width="12" stroke-linejoin="round" />
-    <ellipse cx="256" cy="140" rx="28" ry="8" fill="none" stroke="url(#flaskGrad)" stroke-width="12" />
-    
-    <!-- Main Body triangles -->
-    <path d="M 234 230 L 160 395 C 145 428 168 440 200 440 L 312 440 C 344 440 367 428 352 395 L 278 230" fill="none" stroke="url(#flaskGrad)" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" />
-    
-    <!-- Internal measurement markings (gradated lines) on the side -->
-    <line x1="285" y1="280" x2="300" y2="280" stroke="#818cf8" stroke-width="4" stroke-opacity="0.8" />
-    <line x1="290" y1="315" x2="310" y2="315" stroke="#818cf8" stroke-width="4" stroke-opacity="0.8" />
-    <line x1="295" y1="350" x2="320" y2="350" stroke="#818cf8" stroke-width="4" stroke-opacity="0.8" />
+      <!-- ROW 2 (y: 594, h: 102) -->
+      <!-- Col 1: Contains two horizontal lavender/blue schedule bars -->
+      <g>
+        <rect x="312" y="594" width="116" height="102" rx="10" fill="#FFFFFF" />
+        <!-- Event Bar 1 (longer) -->
+        <rect x="328" y="618" width="82" height="16" rx="8" fill="#D7E7FA" />
+        <!-- Event Bar 2 (shorter) -->
+        <rect x="328" y="644" width="56" height="16" rx="8" fill="#D7E7FA" />
+      </g>
+      <!-- Col 2 -->
+      <rect x="442" y="594" width="116" height="102" rx="10" fill="#FFFFFF" />
+      <!-- Col 3 -->
+      <rect x="572" y="594" width="116" height="102" rx="10" fill="#FFFFFF" />
+      <!-- Col 4 -->
+      <rect x="702" y="594" width="116" height="102" rx="10" fill="#FFFFFF" />
 
-    <!-- Glass Refraction Highlight (White curved reflection along Left side) -->
-    <path d="M 172 398 L 228 244" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-opacity="0.4" />
+      <!-- ROW 3 (y: 710, h: 102) -->
+      <!-- Col 1 -->
+      <rect x="312" y="710" width="116" height="102" rx="10" fill="#FFFFFF" />
+      <!-- Col 2: Contains the Yellow Clock -->
+      <g>
+        <rect x="442" y="710" width="116" height="102" rx="10" fill="#FFFFFF" />
+        <!-- Clock Outer Yellow Ring -->
+        <circle cx="500" cy="761" r="34" fill="#FEF08A" stroke="#FBBF24" stroke-width="9" />
+        <!-- Center Clock Face White -->
+        <circle cx="500" cy="761" r="25" fill="#FFFFFF" />
+        <!-- Clock Hands (Minute hand to 12:00, Hour hand to ~3:30/4:00) -->
+        <line x1="500" y1="761" x2="500" y2="744" stroke="#1E293B" stroke-width="5" stroke-linecap="round" />
+        <line x1="500" y1="761" x2="516" y2="773" stroke="#1E293B" stroke-width="5" stroke-linecap="round" />
+        <!-- Center Pivot Dot -->
+        <circle cx="500" cy="761" r="3.5" fill="#1E293B" />
+      </g>
+      <!-- Col 3 (partially under checkmark) -->
+      <rect x="572" y="710" width="116" height="102" rx="10" fill="#FFFFFF" />
+      <!-- Col 4 (under checkmark) -->
+      <rect x="702" y="710" width="116" height="102" rx="10" fill="#FFFFFF" />
+
+      <!-- ========================================== -->
+      <!-- 2. RED GRADUATION CAP & 3D BOOK            -->
+      <!-- ========================================== -->
+      <g filter="url(#capShadow)">
+        
+        <!-- Book Base & Spine in 3D Perspective -->
+        <!-- Book Bottom/Back Red Cover -->
+        <path d="M 272 384 L 452 488 L 606 388 L 436 298 Z" fill="#991B1B" opacity="0.3" />
+
+        <!-- Book 3D Thickness (Left spine & Front cover) -->
+        <!-- Red Spine on Left -->
+        <path d="M 270 380 L 452 484 L 452 516 L 270 412 Z" fill="#DC2626" />
+        <!-- Red Bottom Cover Edge -->
+        <path d="M 452 484 L 626 376 L 626 408 L 452 516 Z" fill="#B91C1C" />
+        
+        <!-- Book White Pages Block -->
+        <!-- Front Pages Slice (White with subtle grey edge) -->
+        <path d="M 274 388 L 448 488 L 448 506 L 274 406 Z" fill="#F8FAFC" />
+        <!-- Right Pages Slice (Subtle shadow on pages) -->
+        <path d="M 452 488 L 620 384 L 620 400 L 452 506 Z" fill="#E2E8F0" />
+        
+        <!-- Red Hardcover Top Lid / Book Upper Cover -->
+        <path d="M 268 376 L 452 480 L 626 372 L 444 282 Z" fill="#EF4444" />
+        <path d="M 268 376 L 452 480 L 452 486 L 268 382 Z" fill="#DC2626" />
+        <path d="M 452 480 L 626 372 L 626 378 L 452 486 Z" fill="#B91C1C" />
+
+        <!-- Graduation Mortarboard Skullcap Base -->
+        <path d="M 334 324 L 448 392 L 560 326 L 448 266 Z" fill="#B91C1C" />
+        <path d="M 334 324 L 448 392 L 448 412 L 334 344 Z" fill="#991B1B" />
+        <path d="M 448 392 L 560 326 L 560 346 L 448 412 Z" fill="#7F1D1D" />
+
+        <!-- Mortarboard Diamond Top (Isometric tilted diamond) -->
+        <!-- Left vertex: (144, 326), Top vertex: (422, 172), Right vertex: (744, 238), Bottom vertex: (454, 404) -->
+        <path d="M 144 326 L 422 172 L 744 238 L 454 404 Z" fill="#E52E2D" />
+        
+        <!-- Mortarboard Diamond 3D Thickness Edge -->
+        <path d="M 144 326 L 454 404 L 454 416 L 144 338 Z" fill="#B91C1C" />
+        <path d="M 454 404 L 744 238 L 744 250 L 454 416 Z" fill="#991B1B" />
+
+        <!-- Top Diamond subtle highlight facet (left side slightly brighter) -->
+        <path d="M 144 326 L 422 172 L 454 404 Z" fill="#EF4444" opacity="0.3" />
+
+        <!-- Center Button on Mortarboard Top -->
+        <!-- Centered around (448, 282) -->
+        <ellipse cx="448" cy="282" rx="14" ry="9" fill="#FFFFFF" />
+        <ellipse cx="448" cy="282" rx="10" ry="6" fill="#FEE2E2" />
+
+        <!-- White Tassel Cord leading to left corner -->
+        <path d="M 448 282 L 230 354" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" />
+        <path d="M 230 354 Q 196 364 196 424" fill="none" stroke="#E52E2D" stroke-width="12" stroke-linecap="round" />
+
+        <!-- Red Tassel Hanging on Left Side -->
+        <!-- Tassel Top Button / Bead -->
+        <circle cx="196" cy="428" r="14" fill="#B91C1C" />
+        <circle cx="194" cy="426" r="11" fill="#DC2626" />
+        <!-- Tassel Fringe Skirt -->
+        <path d="M 184 438 C 182 458 178 494 176 524 C 176 532 216 532 216 524 C 214 494 210 458 208 438 Z" fill="#DC2626" />
+        <!-- Tassel Accent Highlight -->
+        <path d="M 192 442 L 190 522" stroke="#EF4444" stroke-width="4" stroke-linecap="round" />
+      </g>
+
+      <!-- ========================================== -->
+      <!-- 3. VIBRANT GREEN 3D CHECKMARK              -->
+      <!-- ========================================== -->
+      <!-- Placed in lower right corner, overlapping blue calendar -->
+      <!-- Corner apex around (698, 762), Left tip around (616, 672), Right tip around (876, 542) -->
+      <g filter="url(#checkShadow)">
+        <!-- Checkmark 3D Shadow Extrusion Base -->
+        <path d="M 616 672 L 698 764 L 878 544 L 898 564 L 698 786 L 596 692 Z" fill="#15803D" opacity="0.6" />
+        
+        <!-- Checkmark Main Vibrant Shape -->
+        <!-- Drawn with polygon with rounded apex or thick path -->
+        <path d="M 616 672 L 698 762 L 876 542" fill="none" stroke="#22C55E" stroke-width="54" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="3" />
+        
+        <!-- Subtle inner highlight line for clean 3D look -->
+        <path d="M 622 670 L 698 754 L 870 540" fill="none" stroke="#86EFAC" stroke-width="10" stroke-linecap="round" stroke-linejoin="miter" stroke-miterlimit="3" opacity="0.45" />
+      </g>
+
+    </g>
   </g>
 </svg>

@@ -136,8 +136,25 @@ export const AdminAuth: React.FC<AdminAuthProps> = ({
         >
           {/* Logo & Heading */}
           <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-blue-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-amber-500/20">
-              <Shield className="w-8 h-8 text-white" />
+            <div className="relative w-18 h-18 mx-auto mb-4">
+              <div className="w-full h-full rounded-2xl bg-white p-1 shadow-lg shadow-blue-500/20 flex items-center justify-center overflow-hidden border border-slate-700">
+                <img
+                  src="/app-icon.png"
+                  alt="Scheduler Icon"
+                  className="w-full h-full object-cover rounded-xl"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (!target.src.endsWith('/user-icon.jpg')) {
+                      target.src = '/user-icon.jpg';
+                    } else if (!target.src.endsWith('/logo.svg')) {
+                      target.src = '/logo.svg';
+                    }
+                  }}
+                />
+              </div>
+              <div className="absolute -bottom-1 -right-1 bg-amber-500 text-slate-950 rounded-full p-1 border-2 border-slate-900 shadow-xs">
+                <Shield className="w-3.5 h-3.5" />
+              </div>
             </div>
             <h1 className="text-2xl font-black tracking-tight text-white">
               Academic Admin Control

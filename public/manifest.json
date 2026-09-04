@@ -1,12 +1,12 @@
 {
   "short_name": "Scheduler",
-  "name": "Scheduler",
-  "description": "Real-time schedules, deadlines, broadcasts, and PDF modules for Chemistry 100L. Complete offline-compatible portal.",
+  "name": "University Scheduler",
+  "description": "Real-time academic schedules, timetables, deadlines, broadcasts, and course outlines.",
   "id": "/",
   "scope": "/",
   "start_url": "/",
-  "background_color": "#020617",
-  "theme_color": "#4f46e5",
+  "background_color": "#F5F5F7",
+  "theme_color": "#FFFFFF",
   "display": "standalone",
   "orientation": "portrait",
   "icons": [
@@ -20,6 +20,12 @@
       "src": "/logo-512.png",
       "type": "image/png",
       "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icon.png",
+      "type": "image/png",
+      "sizes": "1024x1024",
       "purpose": "any"
     },
     {

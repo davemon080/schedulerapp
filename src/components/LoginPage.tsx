@@ -310,16 +310,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       >
         {/* Header Brand Section directly on screen */}
         <div className="flex flex-col items-center text-center mb-8">
-          <div className="relative mb-3.5">
-            <div className="w-16 h-16 rounded-[22px] bg-gradient-to-tr from-[#007AFF] via-[#0A84FF] to-sky-400 p-[2px] shadow-lg shadow-blue-500/25 flex items-center justify-center">
-              <div className="w-full h-full bg-white rounded-[20px] backdrop-blur-md flex items-center justify-center text-[#007AFF]">
-                <FlaskConical className="w-8 h-8 stroke-[2.2]" />
-              </div>
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+            className="relative mb-3.5"
+          >
+            <div className="w-20 h-20 sm:w-22 sm:h-22 rounded-[24px] bg-white p-1 shadow-xl shadow-blue-500/15 border border-slate-200/80 flex items-center justify-center overflow-hidden transition-transform duration-300 hover:scale-105">
+              <img
+                src="/app-icon.png"
+                alt="Scheduler App Icon"
+                className="w-full h-full object-cover rounded-[20px]"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (!target.src.endsWith('/user-icon.jpg')) {
+                    target.src = '/user-icon.jpg';
+                  } else if (!target.src.endsWith('/logo.svg')) {
+                    target.src = '/logo.svg';
+                  }
+                }}
+              />
             </div>
             <div className="absolute -bottom-1 -right-1 bg-[#007AFF] text-white rounded-full p-1 border-2 border-white shadow-xs">
               <GraduationCap className="w-3.5 h-3.5" />
             </div>
-          </div>
+          </motion.div>
 
           <h1 className="text-[26px] sm:text-[28px] font-extrabold text-[#1C1C1E] tracking-tight leading-tight">
             Student Portal

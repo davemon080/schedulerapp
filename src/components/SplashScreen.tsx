@@ -102,9 +102,21 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
             initial={{ scale: 0.6, opacity: 0, rotate: -6 }}
             animate={{ scale: 1, opacity: 1, rotate: 0 }}
             transition={{ type: 'spring', damping: 16, stiffness: 220, delay: 0.1 }}
-            className="relative w-28 h-28 rounded-[30px] bg-gradient-to-b from-white/95 via-white/85 to-white/70 backdrop-blur-2xl border-2 border-white shadow-[0_20px_50px_rgba(0,122,255,0.28)] flex items-center justify-center text-[#007AFF]"
+            className="relative w-28 h-28 rounded-[30px] bg-white p-1.5 backdrop-blur-2xl border-2 border-white shadow-[0_20px_50px_rgba(0,122,255,0.28)] flex items-center justify-center overflow-hidden text-[#007AFF]"
           >
-            <CalendarDays className="w-14 h-14 stroke-[2.2] drop-shadow-sm text-[#007AFF]" />
+            <img
+              src="/app-icon.png"
+              alt={appName}
+              className="w-full h-full object-cover rounded-[24px]"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                if (!target.src.endsWith('/user-icon.jpg')) {
+                  target.src = '/user-icon.jpg';
+                } else if (!target.src.endsWith('/logo.svg')) {
+                  target.src = '/logo.svg';
+                }
+              }}
+            />
           </motion.div>
         </div>
 
