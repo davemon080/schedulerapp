@@ -444,17 +444,34 @@ async function startServer() {
     });
     app.use(vite.middlewares);
 
-    // Fallback for SPA reloads on any client route (e.g. /adminschedulerapp, /adminschedulerapp/schedule)
+    // Fallback for SPA reloads on any client route (e.g. /adminschedulerapp, /payment/)
     app.use('*', async (req, res, next) => {
       if (req.originalUrl.startsWith('/api/')) {
         return next();
       }
       try {
-        const indexHtml = path.resolve(process.cwd(), 'index.html');
-        if (fs.existsSync(indexHtml)) {
-          let template = fs.readFileSync(indexHtml, 'utf-8');
-          template = await vite.transformIndexHtml(req.originalUrl, template);
-          res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+        const isPayment = 
+          req.path === '/payment' || 
+          req.path.startsWith('/payment/') ||
+          req.path === '/payment-checkout' ||
+          req.path.startsWith('/payment-checkout/') ||
+          req.path === '/pay' ||
+          req.path.startsWith('/pay/');
+        const targetHtml = isPayment
+          ? path.resolve(process.cwd(), 'payment/index.html')
+          : path.resolve(process.cwd(), 'index.html');
+        const fileToUse = fs.existsSync(targetHtml) ? targetHtml : path.resolve(process.cwd(), 'index.html');
+
+        if (fs.existsSync(fileToUse)) {
+          let template = fs.readFileSync(fileToUse, 'utf-8');
+          const transformUrl = isPayment ? '/payment/index.html' : req.originalUrl;
+          template = await vite.transformIndexHtml(transformUrl, template);
+          res.status(200).set({
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          }).end(template);
         } else {
           next();
         }
@@ -467,8 +484,20 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      const isPayment = 
+        req.originalUrl.startsWith('/payment') ||
+        req.originalUrl.startsWith('/payment-checkout') ||
+        req.originalUrl.startsWith('/pay');
+      const paymentPath = path.join(distPath, 'payment', 'index.html');
       const indexPath = path.join(distPath, 'index.html');
-      if (fs.existsSync(indexPath)) {
+      res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
+      if (isPayment && fs.existsSync(paymentPath)) {
+        res.sendFile(paymentPath);
+      } else if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
         res.status(200).send('<!DOCTYPE html><html><head><title>Scheduler</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>');

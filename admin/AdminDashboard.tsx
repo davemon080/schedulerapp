@@ -14,7 +14,6 @@ import { AdminSemesterManager } from './AdminSemesterManager';
 import { AdminAnalyticsManager } from './AdminAnalyticsManager';
 import { AdminDatabaseViewer } from './AdminDatabaseViewer';
 import { AdminSettings } from './AdminSettings';
-import { DesktopOnlyNotice } from './DesktopOnlyNotice';
 import { AdminTab, AdminUser, StudentProfileRecord, DepartmentRecord } from './types';
 import { EventItem, AssignmentItem, NotificationItem } from '@src/types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -198,7 +197,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showDesktopNotice, setShowDesktopNotice] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Modals
   const [isAddEventModalOpen, setIsAddEventModalOpen] = useState(false);
@@ -783,13 +782,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   return (
     <ErrorBoundary fallbackTitle="Admin Dashboard Safe Mode">
       <div className="h-screen w-full overflow-hidden bg-slate-50 text-slate-900 flex font-sans antialiased select-none">
-        {/* Fixed Desktop Side Menu */}
+        {/* Side Menu (Responsive Drawer on Mobile, Sticky on Desktop) */}
         <AdminSidebar
           activeTab={activeTab}
-          onSelectTab={setActiveTab}
+          onSelectTab={(tab) => {
+            setActiveTab(tab);
+            setIsMobileSidebarOpen(false);
+          }}
           adminUser={adminUser}
           onLogout={handleLogout}
           onSwitchToStudentPortal={onBackToStudentPortal}
+          isMobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
           eventCount={events.length}
           assignmentCount={assignments.length}
           studentCount={students.length}
@@ -800,7 +804,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Scrollable Page Section Alone */}
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
-          {/* Desktop Top Header Bar */}
+          {/* Top Header Bar */}
           <AdminHeader
             activeTab={activeTab}
             searchQuery={searchQuery}
@@ -814,6 +818,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             currentSemester={currentSemester}
             academicSession={academicSession}
             onNavigateToSemesterTab={() => setActiveTab('semester')}
+            onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
           />
 
           {/* View Switcher */}
@@ -945,11 +950,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
           </main>
         </div>
-
-        {/* Desktop Only Small Viewport Notice */}
-        {showDesktopNotice && (
-          <DesktopOnlyNotice onDismiss={() => setShowDesktopNotice(false)} />
-        )}
 
         {/* Floating Active Background Task Indicator */}
         <AnimatePresence>

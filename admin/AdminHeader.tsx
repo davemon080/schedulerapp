@@ -10,7 +10,8 @@ import {
   User as UserIcon,
   Shield,
   Sparkles,
-  CalendarDays
+  CalendarDays,
+  Menu
 } from 'lucide-react';
 import { AdminTab, AdminUser } from './types';
 
@@ -27,6 +28,7 @@ interface AdminHeaderProps {
   currentSemester?: string;
   academicSession?: string;
   onNavigateToSemesterTab?: () => void;
+  onToggleMobileSidebar?: () => void;
 }
 
 export const AdminHeader: React.FC<AdminHeaderProps> = ({
@@ -42,6 +44,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   currentSemester = '1st Semester',
   academicSession = '2025/2026',
   onNavigateToSemesterTab,
+  onToggleMobileSidebar,
 }) => {
   const getTabTitle = (tab: AdminTab) => {
     switch (tab) {
@@ -75,13 +78,23 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
   };
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-20 select-none">
+    <header className="h-16 bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between sticky top-0 z-20 select-none">
       {/* Breadcrumb & Tab Title */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] font-semibold text-slate-400">Admin</span>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
-          <h1 className="text-[16px] font-bold text-slate-900">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        {/* Mobile Hamburger Toggle */}
+        <button
+          type="button"
+          onClick={onToggleMobileSidebar}
+          className="lg:hidden p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer touch-target flex items-center justify-center shrink-0 border border-slate-200/80"
+          aria-label="Open navigation menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+          <span className="hidden sm:inline text-[12px] font-semibold text-slate-400">Admin</span>
+          <ChevronRight className="hidden sm:inline w-3.5 h-3.5 text-slate-300" />
+          <h1 className="text-[14px] sm:text-[16px] font-bold text-slate-900 truncate">
             {getTabTitle(activeTab)}
           </h1>
         </div>
@@ -103,7 +116,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
         <button
           type="button"
           onClick={onNavigateToSemesterTab}
-          className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50/90 text-blue-700 hover:bg-blue-100/90 border border-blue-200/80 shadow-2xs transition-all cursor-pointer group"
+          className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50/90 text-blue-700 hover:bg-blue-100/90 border border-blue-200/80 shadow-2xs transition-all cursor-pointer group"
           title={`Active University Term: ${currentSemester} (${academicSession}). Click to manage semester.`}
         >
           <Sparkles className="w-3 h-3 text-blue-600 group-hover:rotate-12 transition-transform" />
@@ -113,18 +126,18 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
       </div>
 
       {/* Center / Right controls */}
-      <div className="flex items-center gap-3">
-        {/* Search Bar */}
-        <div className="relative w-56 lg:w-64">
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        {/* Search Bar - responsive width */}
+        <div className="relative w-32 sm:w-48 md:w-56 lg:w-64">
+          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
             <Search className="w-3.5 h-3.5" />
           </div>
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search records, codes..."
-            className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+            placeholder="Search..."
+            className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[12px] sm:text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
           />
         </div>
 
@@ -132,7 +145,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
         <button
           onClick={onRefreshData}
           disabled={isRefreshing}
-          className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 text-xs font-medium"
+          className="p-2 min-h-[38px] min-w-[38px] rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5 text-xs font-medium"
           title="Manual refresh database from Firebase Cloud"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
@@ -143,10 +156,11 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
         {activeTab !== 'overview' && activeTab !== 'database' && activeTab !== 'settings' && (
           <button
             onClick={onQuickAdd}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-semibold shadow-sm transition-all cursor-pointer"
+            className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-2 min-h-[38px] rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[12px] sm:text-[13px] font-semibold shadow-sm transition-all cursor-pointer whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
-            <span>{quickAddLabel}</span>
+            <span className="hidden xs:inline">{quickAddLabel}</span>
+            <span className="xs:hidden">Add</span>
           </button>
         )}
 
