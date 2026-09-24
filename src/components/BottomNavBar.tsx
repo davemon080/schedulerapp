@@ -23,7 +23,7 @@ const NAV_ITEMS: NavItemConfig[] = [
   { id: 'Profile', label: 'Profile', icon: User },
 ];
 
-export const BottomNavBar: React.FC<BottomNavBarProps> = ({
+export const BottomNavBar: React.FC<BottomNavBarProps> = React.memo(({
   activeTab,
   onSelectTab,
   isPaid = true,
@@ -89,4 +89,4 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
       </div>
     </nav>
   );
-};
+});

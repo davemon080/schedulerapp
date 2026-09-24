@@ -66,6 +66,9 @@ export interface UserSession {
   level?: number;
   profileImage?: string;
   profile_pic_url?: string;
+  profile_picture?: string;
+  photoURL?: string;
+  profile_pic_storage_path?: string;
   isAdmin?: boolean;
   isCourseRep?: boolean;
   is_payed?: boolean;
@@ -75,8 +78,10 @@ export interface UserSession {
   freeSemesterGranted?: boolean;
   wallet_balance?: number;
   walletBalance?: number;
-  paid_semester?: string;
-  paid_at?: string;
+  paid_semester?: string | null;
+  paidSemester?: string | null;
+  paid_at?: string | null;
+  paidAt?: string | null;
   password?: string;
   password_changed?: boolean;
   is_default_password?: boolean;

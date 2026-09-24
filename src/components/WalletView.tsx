@@ -143,7 +143,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
     );
   });
 
-  const [paidSemester, setPaidSemester] = useState<string | undefined>(userSession?.paid_semester);
+  const [paidSemester, setPaidSemester] = useState<string | undefined>(userSession?.paid_semester || undefined);
   const [walletTxns, setWalletTxns] = useState<WalletTransaction[]>(() => {
     try {
       const raw = localStorage.getItem(`wallet_txns_${userIdentifier}`);

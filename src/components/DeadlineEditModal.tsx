@@ -16,6 +16,7 @@ import {
 import { normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
 import { CalendarModal } from './CalendarModal';
 import { ClockTimePickerModal } from './ClockTimePickerModal';
+import { uploadContentImage } from '../lib/storageService';
 
 interface DeadlineEditModalProps {
   isOpen: boolean;
@@ -137,23 +138,29 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
     setIsClockPickerOpen(false);
   };
 
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+
   if (!isOpen) return null;
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result && typeof reader.result === 'string') {
-          setImages((prev) => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-
-    if (e.target) e.target.value = '';
+    setIsUploadingImages(true);
+    try {
+      const uploadPromises = Array.from(files).map((file) =>
+        uploadContentImage(file, 'deadlines', assignment?.id || 'new')
+      );
+      const results = await Promise.all(uploadPromises);
+      const newUrls = results.map((r) => r.downloadUrl);
+      setImages((prev) => [...prev, ...newUrls]);
+    } catch (err: any) {
+      console.error('Failed to upload deadline images:', err);
+      alert(err.message || 'Failed to upload image. Please verify file is a valid image under 10MB.');
+    } finally {
+      setIsUploadingImages(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const removeImage = (indexToRemove: number) => {

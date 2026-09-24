@@ -18,11 +18,12 @@ import { getStudentActiveLevel, getStudentActiveSemester, normalizeSemester, res
 import { DepartmentRecord } from '@admin/types';
 import { LevelAdvisorPage } from './LevelAdvisorPage';
 import { formatBroadcastTimestamp } from '../lib/dbService';
+import { uploadContentImage } from '../lib/storageService';
 
 interface OtherViewProps {
   onBackToSchedule: () => void;
   profileImage?: string | null;
-  onUploadProfileImage?: (imageDataUrl: string) => void;
+  onUploadProfileImage?: (imageDataUrlOrFile: File | string) => void;
   onReplaySplash?: () => void;
   onTriggerRefresh?: () => void;
   isLoading?: boolean;
@@ -78,7 +79,7 @@ const itemVariants = {
   },
 };
 
-export const DeadlinesView: React.FC<OtherViewProps> = ({
+export const DeadlinesView: React.FC<OtherViewProps> = React.memo(({
   onBackToSchedule,
   isLoading = false,
   assignments = [],
@@ -319,9 +320,9 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
       </div>
     </motion.div>
   );
-};
+});
 
-export const BroadcastsView: React.FC<OtherViewProps> = ({
+export const BroadcastsView: React.FC<OtherViewProps> = React.memo(({
   isLoading = false,
   notifications = [],
   broadcasts,
@@ -478,21 +479,27 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
     return true;
   });
 
-  const handleImageFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+
+  const handleImageFilePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result && typeof reader.result === 'string') {
-          setPostImages((prev) => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-
-    if (e.target) e.target.value = '';
+    setIsUploadingImages(true);
+    try {
+      const uploadPromises = Array.from(files).map((file: File) =>
+        uploadContentImage(file, 'announcements', 'broadcast')
+      );
+      const results = await Promise.all(uploadPromises);
+      const newUrls = results.map((r) => r.downloadUrl);
+      setPostImages((prev) => [...prev, ...newUrls]);
+    } catch (err: any) {
+      console.error('Failed to upload broadcast images:', err);
+      alert(err.message || 'Failed to upload photo. Please check the file and try again.');
+    } finally {
+      setIsUploadingImages(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleRemovePostImage = (idxToRemove: number) => {
@@ -958,9 +965,9 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
       />
     </motion.div>
   );
-};
+});
 
-export const ModulesView: React.FC<OtherViewProps> = ({
+export const ModulesView: React.FC<OtherViewProps> = React.memo(({
   isLoading = false,
   courses = [],
   availableDepartments = [],
@@ -1331,9 +1338,9 @@ export const ModulesView: React.FC<OtherViewProps> = ({
       />
     </motion.div>
   );
-};
+});
 
-export const ProfileView: React.FC<OtherViewProps> = ({
+export const ProfileView: React.FC<OtherViewProps> = React.memo(({
   profileImage,
   onUploadProfileImage,
   onTriggerRefresh,
@@ -1449,7 +1456,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
     return (
       <SupportPage
         onBack={() => setIsSupportPageOpen(false)}
-        userSession={userSession}
+        userSession={userSession || null}
         onOpenAdvisorModal={() => {
           setIsSupportPageOpen(false);
           setIsAdvisorPageOpen(true);
@@ -1467,7 +1474,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
             setIsBalanceHidden(localStorage.getItem('wallet_balance_hidden') === 'true');
           } catch {}
         }}
-        userSession={userSession}
+        userSession={userSession || null}
         activeLevel={activeLevel}
         activeSemester={studentCurrentSemester}
         isCourseRep={effectiveCourseRep}
@@ -1501,15 +1508,10 @@ export const ProfileView: React.FC<OtherViewProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string' && onUploadProfileImage) {
-          onUploadProfileImage(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (file && onUploadProfileImage) {
+      onUploadProfileImage(file);
     }
+    if (e.target) e.target.value = '';
   };
 
   const handleConfirmLogout = () => {
@@ -1799,6 +1801,6 @@ export const ProfileView: React.FC<OtherViewProps> = ({
       </AnimatePresence>
     </motion.div>
   );
-};
+});
 
 export { WalletView };

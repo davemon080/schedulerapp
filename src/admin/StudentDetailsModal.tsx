@@ -57,7 +57,15 @@ interface StudentDetailsModalProps {
   isRegistry?: boolean;
 }
 
-export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
+const StudentDetailsModalContent: React.FC<{
+  student: StudentProfileRecord;
+  isOpen: boolean;
+  onClose: () => void;
+  departments: DepartmentRecord[];
+  onUpdateStudent?: (updatedStudent: StudentProfileRecord) => Promise<boolean>;
+  onDeleteStudent?: (identifier: string) => Promise<void>;
+  isRegistry?: boolean;
+}> = ({
   student,
   isOpen,
   onClose,
@@ -66,8 +74,6 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
   onDeleteStudent,
   isRegistry = false,
 }) => {
-  if (!isOpen || !student) return null;
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const identifier = student.id || student.uid || student.email || student.matric_number || student.matricNumber || '';
 
@@ -1095,4 +1101,9 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
       </motion.div>
     </div>
   );
+};
+
+export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = (props) => {
+  if (!props.isOpen || !props.student) return null;
+  return <StudentDetailsModalContent {...props} student={props.student} />;
 };

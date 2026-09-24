@@ -44,7 +44,7 @@ export function getEventSortTime(event: EventItem): number {
   return 9999;
 }
 
-export const CalendarView: React.FC<CalendarViewProps> = ({
+export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
   events,
   selectedDateNum,
   onSelectDate,
@@ -295,5 +295,5 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       </div>
     </div>
   );
-};
+});
 

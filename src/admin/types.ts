@@ -50,6 +50,7 @@ export interface CourseMaterialPdf {
   fileName?: string;
   uploadedAt?: string;
   description?: string;
+  storagePath?: string;
 }
 
 export type CoursePdfModule = CourseMaterialPdf;
@@ -182,6 +183,7 @@ export interface StudentProfileRecord {
   profile_picture?: string;
   profilePicture?: string;
   profileImage?: string;
+  profile_pic_storage_path?: string;
   photo_url?: string;
   photoURL?: string;
   phone?: string;

@@ -119,6 +119,39 @@ export function sanitizeFirestorePayload<T = any>(obj: T): T {
   return obj;
 }
 
+// In-memory data cache to prevent duplicate Firestore requests and ensure instant tab navigation
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+const MEMORY_CACHE = new Map<string, CacheEntry<any>>();
+const IN_FLIGHT_PROMISES = new Map<string, Promise<any>>();
+const CACHE_TTL_MS = 25000; // 25s TTL for safe in-memory cache
+
+export function getCachedItem<T>(key: string): T | null {
+  const entry = MEMORY_CACHE.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+    return entry.data;
+  }
+  return null;
+}
+
+export function setCachedItem<T>(key: string, data: T): void {
+  MEMORY_CACHE.set(key, { data, timestamp: Date.now() });
+}
+
+export function invalidateDbCache(keyPrefix?: string): void {
+  if (!keyPrefix) {
+    MEMORY_CACHE.clear();
+  } else {
+    for (const key of Array.from(MEMORY_CACHE.keys())) {
+      if (key.startsWith(keyPrefix)) {
+        MEMORY_CACHE.delete(key);
+      }
+    }
+  }
+}
+
 // Day conversion utilities
 export function mapDbDayToDayKey(dbDay: number | string | undefined): string {
   if (typeof dbDay === 'string') {
@@ -984,58 +1017,78 @@ export async function purgeAllMockMaterials(): Promise<number> {
   return cleanedCount;
 }
 
-export async function fetchCourses(): Promise<CourseRecord[]> {
-  try {
-    const snap = await getDocs(collection(db, 'courses'));
-    if (!snap.empty) {
-      return snap.docs.map((dSnap) => {
-        const d = dSnap.data();
-        const code = d.courseCode || 'ICH 101';
-        const title = d.title || 'Course Title';
-
-        const rawPdfs: CourseMaterialPdf[] = Array.isArray(d.pdfModules)
-          ? d.pdfModules
-          : Array.isArray(d.pdfMaterials)
-          ? d.pdfMaterials
-          : [];
-        const rawVideos: CourseMaterialVideo[] = Array.isArray(d.videoModules)
-          ? d.videoModules
-          : Array.isArray(d.videoMaterials)
-          ? d.videoMaterials
-          : [];
-
-        const realPdfs = filterRealPdfs(rawPdfs);
-        const realVideos = filterRealVideos(rawVideos);
-
-        return {
-          id: dSnap.id,
-          courseCode: code,
-          title: title,
-          description: d.description || '',
-          department_id: d.department_id || 'dept-ich',
-          units: d.units || 3,
-          semester: d.semester || '1st Semester',
-          pdfurl: d.pdfurl && !d.pdfurl.includes('dummy.pdf') ? d.pdfurl : undefined,
-          level: d.level || 100,
-          pdfModules: realPdfs,
-          videoModules: realVideos,
-          created_at: d.created_at || new Date().toISOString(),
-        } as CourseRecord;
-      });
-    }
-    return COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
-      ...crs,
-      pdfModules: [],
-      videoModules: [],
-    }));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, 'courses');
-    return COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
-      ...crs,
-      pdfModules: [],
-      videoModules: [],
-    }));
+export async function fetchCourses(forceRefresh = false): Promise<CourseRecord[]> {
+  const cacheKey = 'courses';
+  if (!forceRefresh) {
+    const cached = getCachedItem<CourseRecord[]>(cacheKey);
+    if (cached) return cached;
   }
+  if (IN_FLIGHT_PROMISES.has(cacheKey)) {
+    return IN_FLIGHT_PROMISES.get(cacheKey)!;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const snap = await getDocs(collection(db, 'courses'));
+      if (!snap.empty) {
+        const courses = snap.docs.map((dSnap) => {
+          const d = dSnap.data();
+          const code = d.courseCode || 'ICH 101';
+          const title = d.title || 'Course Title';
+
+          const rawPdfs: CourseMaterialPdf[] = Array.isArray(d.pdfModules)
+            ? d.pdfModules
+            : Array.isArray(d.pdfMaterials)
+            ? d.pdfMaterials
+            : [];
+          const rawVideos: CourseMaterialVideo[] = Array.isArray(d.videoModules)
+            ? d.videoModules
+            : Array.isArray(d.videoMaterials)
+            ? d.videoMaterials
+            : [];
+
+          const realPdfs = filterRealPdfs(rawPdfs);
+          const realVideos = filterRealVideos(rawVideos);
+
+          return {
+            id: dSnap.id,
+            courseCode: code,
+            title: title,
+            description: d.description || '',
+            department_id: d.department_id || 'dept-ich',
+            units: d.units || 3,
+            semester: d.semester || '1st Semester',
+            pdfurl: d.pdfurl && !d.pdfurl.includes('dummy.pdf') ? d.pdfurl : undefined,
+            level: d.level || 100,
+            pdfModules: realPdfs,
+            videoModules: realVideos,
+            created_at: d.created_at || new Date().toISOString(),
+          } as CourseRecord;
+        });
+        setCachedItem(cacheKey, courses);
+        return courses;
+      }
+      const seeded = COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
+        ...crs,
+        pdfModules: [],
+        videoModules: [],
+      }));
+      setCachedItem(cacheKey, seeded);
+      return seeded;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'courses');
+      return COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
+        ...crs,
+        pdfModules: [],
+        videoModules: [],
+      }));
+    } finally {
+      IN_FLIGHT_PROMISES.delete(cacheKey);
+    }
+  })();
+
+  IN_FLIGHT_PROMISES.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }
 
 /**
@@ -1206,6 +1259,7 @@ export async function addCoursePdfModule(courseId: string, pdf: CourseMaterialPd
     const updatedPdfs = [pdf, ...currentPdfs.filter((p) => p.id !== pdf.id)];
     
     await updateDoc(docRef, { pdfModules: updatedPdfs });
+    invalidateDbCache('courses');
     const refreshed = await getDoc(docRef);
     return { id: refreshed.id, ...refreshed.data() } as CourseRecord;
   } catch (error) {
@@ -1224,6 +1278,7 @@ export async function deleteCoursePdfModule(courseId: string, pdfId: string): Pr
     const updatedPdfs = currentPdfs.filter((p) => p.id !== pdfId);
     
     await updateDoc(docRef, { pdfModules: updatedPdfs });
+    invalidateDbCache('courses');
     const refreshed = await getDoc(docRef);
     return { id: refreshed.id, ...refreshed.data() } as CourseRecord;
   } catch (error) {
@@ -1279,62 +1334,81 @@ export async function deleteCourse(id: string): Promise<boolean> {
 }
 
 // =================== 3. ACTIVITIES / TIMETABLE API ===================
-export async function fetchScheduleActivities(): Promise<EventItem[]> {
-  try {
-    const snap = await getDocs(collection(db, 'activities'));
-    if (!snap.empty) {
-      return snap.docs
-        .filter((dSnap) => !isMockEvent(dSnap.id))
-        .map((dSnap) => {
-          const row = dSnap.data();
-          const startTime = row.startTime || '08:00:00';
-          const endTime = row.endTime || '10:00:00';
-          const dayKey = row.dayKey || mapDbDayToDayKey(row.day);
-          const status = (row.status || 'active').toLowerCase();
-          const isPostponed = status === 'postponed';
-
-          const deliveryMode = (row.deliveryMode as 'physical' | 'online') || (row.meetingLink ? 'online' : 'physical');
-          const meetingLink = row.meetingLink ? String(row.meetingLink).trim() : undefined;
-          const tags = Array.isArray(row.tags) && row.tags.length > 0
-            ? row.tags
-            : [row.type || 'Lecture', deliveryMode === 'online' ? 'Online Class' : 'Physical Class'];
-
-          const rawCourse = (row.courseCode !== undefined ? row.courseCode : (row.course || '')).trim();
-          const isOther = rawCourse.toUpperCase() === 'OTHER' || (Array.isArray(row.tags) && row.tags.some((t: string) => t.toLowerCase() === 'other'));
-          const finalCourse = isOther ? '' : rawCourse;
-
-          return {
-            id: dSnap.id,
-            course: finalCourse,
-            title: row.title || (isOther ? 'General Activity' : 'Lecture'),
-            time: formatTimeRange(startTime, endTime),
-            startTime,
-            endTime,
-            location: row.venue || (deliveryMode === 'online' ? 'Online Class' : 'Lecture Hall'),
-            deliveryMode,
-            meetingLink,
-            views: `${Math.floor(Math.random() * 40) + 15} views`,
-            tags,
-            isPostponed,
-            instructor: row.lecturer || 'Faculty Lecturer',
-            dayKey,
-            colorAccent: getCourseAccentColor(finalCourse || 'GEN'),
-            notes: row.notes || undefined,
-            department_id: row.department_id,
-            level: row.level || 100,
-            semester: row.semester || '1st Semester',
-          };
-        });
-    }
-
-    return [];
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, 'activities');
-    return [];
+export async function fetchScheduleActivities(forceRefresh = false): Promise<EventItem[]> {
+  const cacheKey = 'activities';
+  if (!forceRefresh) {
+    const cached = getCachedItem<EventItem[]>(cacheKey);
+    if (cached) return cached;
   }
+  if (IN_FLIGHT_PROMISES.has(cacheKey)) {
+    return IN_FLIGHT_PROMISES.get(cacheKey)!;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const snap = await getDocs(collection(db, 'activities'));
+      if (!snap.empty) {
+        const events: EventItem[] = snap.docs
+          .filter((dSnap) => !isMockEvent(dSnap.id))
+          .map((dSnap) => {
+            const row = dSnap.data();
+            const startTime = row.startTime || '08:00:00';
+            const endTime = row.endTime || '10:00:00';
+            const dayKey = row.dayKey || mapDbDayToDayKey(row.day);
+            const status = (row.status || 'active').toLowerCase();
+            const isPostponed = status === 'postponed';
+
+            const deliveryMode = (row.deliveryMode as 'physical' | 'online') || (row.meetingLink ? 'online' : 'physical');
+            const meetingLink = row.meetingLink ? String(row.meetingLink).trim() : undefined;
+            const tags = Array.isArray(row.tags) && row.tags.length > 0
+              ? row.tags
+              : [row.type || 'Lecture', deliveryMode === 'online' ? 'Online Class' : 'Physical Class'];
+
+            const rawCourse = (row.courseCode !== undefined ? row.courseCode : (row.course || '')).trim();
+            const isOther = rawCourse.toUpperCase() === 'OTHER' || (Array.isArray(row.tags) && row.tags.some((t: string) => t.toLowerCase() === 'other'));
+            const finalCourse = isOther ? '' : rawCourse;
+
+            return {
+              id: dSnap.id,
+              course: finalCourse,
+              title: row.title || (isOther ? 'General Activity' : 'Lecture'),
+              time: formatTimeRange(startTime, endTime),
+              startTime,
+              endTime,
+              location: row.venue || (deliveryMode === 'online' ? 'Online Class' : 'Lecture Hall'),
+              deliveryMode,
+              meetingLink,
+              views: `${(Math.abs(dSnap.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % 40) + 15} views`,
+              tags,
+              isPostponed,
+              instructor: row.lecturer || 'Faculty Lecturer',
+              dayKey,
+              colorAccent: getCourseAccentColor(finalCourse || 'GEN'),
+              notes: row.notes || undefined,
+              department_id: row.department_id,
+              level: row.level || 100,
+              semester: row.semester || '1st Semester',
+            };
+          });
+        setCachedItem(cacheKey, events);
+        return events;
+      }
+
+      return [];
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'activities');
+      return [];
+    } finally {
+      IN_FLIGHT_PROMISES.delete(cacheKey);
+    }
+  })();
+
+  IN_FLIGHT_PROMISES.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }
 
 export async function createScheduleActivity(event: Omit<EventItem, 'id'> & { department_id?: string; level?: number; semester?: string }): Promise<EventItem | null> {
+  invalidateDbCache('activities');
   try {
     const { startTime, endTime } = parseTimeRange(event.time);
     const day = mapDayKeyToDbDay(event.dayKey);
@@ -1429,6 +1503,7 @@ export async function updateScheduleActivity(id: string, fields: Partial<EventIt
     if (fields.semester) payload.semester = fields.semester;
 
     await updateDoc(doc(db, 'activities', id), payload);
+    invalidateDbCache('activities');
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `activities/${id}`);
@@ -1439,6 +1514,7 @@ export async function updateScheduleActivity(id: string, fields: Partial<EventIt
 export async function deleteScheduleActivity(id: string): Promise<boolean> {
   try {
     await deleteDoc(doc(db, 'activities', id));
+    invalidateDbCache('activities');
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `activities/${id}`);
@@ -1447,46 +1523,65 @@ export async function deleteScheduleActivity(id: string): Promise<boolean> {
 }
 
 // =================== 4. DEADLINES / ASSIGNMENTS API ===================
-export async function fetchAssignments(): Promise<AssignmentItem[]> {
-  try {
-    const snap = await getDocs(collection(db, 'deadlines'));
-    if (!snap.empty) {
-      return snap.docs
-        .filter((dSnap) => !isMockAssignment(dSnap.id))
-        .map((dSnap) => {
-          const row = dSnap.data();
-          const cCode = row.courseCode || 'GEN101';
-          const codeDigits = cCode.replace(/\D/g, '');
-          const codeLevel = codeDigits.length > 0 ? parseInt(codeDigits.slice(0, 1) + '00', 10) : 100;
-          const resolvedLevel = typeof row.level === 'number' && row.level >= 100 ? row.level : (codeLevel >= 100 ? codeLevel : 100);
-
-          return {
-            id: dSnap.id,
-            course: cCode,
-            title: row.title || 'Assignment',
-            dueDate: row.dueDate || 'Oct 24, 2026',
-            dueTime: row.dueTime || '11:59 PM',
-            priority: (row.priority as 'High' | 'Medium' | 'Low') || 'High',
-            isCompleted: row.isCompleted ?? false,
-            images: row.images || [],
-            description: row.description || '',
-            instructor: row.instructor || undefined,
-            notes: row.notes || undefined,
-            department_id: row.department_id || 'dept-ich',
-            level: resolvedLevel,
-            semester: row.semester || '1st Semester',
-          };
-        });
-    }
-
-    return [];
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, 'deadlines');
-    return [];
+export async function fetchAssignments(forceRefresh = false): Promise<AssignmentItem[]> {
+  const cacheKey = 'assignments';
+  if (!forceRefresh) {
+    const cached = getCachedItem<AssignmentItem[]>(cacheKey);
+    if (cached) return cached;
   }
+  if (IN_FLIGHT_PROMISES.has(cacheKey)) {
+    return IN_FLIGHT_PROMISES.get(cacheKey)!;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const snap = await getDocs(collection(db, 'deadlines'));
+      if (!snap.empty) {
+        const assignments: AssignmentItem[] = snap.docs
+          .filter((dSnap) => !isMockAssignment(dSnap.id))
+          .map((dSnap) => {
+            const row = dSnap.data();
+            const cCode = row.courseCode || 'GEN101';
+            const codeDigits = cCode.replace(/\D/g, '');
+            const codeLevel = codeDigits.length > 0 ? parseInt(codeDigits.slice(0, 1) + '00', 10) : 100;
+            const resolvedLevel = typeof row.level === 'number' && row.level >= 100 ? row.level : (codeLevel >= 100 ? codeLevel : 100);
+
+            return {
+              id: dSnap.id,
+              course: cCode,
+              title: row.title || 'Assignment',
+              dueDate: row.dueDate || 'Oct 24, 2026',
+              dueTime: row.dueTime || '11:59 PM',
+              priority: (row.priority as 'High' | 'Medium' | 'Low') || 'High',
+              isCompleted: row.isCompleted ?? false,
+              images: row.images || [],
+              description: row.description || '',
+              instructor: row.instructor || undefined,
+              notes: row.notes || undefined,
+              department_id: row.department_id || 'dept-ich',
+              level: resolvedLevel,
+              semester: row.semester || '1st Semester',
+            };
+          });
+        setCachedItem(cacheKey, assignments);
+        return assignments;
+      }
+
+      return [];
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'deadlines');
+      return [];
+    } finally {
+      IN_FLIGHT_PROMISES.delete(cacheKey);
+    }
+  })();
+
+  IN_FLIGHT_PROMISES.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }
 
 export async function createAssignment(assignment: Omit<AssignmentItem, 'id'> & { department_id?: string; level?: number; semester?: string }): Promise<AssignmentItem | null> {
+  invalidateDbCache('assignments');
   try {
     const deptId = assignment.department_id || (await getDefaultDepartmentId());
     const payload = {
@@ -1542,6 +1637,7 @@ export async function updateAssignment(id: string, fields: Partial<AssignmentIte
     if (fields.semester) payload.semester = fields.semester;
 
     await updateDoc(doc(db, 'deadlines', id), payload);
+    invalidateDbCache('assignments');
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `deadlines/${id}`);
@@ -1552,6 +1648,7 @@ export async function updateAssignment(id: string, fields: Partial<AssignmentIte
 export async function deleteAssignment(id: string): Promise<boolean> {
   try {
     await deleteDoc(doc(db, 'deadlines', id));
+    invalidateDbCache('assignments');
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `deadlines/${id}`);
@@ -2189,9 +2286,7 @@ export async function fetchStudents(): Promise<StudentProfileRecord[]> {
           const d = dSnap.data();
           const rawMatric = d.matric_number || d.matricNumber || '2025/PS/ICH/0001';
           const detected = detectDepartmentFromMatric(rawMatric);
-          const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
-            ? d.department
-            : detected.department;
+          const resolvedDept = d.department?.trim() || detected.department;
           const resolvedDeptId = d.department_id || detected.department_id;
           const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
           const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
@@ -2264,9 +2359,7 @@ export async function fetchStudentByAuthUid(uid: string): Promise<StudentProfile
       const d = snap.data();
       const rawMatric = d.matric_number || d.matricNumber || '';
       const detected = detectDepartmentFromMatric(rawMatric);
-      const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
-        ? d.department
-        : detected.department;
+      const resolvedDept = d.department?.trim() || detected.department;
       const resolvedDeptId = d.department_id || detected.department_id;
       const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
       const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
@@ -2655,9 +2748,13 @@ export async function createStudentUser(student: StudentProfileRecord): Promise<
       name: student.full_name?.trim() || student.fullName?.trim() || student.name?.trim() || 'Student',
       department: resolvedDept,
       department_id: resolvedDeptId,
-      year_level: student.year_level || '100 Level',
-      yearLevel: student.year_level || '100 Level',
-      level: parseInt(student.year_level?.replace(/\D/g, '') || '100', 10) || 100,
+      year_level: student.year_level || `${student.level || 100} Level`,
+      yearLevel: student.year_level || `${student.level || 100} Level`,
+      level: student.level || parseInt(student.year_level?.replace(/\D/g, '') || '100', 10) || 100,
+      semester: (student as any).semester || (student as any).current_semester || '1st Semester',
+      current_semester: (student as any).semester || (student as any).current_semester || '1st Semester',
+      session: (student as any).session || (student as any).academic_session || '2025/2026',
+      academic_session: (student as any).session || (student as any).academic_session || '2025/2026',
       isadmin: Boolean(student.isadmin || student.isAdmin),
       isAdmin: Boolean(student.isadmin || student.isAdmin),
       iscourserep: Boolean(student.iscourserep || student.isCourseRep),
@@ -2680,6 +2777,8 @@ export async function createStudentUser(student: StudentProfileRecord): Promise<
     return null;
   }
 }
+
+export const updateStudentProfileInDb = updateStudentUser;
 
 export async function updateStudentUser(identifier: string, updates: Partial<StudentProfileRecord>): Promise<boolean> {
   try {
@@ -2717,6 +2816,15 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
           localStorage.setItem(`student_pwd_custom_${cleanMatric.replace(/[\s\/-]/g, '')}`, pwd);
         }
       } catch {}
+    }
+
+    // Auto-harmonize profile picture across all schema fields
+    if (syncUpdates.profile_pic_url !== undefined || syncUpdates.photoURL !== undefined || syncUpdates.profile_picture !== undefined || syncUpdates.profileImage !== undefined) {
+      const pic = syncUpdates.profile_pic_url || syncUpdates.photoURL || syncUpdates.profile_picture || syncUpdates.profileImage || '';
+      syncUpdates.profile_pic_url = pic;
+      syncUpdates.photoURL = pic;
+      syncUpdates.profile_picture = pic;
+      syncUpdates.profileImage = pic;
     }
 
     // Auto-harmonize semester access flags (explicitly null out instead of undefined)
@@ -4420,7 +4528,7 @@ async function resolveUserDocRef(identifier: string): Promise<{ docRef: any; doc
   const cleanId = (identifier || '').trim();
   if (!cleanId) return null;
 
-  // 1. Try direct ID
+  // 1. Try direct ID in users
   try {
     const directSnap = await getDoc(doc(db, 'users', cleanId));
     if (directSnap.exists()) {
@@ -4428,7 +4536,7 @@ async function resolveUserDocRef(identifier: string): Promise<{ docRef: any; doc
     }
   } catch {}
 
-  // 2. Try by email
+  // 2. Try by email in users
   try {
     const emailQuery = query(collection(db, 'users'), where('email', '==', cleanId.toLowerCase()));
     const snap = await getDocs(emailQuery);
@@ -4438,10 +4546,42 @@ async function resolveUserDocRef(identifier: string): Promise<{ docRef: any; doc
     }
   } catch {}
 
-  // 3. Try by matric_number
+  // 3. Try by matric_number or matricNumber in users
   try {
     const matricQuery = query(collection(db, 'users'), where('matric_number', '==', cleanId.toUpperCase()));
     const snap = await getDocs(matricQuery);
+    if (!snap.empty) {
+      const dSnap = snap.docs[0];
+      return { docRef: dSnap.ref, docId: dSnap.id, data: dSnap.data() };
+    }
+  } catch {}
+  try {
+    const matricQuery2 = query(collection(db, 'users'), where('matricNumber', '==', cleanId.toUpperCase()));
+    const snap2 = await getDocs(matricQuery2);
+    if (!snap2.empty) {
+      const dSnap = snap2.docs[0];
+      return { docRef: dSnap.ref, docId: dSnap.id, data: dSnap.data() };
+    }
+  } catch {}
+
+  // 4. Try direct ID in students
+  try {
+    const studentSnap = await getDoc(doc(db, 'students', cleanId));
+    if (studentSnap.exists()) {
+      return { docRef: studentSnap.ref, docId: studentSnap.id, data: studentSnap.data() };
+    }
+  } catch {}
+
+  // 5. Try email / matric in students
+  try {
+    const snap = await getDocs(query(collection(db, 'students'), where('email', '==', cleanId.toLowerCase())));
+    if (!snap.empty) {
+      const dSnap = snap.docs[0];
+      return { docRef: dSnap.ref, docId: dSnap.id, data: dSnap.data() };
+    }
+  } catch {}
+  try {
+    const snap = await getDocs(query(collection(db, 'students'), where('matric_number', '==', cleanId.toUpperCase())));
     if (!snap.empty) {
       const dSnap = snap.docs[0];
       return { docRef: dSnap.ref, docId: dSnap.id, data: dSnap.data() };
@@ -4911,10 +5051,31 @@ export async function recordVerifiedSemesterPayment(
       };
     }
 
-    // 2. Resolve authenticated student in database
-    const resolved = await resolveUserDocRef(identifier);
+    // 2. Resolve authenticated student in database or create initial record
+    let resolved = await resolveUserDocRef(identifier);
     if (!resolved) {
-      return { success: false, error: 'Student account could not be found in the database.' };
+      const newDocId = identifier.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const newDocRef = doc(db, 'users', newDocId);
+      const isEmail = identifier.includes('@');
+      const matricNum = isEmail ? '' : identifier.toUpperCase();
+      const initialData = {
+        id: newDocId,
+        uid: newDocId,
+        matric_number: matricNum,
+        matricNumber: matricNum,
+        email: isEmail ? identifier.toLowerCase() : `${identifier.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}@university.edu`,
+        full_name: 'Student',
+        is_paid: true,
+        is_payed: true,
+        paid_semester: semesterCode,
+        created_at: new Date().toISOString(),
+      };
+      try {
+        await setDoc(newDocRef, initialData);
+        resolved = { docRef: newDocRef, docId: newDocId, data: initialData };
+      } catch (createErr) {
+        return { success: false, error: 'Could not initialize student record for verified payment.' };
+      }
     }
 
     const { docId, docRef, data } = resolved;
@@ -4947,6 +5108,22 @@ export async function recordVerifiedSemesterPayment(
       paystack_reference: cleanRef,
       updated_at: now.toISOString(),
     });
+
+    // Also sync to students collection if a document exists there
+    try {
+      const studentDocRef = doc(db, 'students', docId);
+      const sSnap = await getDoc(studentDocRef);
+      if (sSnap.exists()) {
+        await updateDoc(studentDocRef, {
+          is_paid: true,
+          is_payed: true,
+          paid_semester: semesterCode,
+          paid_at: now.toISOString(),
+          paystack_reference: cleanRef,
+          updated_at: now.toISOString(),
+        });
+      }
+    } catch {}
 
     // 4. Persist transaction record in student subcollection and audit collection
     try {
@@ -6355,7 +6532,7 @@ export async function bulkClearStudentTransactions(targetStudentIds?: string[]):
     });
 
     const studentsToProcess = targetStudentIds && targetStudentIds.length > 0
-      ? existingStudents.filter(s => targetStudentIds.includes(s.id) || (s.email && targetStudentIds.includes(s.email)) || (s.matric_number && targetStudentIds.includes(s.matric_number)))
+      ? existingStudents.filter(s => (Boolean(s.id && targetStudentIds.includes(s.id))) || (Boolean(s.email && targetStudentIds.includes(s.email))) || (Boolean(s.matric_number && targetStudentIds.includes(s.matric_number))))
       : existingStudents;
 
     await processInChunks(studentsToProcess, 10, async (student) => {
@@ -6437,7 +6614,7 @@ export async function bulkResetStudentWallets(targetStudentIds?: string[]): Prom
     });
 
     const studentsToProcess = targetStudentIds && targetStudentIds.length > 0
-      ? existingStudents.filter(s => targetStudentIds.includes(s.id) || (s.email && targetStudentIds.includes(s.email)) || (s.matric_number && targetStudentIds.includes(s.matric_number)))
+      ? existingStudents.filter(s => (Boolean(s.id && targetStudentIds.includes(s.id))) || (Boolean(s.email && targetStudentIds.includes(s.email))) || (Boolean(s.matric_number && targetStudentIds.includes(s.matric_number))))
       : existingStudents;
 
     await processInChunks(studentsToProcess, 10, async (student) => {
@@ -6496,7 +6673,7 @@ export async function bulkResetStudentProfilePics(targetStudentIds?: string[]): 
     });
 
     const studentsToProcess = targetStudentIds && targetStudentIds.length > 0
-      ? existingStudents.filter(s => targetStudentIds.includes(s.id) || (s.email && targetStudentIds.includes(s.email)) || (s.matric_number && targetStudentIds.includes(s.matric_number)))
+      ? existingStudents.filter(s => (Boolean(s.id && targetStudentIds.includes(s.id))) || (Boolean(s.email && targetStudentIds.includes(s.email))) || (Boolean(s.matric_number && targetStudentIds.includes(s.matric_number))))
       : existingStudents;
 
     await processInChunks(studentsToProcess, 10, async (student) => {
@@ -6555,7 +6732,7 @@ export async function bulkResetStudentNotifications(targetStudentIds?: string[])
     });
 
     const studentsToProcess = targetStudentIds && targetStudentIds.length > 0
-      ? existingStudents.filter(s => targetStudentIds.includes(s.id) || (s.email && targetStudentIds.includes(s.email)) || (s.matric_number && targetStudentIds.includes(s.matric_number)))
+      ? existingStudents.filter(s => (Boolean(s.id && targetStudentIds.includes(s.id))) || (Boolean(s.email && targetStudentIds.includes(s.email))) || (Boolean(s.matric_number && targetStudentIds.includes(s.matric_number))))
       : existingStudents;
 
     // Reset unread counts on student docs in parallel chunks

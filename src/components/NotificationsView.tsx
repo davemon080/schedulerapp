@@ -27,7 +27,7 @@ interface NotificationsViewProps {
 
 type FilterType = 'all' | 'unread' | 'schedule' | 'deadline' | 'modules' | 'wallet';
 
-export const NotificationsView: React.FC<NotificationsViewProps> = ({
+export const NotificationsView: React.FC<NotificationsViewProps> = React.memo(({
   notifications,
   onBackToSchedule,
   onDeleteNotif,
@@ -379,4 +379,4 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
       </div>
     </div>
   );
-};
+});

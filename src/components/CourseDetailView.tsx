@@ -31,6 +31,7 @@ import {
 import { CourseRecord, CourseMaterialPdf, CourseMaterialVideo } from '@admin/types';
 import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
 import { addCoursePdfModule, deleteCoursePdfModule, addCourseVideoModule, deleteCourseVideoModule } from '../lib/dbService';
+import { uploadCourseMaterialPdf, validatePdfFile, deleteStorageFile } from '../lib/storageService';
 import { PdfViewerPage } from './PdfViewerPage';
 import { VideoPlayerPage } from './VideoPlayerPage';
 
@@ -79,6 +80,8 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
     description: '',
   });
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const pdfFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Video Upload Modal State
@@ -148,33 +151,24 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const validation = validatePdfFile(file, 50 * 1024 * 1024);
+    if (!validation.valid) {
+      alert(validation.error || 'Please select a valid PDF file under 50MB.');
+      if (e.target) e.target.value = '';
+      return;
+    }
+
     setSelectedPdfFile(file);
     const sizeStr = formatFileSize(file.size);
     const rawName = file.name;
     const cleanTitle = rawName.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
 
-    const blobUrl = URL.createObjectURL(file);
-
-    // Read as Data URL to ensure local persistence if needed
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setPdfFormData(prev => ({
-        ...prev,
-        title: prev.title.trim() ? prev.title : cleanTitle,
-        fileName: rawName,
-        fileSize: sizeStr,
-        pdfUrl: dataUrl || blobUrl,
-      }));
-    };
-    reader.readAsDataURL(file);
-
-    setPdfFormData(prev => ({
+    setPdfFormData((prev) => ({
       ...prev,
       title: prev.title.trim() ? prev.title : cleanTitle,
       fileName: rawName,
       fileSize: sizeStr,
-      pdfUrl: blobUrl,
+      pdfUrl: '',
     }));
   };
 
@@ -262,18 +256,45 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
   const handleAddPdf = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pdfFormData.title.trim()) return;
-    if (!pdfFormData.pdfUrl.trim()) {
-      alert('Please select a PDF file or enter a valid PDF link.');
-      return;
+
+    let finalPdfUrl = pdfFormData.pdfUrl.trim();
+    let finalStoragePath: string | undefined = undefined;
+
+    if (pdfUploadMode === 'device') {
+      if (!selectedPdfFile) {
+        alert('Please select a PDF document from your device.');
+        return;
+      }
+      setIsUploadingPdf(true);
+      try {
+        const uploadResult = await uploadCourseMaterialPdf(
+          selectedPdfFile,
+          currentCourse.courseCode,
+          (progress) => setUploadProgress(progress)
+        );
+        finalPdfUrl = uploadResult.downloadUrl;
+        finalStoragePath = uploadResult.storagePath;
+      } catch (err: any) {
+        console.error('Failed to upload PDF material to Firebase Storage:', err);
+        alert(err.message || 'Failed to upload PDF file. Please verify network connection and try again.');
+        setIsUploadingPdf(false);
+        return;
+      }
+    } else {
+      if (!finalPdfUrl) {
+        alert('Please enter a valid PDF web URL.');
+        return;
+      }
     }
 
     const newPdf: CourseMaterialPdf = {
       id: `pdf-${Date.now()}`,
       title: pdfFormData.title.trim(),
       topic: pdfFormData.topic.trim() || 'Course Handout',
-      pdfUrl: pdfFormData.pdfUrl.trim(),
-      fileName: pdfFormData.fileName.trim() || `${pdfFormData.title.trim()}.pdf`,
-      fileSize: pdfFormData.fileSize.trim() || 'PDF Document',
+      pdfUrl: finalPdfUrl,
+      storagePath: finalStoragePath,
+      fileName: selectedPdfFile?.name || pdfFormData.fileName.trim() || `${pdfFormData.title.trim()}.pdf`,
+      fileSize: selectedPdfFile ? formatFileSize(selectedPdfFile.size) : (pdfFormData.fileSize.trim() || 'PDF Document'),
       uploadedAt: 'Just now',
       description: pdfFormData.description.trim() || 'Course lecture note & reading materials.',
     };
@@ -291,6 +312,8 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
       if (onCourseUpdated) onCourseUpdated(localUpdated);
     }
 
+    setIsUploadingPdf(false);
+    setUploadProgress(0);
     setPdfFormData({
       title: '',
       topic: '',
@@ -361,6 +384,10 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
     setIsDeletingMaterial(true);
     try {
       if (materialToDelete.type === 'pdf') {
+        const targetPdf = materialToDelete.item as CourseMaterialPdf;
+        if (targetPdf?.storagePath || (targetPdf?.pdfUrl && targetPdf.pdfUrl.includes('firebasestorage'))) {
+          deleteStorageFile(targetPdf.storagePath || targetPdf.pdfUrl).catch((e) => console.warn(e));
+        }
         const updated = await deleteCoursePdfModule(currentCourse.id, materialToDelete.item.id);
         if (updated) {
           setCurrentCourse(updated);
@@ -964,20 +991,31 @@ export const CourseDetailView: React.FC<CourseDetailViewProps> = ({
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <button
                     type="button"
+                    disabled={isUploadingPdf}
                     onClick={() => {
                       setIsAddPdfOpen(false);
                       setSelectedPdfFile(null);
                     }}
-                    className="px-4 py-2 rounded-2xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
+                    className="px-4 py-2 rounded-2xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2.5 rounded-2xl bg-[#007AFF] text-white text-xs font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                    disabled={isUploadingPdf}
+                    className="px-4 py-2.5 rounded-2xl bg-[#007AFF] text-white text-xs font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
                   >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Save PDF Module</span>
+                    {isUploadingPdf ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Uploading ({uploadProgress}%)...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Save PDF Module</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </form>

@@ -17,7 +17,9 @@ import { SemesterAccessLockView } from './components/SemesterAccessLockView';
 import { WalletView } from './components/WalletView';
 import { LoginPage } from './components/LoginPage';
 import { PermissionsPromptModal } from './components/PermissionsPromptModal';
-import { AdminDashboard } from '@admin/AdminDashboard';
+const AdminDashboard = React.lazy(() =>
+  import('@admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))
+);
 import { INITIAL_DAYS, getWeekDaysForDate } from './data/mockData';
 import { AssignmentItem, EventItem, NavigationTab, NotificationItem, UserSession } from './types';
 import { Plus, Check, CheckCheck, Trash2, ShieldAlert, Smartphone } from 'lucide-react';
@@ -52,11 +54,14 @@ import {
   resetAllStudentsToUnpaidInDatabase,
   verifyUserActiveSession,
   fetchStudentByEmailOrMatric,
+  recordVerifiedSemesterPayment,
   recordAppVisit,
   recordOrUpdateClassCancelledNotification,
   recordOrUpdateDeadlineDeletedNotification,
   recordOrUpdateBroadcastDeletedNotification,
+  updateStudentProfileInDb,
 } from './lib/dbService';
+import { uploadProfilePicture, validateImageFile } from './lib/storageService';
 import { PaymentPage } from './components/PaymentPage';
 import { CourseRecord, DepartmentRecord } from '@admin/types';
 import { CourseFormData } from './components/AddCourseModal';
@@ -408,7 +413,7 @@ export default function App() {
                 } catch (e) {}
 
                 if (verifiedStudent.profile_pic_url || verifiedStudent.profileImage) {
-                  setProfileImage(verifiedStudent.profile_pic_url || verifiedStudent.profileImage);
+                  setProfileImage((verifiedStudent.profile_pic_url || verifiedStudent.profileImage) ?? null);
                 }
               }
             }
@@ -534,6 +539,9 @@ export default function App() {
             const matchIsPaid = matchHasFreeAccess;
             const matchPaidSemester = matched.paid_semester || (matched as any).paidSemester || (matchHasFreeAccess ? (userSession.semester || '1st Semester') : undefined);
 
+            const matchPic = matched.profile_pic_url || matched.profileImage || matched.photoURL || '';
+            const shouldUpdatePic = Boolean(matchPic && matchPic !== userSession.profile_pic_url && matchPic !== profileImage);
+
             if (
               userSession.level !== matchLevel ||
               userSession.yearLevel !== matchYearLevel ||
@@ -543,7 +551,8 @@ export default function App() {
               userSession.is_paid !== matchIsPaid ||
               userSession.is_payed !== matchIsPaid ||
               userSession.hasFreeAccess !== matchHasFreeAccess ||
-              userSession.paid_semester !== matchPaidSemester
+              userSession.paid_semester !== matchPaidSemester ||
+              shouldUpdatePic
             ) {
               const syncedSession: UserSession = {
                 ...userSession,
@@ -560,10 +569,18 @@ export default function App() {
                 is_payed: matchIsPaid,
                 hasFreeAccess: matchHasFreeAccess,
                 paid_semester: matchPaidSemester,
+                profile_pic_url: matchPic || userSession.profile_pic_url,
+                profileImage: matchPic || userSession.profileImage,
               };
               setUserSession(syncedSession);
+              if (shouldUpdatePic) {
+                setProfileImage(matchPic);
+              }
               try {
                 localStorage.setItem('university_schedule_user', JSON.stringify(syncedSession));
+                if (shouldUpdatePic) {
+                  localStorage.setItem(`university_profile_img_${userSession.email || userSession.matricNumber}`, matchPic);
+                }
               } catch (e) {}
             }
           }
@@ -1157,52 +1174,153 @@ export default function App() {
     showToast('Activity updated as dismissed');
   };
 
-  const handleProfileImageUpload = async (imageDataUrl: string) => {
-    const val = imageDataUrl || null;
-    setProfileImage(val);
-
-    if (userSession) {
-      const userKey = userSession.email || userSession.matricNumber || userSession.id || (userSession as any).uid;
-      if (userKey) {
+  const handleProfileImageUpload = async (imageFileOrUrl: File | string) => {
+    if (!imageFileOrUrl) {
+      // Reset profile image
+      setProfileImage(null);
+      if (userSession) {
+        const userKey = userSession.id || userSession.uid || userSession.email || userSession.matricNumber;
+        await updateStudentUser(userKey, {
+          profile_pic_url: '',
+          photoURL: '',
+          profileImage: '',
+          profile_picture: '',
+        });
+        await updateStudentProfileInDb(userKey, {
+          profile_pic_url: '',
+          photoURL: '',
+          profileImage: '',
+          profile_picture: '',
+        });
+        const updated = {
+          ...userSession,
+          profile_pic_url: '',
+          photoURL: '',
+          profileImage: '',
+          profile_picture: '',
+        };
+        setUserSession(updated);
         try {
-          // Persist directly to Firestore users collection
-          await updateStudentUser(userKey, {
-            profile_pic_url: imageDataUrl || '',
-            photoURL: imageDataUrl || '',
-          });
-        } catch (err) {
-          console.error('Error saving profile picture to database:', err);
-        }
+          localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+          localStorage.removeItem(`university_profile_img_${userSession.email || userSession.matricNumber}`);
+        } catch {}
       }
-      setUserSession((prev) => (prev ? { ...prev, profile_pic_url: imageDataUrl || '', photoURL: imageDataUrl || '', profileImage: imageDataUrl || '' } : prev));
+      showToast('Profile photo removed');
+      return;
     }
+
+    // 1. If passed a string (already an HTTP/HTTPS URL)
+    if (typeof imageFileOrUrl === 'string') {
+      const url = imageFileOrUrl.trim();
+      setProfileImage(url);
+      if (userSession) {
+        const userKey = userSession.id || userSession.uid || userSession.email || userSession.matricNumber;
+        await updateStudentUser(userKey, {
+          profile_pic_url: url,
+          photoURL: url,
+          profileImage: url,
+          profile_picture: url,
+        });
+        await updateStudentProfileInDb(userKey, {
+          profile_pic_url: url,
+          photoURL: url,
+          profileImage: url,
+          profile_picture: url,
+        });
+        const updated = {
+          ...userSession,
+          profile_pic_url: url,
+          photoURL: url,
+          profileImage: url,
+          profile_picture: url,
+        };
+        setUserSession(updated);
+        try {
+          localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+          localStorage.setItem(`university_profile_img_${userSession.email || userSession.matricNumber}`, url);
+        } catch {}
+      }
+      showToast('Profile picture updated and saved!');
+      return;
+    }
+
+    // 2. If passed a File object (user selected photo from camera or device)
+    const file = imageFileOrUrl;
+
+    // A. Validate file type and size
+    const validation = validateImageFile(file, 6 * 1024 * 1024);
+    if (!validation.valid) {
+      showToast(validation.error || 'Please select a valid image file under 6MB');
+      return;
+    }
+
+    // B. Optimistic immediate UI update via temporary object URL
+    const previewUrl = URL.createObjectURL(file);
+    const previousPic = profileImage;
+    setProfileImage(previewUrl);
+    showToast('Uploading profile picture to Cloud Storage...');
 
     try {
+      const userKey = userSession?.uid || userSession?.id || userSession?.matricNumber || userSession?.email || 'student';
+
+      // C. Compress and upload to Firebase Cloud Storage
+      const uploadResult = await uploadProfilePicture(file, userKey);
+      const downloadUrl = uploadResult.downloadUrl;
+      const storagePath = uploadResult.storagePath;
+
+      // Revoke temporary blob URL and set persistent Firebase Storage URL
+      URL.revokeObjectURL(previewUrl);
+      setProfileImage(downloadUrl);
+
+      // D. Update student's database profile record in Firestore
       if (userSession) {
-        const userKey = userSession.email || userSession.matricNumber;
-        if (imageDataUrl) {
-          localStorage.setItem(`university_profile_img_${userKey}`, imageDataUrl);
-        } else {
-          localStorage.removeItem(`university_profile_img_${userKey}`);
-        }
+        const docUserKey = userSession.id || userSession.uid || userSession.email || userSession.matricNumber;
+        await updateStudentUser(docUserKey, {
+          profile_pic_url: downloadUrl,
+          photoURL: downloadUrl,
+          profileImage: downloadUrl,
+          profile_picture: downloadUrl,
+          profile_pic_storage_path: storagePath,
+        });
+        await updateStudentProfileInDb(docUserKey, {
+          profile_pic_url: downloadUrl,
+          photoURL: downloadUrl,
+          profileImage: downloadUrl,
+          profile_picture: downloadUrl,
+          profile_pic_storage_path: storagePath,
+        });
+
+        const updatedSession: UserSession = {
+          ...userSession,
+          profile_pic_url: downloadUrl,
+          photoURL: downloadUrl,
+          profileImage: downloadUrl,
+          profile_picture: downloadUrl,
+          profile_pic_storage_path: storagePath,
+        };
+        setUserSession(updatedSession);
+
+        try {
+          localStorage.setItem('university_schedule_user', JSON.stringify(updatedSession));
+          localStorage.setItem(`university_profile_img_${userSession.email || userSession.matricNumber}`, downloadUrl);
+          localStorage.setItem('university_schedule_profile_img', downloadUrl);
+        } catch {}
       }
-      if (imageDataUrl) {
-        localStorage.setItem('university_schedule_profile_img', imageDataUrl);
-      } else {
-        localStorage.removeItem('university_schedule_profile_img');
-      }
-    } catch (e) {
-      console.error(e);
+
+      showToast('Profile picture saved to your student profile!');
+      addActivityNotification(
+        'Profile Picture Updated',
+        'Your profile picture was uploaded to Cloud Storage and saved permanently.',
+        'profile',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Failed to upload profile picture to Firebase Storage:', err);
+      // Revert optimistic preview
+      setProfileImage(previousPic);
+      URL.revokeObjectURL(previewUrl);
+      showToast(err.message || 'Failed to upload photo. Please check your connection and try again.');
     }
-    showToast(imageDataUrl ? 'Profile picture updated & saved to database!' : 'Profile picture reset');
-    addActivityNotification(
-      'Profile Photo Changed',
-      imageDataUrl
-        ? 'You uploaded a new student profile picture.'
-        : 'You reset your student profile avatar to default.',
-      'profile',
-      'info'
-    );
   };
 
   // Course Rep Module / Course Management Handlers
@@ -1652,26 +1770,71 @@ export default function App() {
 
   // Refresh student payment status from database whenever app gains focus or becomes visible
   useEffect(() => {
-    // Check if returning from payment success callback
-    if (typeof window !== 'undefined' && window.location.search.includes('payment_success')) {
-      const handleReturnSuccess = async () => {
-        try {
-          const raw = localStorage.getItem('university_schedule_user');
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            setUserSession((prev) => {
-              const base = prev || (parsed as UserSession);
-              return {
-                ...base,
-                ...parsed,
-                isLoggedIn: true,
-                is_paid: true,
-                is_payed: true,
-              };
-            });
-            const id = parsed.uid || parsed.matricNumber || parsed.email;
-            if (id) {
-              const fresh = await fetchStudentByEmailOrMatric(id);
+    // Check if returning from payment gateway callback
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      const isPaymentReturn =
+        search.includes('payment_success') ||
+        search.includes('paid=true') ||
+        search.includes('reference=') ||
+        search.includes('trxref=');
+
+      if (isPaymentReturn) {
+        const handleReturnSuccess = async () => {
+          const params = new URLSearchParams(window.location.search);
+          const payReference = params.get('reference') || params.get('trxref');
+          const studentQuery = params.get('student') || params.get('matric') || params.get('email');
+          const semesterQuery = params.get('semester');
+
+          try {
+            const raw = localStorage.getItem('university_schedule_user');
+            let currentUser: any = raw ? JSON.parse(raw) : null;
+            const targetId = studentQuery || currentUser?.uid || currentUser?.matricNumber || currentUser?.matric_number || currentUser?.email;
+
+            // If reference exists, ensure verified in backend & Firestore
+            if (payReference && targetId) {
+              try {
+                await recordVerifiedSemesterPayment(
+                  targetId,
+                  payReference,
+                  semesterQuery || activeSemester || '1st Semester 2025/2026',
+                  3000
+                );
+              } catch (recErr) {
+                console.warn('Payment record notice on app return:', recErr);
+              }
+            }
+
+            // Immediately grant paid access in state & storage
+            const semToSet = semesterQuery || currentUser?.paid_semester || activeSemester || '1st Semester 2025/2026';
+            const updatedUser = {
+              ...(currentUser || {}),
+              isLoggedIn: true,
+              is_paid: true,
+              is_payed: true,
+              paid_semester: semToSet,
+              paid_at: currentUser?.paid_at || new Date().toISOString(),
+            };
+
+            setUserSession((prev) => ({
+              ...(prev || {}),
+              ...updatedUser,
+              isLoggedIn: true,
+              is_paid: true,
+              is_payed: true,
+              paid_semester: semToSet,
+            }));
+
+            try {
+              localStorage.setItem('university_schedule_user', JSON.stringify(updatedUser));
+            } catch {}
+
+            // Close any lingering payment view
+            setIsPaymentView(false);
+
+            // Re-fetch fresh student profile from Firestore
+            if (targetId) {
+              const fresh = await fetchStudentByEmailOrMatric(targetId);
               if (fresh) {
                 setUserSession((prev) => {
                   if (!prev) return null;
@@ -1683,20 +1846,28 @@ export default function App() {
                     isLoggedIn: true,
                     is_paid: true,
                     is_payed: true,
+                    paid_semester: fresh.paid_semester || semToSet,
                   };
                 });
+                try {
+                  localStorage.setItem(
+                    'university_schedule_user',
+                    JSON.stringify({ ...fresh, is_paid: true, is_payed: true, paid_semester: fresh.paid_semester || semToSet })
+                  );
+                } catch {}
               }
             }
+          } catch (e) {
+            console.warn('Payment success return notice:', e);
+          } finally {
+            try {
+              const cleanUrl = window.location.pathname + window.location.hash;
+              window.history.replaceState({}, document.title, cleanUrl || '/');
+            } catch {}
           }
-        } catch (e) {
-          console.warn('Payment success return notice:', e);
-        }
-        try {
-          const cleanUrl = window.location.pathname + window.location.hash;
-          window.history.replaceState({}, document.title, cleanUrl);
-        } catch {}
-      };
-      handleReturnSuccess();
+        };
+        handleReturnSuccess();
+      }
     }
 
     const handleReverifyOnFocus = async () => {
@@ -1743,37 +1914,46 @@ export default function App() {
   // Dedicated Desktop-Only Admin Dashboard Route (/adminschedulerapp)
   if (isAdminView) {
     return (
-      <AdminDashboard
-        onBackToStudentPortal={() => {
-          if (typeof window !== 'undefined') {
-            window.history.pushState(null, '', '/');
-          }
-          setIsAdminView(false);
-        }}
-        initialEvents={events}
-        initialAssignments={assignments}
-        initialNotifications={notifications}
-        currentSemester={currentSemester}
-        onGlobalSyncEvents={handleGlobalSyncEvents}
-        onGlobalSyncAssignments={handleGlobalSyncAssignments}
-        onGlobalSyncNotifications={handleGlobalSyncNotifications}
-        onGlobalSyncSemester={(newSem) => {
-          const parsed = normalizeSemester(newSem);
-          setCurrentSemester(parsed);
-          setUserSession((prev) => {
-            if (!prev) return null;
-            const updated = {
-              ...prev,
-              semester: parsed,
-              current_semester: parsed,
-            };
-            try {
-              localStorage.setItem('university_schedule_user', JSON.stringify(updated));
-            } catch (e) {}
-            return updated;
-          });
-        }}
-      />
+      <React.Suspense
+        fallback={
+          <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300 gap-3">
+            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-mono tracking-wide">Loading University Admin Portal...</p>
+          </div>
+        }
+      >
+        <AdminDashboard
+          onBackToStudentPortal={() => {
+            if (typeof window !== 'undefined') {
+              window.history.pushState(null, '', '/');
+            }
+            setIsAdminView(false);
+          }}
+          initialEvents={events}
+          initialAssignments={assignments}
+          initialNotifications={notifications}
+          currentSemester={currentSemester}
+          onGlobalSyncEvents={handleGlobalSyncEvents}
+          onGlobalSyncAssignments={handleGlobalSyncAssignments}
+          onGlobalSyncNotifications={handleGlobalSyncNotifications}
+          onGlobalSyncSemester={(newSem) => {
+            const parsed = normalizeSemester(newSem);
+            setCurrentSemester(parsed);
+            setUserSession((prev) => {
+              if (!prev) return null;
+              const updated = {
+                ...prev,
+                semester: parsed,
+                current_semester: parsed,
+              };
+              try {
+                localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+              } catch (e) {}
+              return updated;
+            });
+          }}
+        />
+      </React.Suspense>
     );
   }
 
@@ -1799,10 +1979,19 @@ export default function App() {
           <div className="w-full max-w-lg min-h-screen flex flex-col px-3.5 sm:px-4 py-4 sm:py-7 relative">
             <PaymentPage
               initialUserSession={userSession}
-              onReturnToApp={() => {
+              onReturnToApp={(updatedUser) => {
+                if (updatedUser) {
+                  setUserSession((prev) => ({
+                    ...(prev || {}),
+                    ...updatedUser,
+                    is_paid: true,
+                    is_payed: true,
+                    paid_semester: updatedUser.paid_semester || activeSemester,
+                  }));
+                }
                 if (typeof window !== 'undefined') {
                   if (window.location.pathname.startsWith('/payment') || window.location.pathname.startsWith('/pay')) {
-                    window.location.href = '/';
+                    window.location.href = '/?payment_success=true&paid=true';
                   } else {
                     window.history.pushState(null, '', '/');
                     setIsPaymentView(false);
@@ -1870,7 +2059,7 @@ export default function App() {
               <div className={`space-y-4 flex-1 ${activeTab !== 'Notifications' ? 'pt-[84px] sm:pt-[88px]' : 'pt-2'}`}>
 
                 {/* Conditional View by Active Navigation Tab */}
-                <AnimatePresence>
+                <AnimatePresence mode="wait">
                   {!isPaidAccess && activeTab !== 'Profile' ? (
                     <motion.div
                       key="tab-locked-semester-access"

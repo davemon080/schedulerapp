@@ -18,6 +18,8 @@ import {
   Calendar,
 } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
+import { uploadContentImage } from '../lib/storageService';
+import { Loader2 } from 'lucide-react';
 import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
 import { formatBroadcastTimestamp } from '../lib/dbService';
 
@@ -48,34 +50,34 @@ export const BroadcastDetailsView: React.FC<BroadcastDetailsViewProps> = ({
 
   const images = broadcast.images || [];
   const isUrgent = broadcast.type === 'alert' || broadcast.priority === 'urgent';
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
 
   const handleOpenViewer = (index: number) => {
     setSelectedImageIndex(index);
     setIsViewerOpen(true);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const newImages: string[] = [];
-    let processed = 0;
-
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result && typeof reader.result === 'string') {
-          newImages.push(reader.result as string);
-        }
-        processed++;
-        if (processed === files.length) {
-          onAddImages?.(broadcast.id, newImages);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-
-    if (e.target) e.target.value = '';
+    setIsUploadingImages(true);
+    try {
+      const uploadPromises = Array.from(files).map((file) =>
+        uploadContentImage(file, 'announcements', broadcast.id)
+      );
+      const results = await Promise.all(uploadPromises);
+      const newUrls = results.map((r) => r.downloadUrl);
+      if (onAddImages && newUrls.length > 0) {
+        onAddImages(broadcast.id, newUrls);
+      }
+    } catch (err: any) {
+      console.error('Failed to upload broadcast images:', err);
+      alert(err.message || 'Failed to upload image. Please verify file is a valid image under 10MB.');
+    } finally {
+      setIsUploadingImages(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleScrollToSlide = (index: number) => {

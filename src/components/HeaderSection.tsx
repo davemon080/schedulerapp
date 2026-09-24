@@ -8,14 +8,14 @@ interface HeaderSectionProps {
   onOpenProfileTab?: () => void;
   unreadCount?: number;
   profileImage?: string | null;
-  onUploadProfileImage?: (imageDataUrl: string) => void;
+  onUploadProfileImage?: (imageFileOrUrl: File | string) => void;
   isNotificationsActive?: boolean;
   isCalendarActive?: boolean;
   userSession?: UserSession | null;
   isAccessBlocked?: boolean;
 }
 
-export const HeaderSection: React.FC<HeaderSectionProps> = ({
+export const HeaderSection: React.FC<HeaderSectionProps> = React.memo(({
   onOpenNotifications,
   onOpenCalendarView,
   onOpenProfileTab,
@@ -50,15 +50,10 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string' && onUploadProfileImage) {
-          onUploadProfileImage(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (file && onUploadProfileImage) {
+      onUploadProfileImage(file);
     }
+    if (e.target) e.target.value = '';
   };
 
   return (
@@ -157,4 +152,4 @@ export const HeaderSection: React.FC<HeaderSectionProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { ImageViewerModal } from './ImageViewerModal';
 import { ConfirmDeleteModal } from '@admin/ConfirmDeleteModal';
+import { uploadContentImage } from '../lib/storageService';
 
 interface AssignmentDetailsViewProps {
   assignment: AssignmentItem;
@@ -53,34 +54,34 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
   const sliderRef = useRef<HTMLDivElement>(null);
 
   const images = assignment.images || [];
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
 
   const handleOpenViewer = (index: number) => {
     setSelectedImageIndex(index);
     setIsViewerOpen(true);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const newImages: string[] = [];
-    let processed = 0;
-
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result && typeof reader.result === 'string') {
-          newImages.push(reader.result as string);
-        }
-        processed++;
-        if (processed === files.length) {
-          onAddImages(assignment.id, newImages);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-
-    if (e.target) e.target.value = '';
+    setIsUploadingImages(true);
+    try {
+      const uploadPromises = Array.from(files).map((file) =>
+        uploadContentImage(file, 'deadlines', assignment.id)
+      );
+      const results = await Promise.all(uploadPromises);
+      const newUrls = results.map((r) => r.downloadUrl);
+      if (onAddImages && newUrls.length > 0) {
+        onAddImages(assignment.id, newUrls);
+      }
+    } catch (err: any) {
+      console.error('Failed to upload assignment images:', err);
+      alert(err.message || 'Failed to upload image. Please verify file is a valid image under 10MB.');
+    } finally {
+      setIsUploadingImages(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleScrollToSlide = (index: number) => {

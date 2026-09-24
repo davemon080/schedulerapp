@@ -47,7 +47,7 @@ import {
 
 interface PaymentPageProps {
   initialUserSession?: UserSession | null;
-  onReturnToApp?: () => void;
+  onReturnToApp?: (updatedSession?: any) => void;
 }
 
 const PAYSTACK_PUBLIC_KEY = 'pk_test_e9672a354a3fbf8d3e696c1265b29355181a3e11';
@@ -131,16 +131,50 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     );
   }, [student]);
 
+  // Auto-countdown after payment success
+  const [countdown, setCountdown] = useState<number>(3);
+
   // Handle return navigation back to Scheduler App
   const handleReturnToScheduler = useCallback(() => {
+    const isPaid = paymentStatus === 'success' || isAlreadyPaid;
+    let updatedStudent = student;
+    if (student && isPaid) {
+      updatedStudent = {
+        ...student,
+        is_paid: true,
+        is_payed: true,
+        paid_semester: activeSemesterCode,
+        paid_at: student.paid_at || new Date().toISOString(),
+      };
+      try {
+        localStorage.setItem('university_schedule_user', JSON.stringify(updatedStudent));
+      } catch {}
+    }
+
     if (onReturnToApp) {
-      onReturnToApp();
+      onReturnToApp(updatedStudent);
       return;
     }
     if (typeof window !== 'undefined') {
-      window.location.href = '/';
+      const studentIdent = student?.matricNumber || student?.matric_number || student?.email || '';
+      window.location.href = `/?payment_success=true&paid=true&semester=${encodeURIComponent(activeSemesterCode)}${studentIdent ? `&student=${encodeURIComponent(studentIdent)}` : ''}`;
     }
-  }, [onReturnToApp]);
+  }, [onReturnToApp, student, paymentStatus, isAlreadyPaid, activeSemesterCode]);
+
+  // Auto-countdown after payment success
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    if (paymentStatus === 'success' && countdown > 0) {
+      timer = setTimeout(() => {
+        setCountdown((prev) => prev - 1);
+      }, 1000);
+    } else if (paymentStatus === 'success' && countdown === 0) {
+      handleReturnToScheduler();
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [paymentStatus, countdown, handleReturnToScheduler]);
 
   // Load latest student data & current semester from Firestore
   useEffect(() => {
@@ -361,7 +395,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     const studentLvl = student.level || 100;
     const txRef = `PS_SEM_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const callbackUrl = `${window.location.origin}/payment/?student=${encodeURIComponent(studentMatric)}`;
+    const callbackUrl = `${window.location.origin}/payment/?student=${encodeURIComponent(studentMatric)}&returnUrl=${encodeURIComponent(window.location.origin + '/')}`;
 
     try {
       const response = await fetch('/api/paystack/initialize', {
