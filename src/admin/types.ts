@@ -170,8 +170,10 @@ export interface StudentProfileRecord {
   hasFreeAccess?: boolean;
   wallet_balance?: number;
   walletBalance?: number;
-  paid_semester?: string;
-  paid_at?: string;
+  paid_semester?: string | null;
+  paidSemester?: string | null;
+  paid_at?: string | null;
+  paidAt?: string | null;
   isadmin?: boolean;
   isAdmin?: boolean;
   iscourserep?: boolean;

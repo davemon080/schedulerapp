@@ -37,6 +37,8 @@ import {
   createStudentUser,
   updateStudentUser,
   deleteStudentUser,
+  revokeStudentSemesterAccess,
+  grantStudentSemesterAccess,
   fetchDepartments,
   fetchCourses,
   fetchFeedbackList,
@@ -698,6 +700,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return ok;
   };
 
+  // Revoke Student Semester Access
+  const handleRevokeSemesterAccess = async (student: StudentProfileRecord): Promise<boolean> => {
+    const identifier = (student.id || student.uid || student.email || student.matric_number) as string;
+    const ok = await revokeStudentSemesterAccess(identifier);
+    if (ok) {
+      showToast(`Semester access revoked for ${student.full_name || student.name || 'student'}`);
+      setStudents((prev) =>
+        prev.map((s) => {
+          if (
+            (s.id && s.id === student.id) ||
+            (s.uid && s.uid === student.uid) ||
+            s.email === student.email
+          ) {
+            return {
+              ...s,
+              is_paid: false,
+              is_payed: false,
+              hasFreeAccess: false,
+              paid_semester: null as any,
+              paidSemester: null as any,
+              paid_at: null as any,
+            };
+          }
+          return s;
+        })
+      );
+    } else {
+      showToast('Failed to revoke student semester access.');
+    }
+    return ok;
+  };
+
+  // Grant Student Semester Access
+  const handleGrantSemesterAccess = async (student: StudentProfileRecord): Promise<boolean> => {
+    const identifier = (student.id || student.uid || student.email || student.matric_number) as string;
+    const targetSem = currentSemester || '1st Semester 2025/2026';
+    const ok = await grantStudentSemesterAccess(identifier, targetSem);
+    if (ok) {
+      showToast(`Semester access granted for ${student.full_name || student.name || 'student'}`);
+      setStudents((prev) =>
+        prev.map((s) => {
+          if (
+            (s.id && s.id === student.id) ||
+            (s.uid && s.uid === student.uid) ||
+            s.email === student.email
+          ) {
+            return {
+              ...s,
+              is_paid: true,
+              is_payed: true,
+              hasFreeAccess: true,
+              paid_semester: targetSem,
+              paidSemester: targetSem,
+              paid_at: new Date().toISOString(),
+            };
+          }
+          return s;
+        })
+      );
+    } else {
+      showToast('Failed to grant student semester access.');
+    }
+    return ok;
+  };
+
   // Delete Student
   const handleDeleteStudent = async (email: string) => {
     const updated = students.filter((s) => s.email !== email);
@@ -910,6 +977,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onAddStudent={handleAddStudent}
                 onUpdateStudent={handleUpdateStudent}
                 onDeleteStudent={handleDeleteStudent}
+                onRevokeAccess={handleRevokeSemesterAccess}
+                onGrantAccess={handleGrantSemesterAccess}
                 isAddModalOpen={isAddStudentModalOpen}
                 setIsAddModalOpen={setIsAddStudentModalOpen}
                 isRegistry={Boolean(adminUser?.isRegistry)}

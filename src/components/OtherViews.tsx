@@ -54,6 +54,7 @@ interface OtherViewProps {
   onOpenPostBroadcastModal?: () => void;
   onClosePostBroadcastModal?: () => void;
   onAddNotification?: (title: string, message: string, category?: any, type?: any) => void;
+  onOpenPaymentPage?: () => void;
 }
 
 const containerVariants = {
@@ -178,11 +179,11 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
       </motion.div>
 
       {/* Filter Tabs */}
-      <motion.div variants={itemVariants} className="flex items-center gap-2">
+      <motion.div variants={itemVariants} className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
         <button
           type="button"
           onClick={() => setFilter('all')}
-          className={`px-3.5 py-1.5 rounded-full text-[12px] font-bold transition-all cursor-pointer ${
+          className={`px-3.5 py-2 min-h-[38px] rounded-full text-[12px] font-bold transition-all cursor-pointer touch-target ${
             filter === 'all'
               ? 'bg-[#1C1C1E] text-white shadow-2xs'
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
@@ -193,7 +194,7 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
         <button
           type="button"
           onClick={() => setFilter('pending')}
-          className={`px-3.5 py-1.5 rounded-full text-[12px] font-bold transition-all cursor-pointer ${
+          className={`px-3.5 py-2 min-h-[38px] rounded-full text-[12px] font-bold transition-all cursor-pointer touch-target ${
             filter === 'pending'
               ? 'bg-[#007AFF] text-white shadow-2xs'
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
@@ -204,7 +205,7 @@ export const DeadlinesView: React.FC<OtherViewProps> = ({
         <button
           type="button"
           onClick={() => setFilter('completed')}
-          className={`px-3.5 py-1.5 rounded-full text-[12px] font-bold transition-all cursor-pointer ${
+          className={`px-3.5 py-2 min-h-[38px] rounded-full text-[12px] font-bold transition-all cursor-pointer touch-target ${
             filter === 'completed'
               ? 'bg-emerald-600 text-white shadow-2xs'
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
@@ -545,7 +546,7 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
         <button
           type="button"
           onClick={() => setFilter('all')}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+          className={`px-3.5 py-2 min-h-[38px] rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer touch-target ${
             filter === 'all'
               ? 'bg-[#1C1C1E] text-white shadow-2xs'
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
@@ -556,7 +557,7 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
         <button
           type="button"
           onClick={() => setFilter('urgent')}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+          className={`px-3.5 py-2 min-h-[38px] rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer touch-target ${
             filter === 'urgent'
               ? 'bg-rose-600 text-white shadow-2xs'
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
@@ -567,7 +568,7 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
         <button
           type="button"
           onClick={() => setFilter('timetable')}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+          className={`px-3.5 py-2 min-h-[38px] rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer touch-target ${
             filter === 'timetable'
               ? 'bg-indigo-600 text-white shadow-2xs'
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
@@ -578,7 +579,7 @@ export const BroadcastsView: React.FC<OtherViewProps> = ({
         <button
           type="button"
           onClick={() => setFilter('academic')}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer ${
+          className={`px-3.5 py-2 min-h-[38px] rounded-full text-[12px] font-bold shrink-0 transition-all cursor-pointer touch-target ${
             filter === 'academic'
               ? 'bg-emerald-600 text-white shadow-2xs'
               : 'bg-white/70 hover:bg-white text-slate-600 border border-white/80'
@@ -1346,6 +1347,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
   onUpdateUserSession,
   onNavigateToAdmin,
   onAddNotification,
+  onOpenPaymentPage,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -1478,6 +1480,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
           }
         }}
         onAddNotification={onAddNotification}
+        onOpenPaymentPage={onOpenPaymentPage}
       />
     );
   }
@@ -1658,7 +1661,7 @@ export const ProfileView: React.FC<OtherViewProps> = ({
         </div>
       </motion.div>
 
-      {/* WALLET LINK CARD */}
+      {/* PAYMENTS LINK CARD */}
       <motion.div
         variants={itemVariants}
         onClick={() => setIsWalletPageOpen(true)}
@@ -1667,14 +1670,23 @@ export const ProfileView: React.FC<OtherViewProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 group-hover:scale-105 transition-transform">
-              <Wallet className="w-4.5 h-4.5" />
+              <CreditCard className="w-4.5 h-4.5" />
             </div>
-            <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">Wallet</h4>
+            <div>
+              <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">Payments</h4>
+              <p className="text-[11.5px] text-slate-500">Semester Access &amp; Receipts</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[14.5px] font-black text-slate-900">
-              {isBalanceHidden ? '••••••••' : `₦${walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}`}
-            </span>
+            {((userSession as any)?.is_payed || (userSession as any)?.is_paid || effectiveCourseRep) ? (
+              <span className="text-[11.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-full shadow-2xs">
+                Active
+              </span>
+            ) : (
+              <span className="text-[11.5px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-full shadow-2xs">
+                Payment Required
+              </span>
+            )}
             <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-blue-50 group-hover:text-blue-600 flex items-center justify-center text-slate-400 transition-colors">
               <ChevronRight className="w-4 h-4" />
             </div>

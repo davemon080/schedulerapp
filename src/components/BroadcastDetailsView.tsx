@@ -109,7 +109,7 @@ export const BroadcastDetailsView: React.FC<BroadcastDetailsViewProps> = ({
         <motion.button
           whileTap={{ scale: 0.94 }}
           onClick={onBack}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/80 hover:bg-white text-[13px] font-semibold text-[#007AFF] border border-white/90 shadow-2xs transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-full bg-white/80 hover:bg-white text-[13px] font-semibold text-[#007AFF] border border-white/90 shadow-2xs transition-all cursor-pointer touch-target"
         >
           <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
           <span>Broadcasts</span>
@@ -121,7 +121,7 @@ export const BroadcastDetailsView: React.FC<BroadcastDetailsViewProps> = ({
               <motion.button
                 whileTap={{ scale: 0.94 }}
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-[#007AFF] text-[12px] font-bold border border-blue-200/60 shadow-2xs transition-all cursor-pointer"
+                className="flex items-center gap-1 px-3.5 py-2 min-h-[40px] rounded-full bg-blue-50 hover:bg-blue-100 text-[#007AFF] text-[12px] font-bold border border-blue-200/60 shadow-2xs transition-all cursor-pointer touch-target"
                 title="Add photos to this broadcast"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -143,7 +143,7 @@ export const BroadcastDetailsView: React.FC<BroadcastDetailsViewProps> = ({
             <motion.button
               whileTap={{ scale: 0.94 }}
               onClick={() => setIsConfirmDeleteOpen(true)}
-              className="p-2 rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer"
+              className="p-2.5 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer touch-target"
               title="Delete broadcast"
             >
               <Trash2 className="w-4 h-4" />

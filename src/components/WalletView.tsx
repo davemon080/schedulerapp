@@ -30,6 +30,8 @@ import {
   Printer,
   FileText,
   Clock,
+  Share2,
+  ChevronRight,
 } from 'lucide-react';
 import { UserSession } from '../types';
 import {
@@ -43,6 +45,8 @@ import {
 import {
   downloadTransactionReceiptPNG,
   printTransactionReceipt,
+  generateReceiptDataURL,
+  shareTransactionReceipt,
   formatNaira,
 } from '../lib/receiptGenerator';
 
@@ -54,6 +58,7 @@ interface WalletViewProps {
   isCourseRep?: boolean;
   onSessionUpdated?: (updates: Partial<UserSession>) => void;
   onAddNotification?: (title: string, message: string, category?: any, type?: any) => void;
+  onOpenPaymentPage?: () => void;
 }
 
 const containerVariants = {
@@ -85,6 +90,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   isCourseRep = false,
   onSessionUpdated,
   onAddNotification,
+  onOpenPaymentPage,
 }) => {
   const studentName = userSession?.fullName || 'Student User';
   const studentMatric = userSession?.matricNumber || '2025/PS/ICH/0001';
@@ -175,6 +181,11 @@ export const WalletView: React.FC<WalletViewProps> = ({
   const [selectedTxDetail, setSelectedTxDetail] = useState<WalletTransaction | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
+  const [receiptPreviewTx, setReceiptPreviewTx] = useState<WalletTransaction | null>(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState<boolean>(false);
+  const [isSharingReceipt, setIsSharingReceipt] = useState<boolean>(false);
+
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
     setFeedbackMsg({ text, type });
     setTimeout(() => setFeedbackMsg(null), 4500);
@@ -193,6 +204,36 @@ export const WalletView: React.FC<WalletViewProps> = ({
       console.error('Download receipt error:', e);
     } finally {
       setIsDownloadingReceipt(false);
+    }
+  };
+
+  // Preview Receipt In-App Handler (Essential for Android & mobile viewing)
+  const handlePreviewReceipt = async (tx: WalletTransaction) => {
+    setIsGeneratingPreview(true);
+    try {
+      const dataUrl = await generateReceiptDataURL(tx, userSession, activeLevel, activeSemester);
+      setReceiptPreviewUrl(dataUrl);
+      setReceiptPreviewTx(tx);
+    } catch (e) {
+      console.error('Preview receipt error:', e);
+      showFeedback('Could not generate receipt preview', 'error');
+    } finally {
+      setIsGeneratingPreview(false);
+    }
+  };
+
+  // Native Web Share / Mobile Share
+  const handleShareReceipt = async (tx: WalletTransaction) => {
+    setIsSharingReceipt(true);
+    try {
+      const shared = await shareTransactionReceipt(tx, userSession, activeLevel, activeSemester);
+      if (shared) {
+        showFeedback('Receipt ready to share!');
+      }
+    } catch (e) {
+      console.error('Share receipt error:', e);
+    } finally {
+      setIsSharingReceipt(false);
     }
   };
 
@@ -572,174 +613,125 @@ export const WalletView: React.FC<WalletViewProps> = ({
           <span>Back</span>
         </button>
 
-        <h2 className="text-[15px] font-bold text-[#1C1C1E]">Wallet</h2>
+        <h2 className="text-[15px] font-bold text-[#1C1C1E]">Payments</h2>
       </div>
 
       <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-3">
         {/* =========================================================================
-            1. FIRST CONTAINER: WALLET BALANCE CONTAINER (SLEEK & PROPORTIONAL)
+            1. PAYMENT STATUS & MAKE PAYMENT PRIMARY CONTAINER
             ========================================================================= */}
-        <motion.div variants={itemVariants} id="container-wallet-balance-primary">
-          <div className="relative w-full rounded-[22px] overflow-hidden p-4 sm:p-4.5 bg-gradient-to-tr from-[#002855] via-[#0052CC] to-[#007AFF] text-white shadow-[0_12px_28px_rgba(0,122,255,0.22)] border border-white/20">
+        <motion.div variants={itemVariants} id="container-payments-primary">
+          <div className="relative w-full rounded-[24px] overflow-hidden p-4.5 sm:p-5 bg-gradient-to-tr from-[#002855] via-[#0052CC] to-[#007AFF] text-white shadow-[0_12px_28px_rgba(0,122,255,0.22)] border border-white/20">
             {/* Ambient glow ornaments */}
             <div className="absolute top-[-30px] right-[-20px] w-40 h-40 rounded-full bg-white/10 blur-xl pointer-events-none" />
             <div className="absolute bottom-[-30px] left-[-20px] w-36 h-36 rounded-full bg-sky-300/20 blur-lg pointer-events-none" />
 
-            <div className="relative z-10 flex flex-col justify-between space-y-3">
+            <div className="relative z-10 flex flex-col justify-between space-y-3.5">
               {/* Card Header Info */}
               <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-xs">
-                    <Wallet className="w-4 h-4" />
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-xs">
+                    <CreditCard className="w-4.5 h-4.5" />
                   </div>
-                  <span className="text-[13.5px] font-bold tracking-tight">
-                    Campus Wallet
-                  </span>
+                  <div>
+                    <span className="text-[14.5px] font-extrabold tracking-tight block">
+                      Semester Payments
+                    </span>
+                    <span className="text-[11px] text-blue-100 font-medium">
+                      2025/2026 Academic Session
+                    </span>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-white/15 backdrop-blur-md border border-white/25 text-[10.5px] font-bold text-white shadow-2xs">
-                  <CreditCard className="w-3 h-3 text-sky-200" />
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md border border-white/25 text-[10.5px] font-bold text-white shadow-2xs">
                   <span>{activeLevel}L • {studentMatric}</span>
                 </div>
               </div>
 
-              {/* Balance Display */}
-              <div className="py-0.5">
-                <div className="flex items-center gap-2 text-blue-100 text-[11.5px] font-medium mb-0.5">
-                  <span>Available Balance</span>
-                  <button
-                    onClick={toggleBalanceVisibility}
-                    className="p-0.5 hover:text-white transition-colors cursor-pointer"
-                    title={showBalance ? 'Hide Balance' : 'Show Balance'}
-                  >
-                    {showBalance ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
+              {/* Payment Status Indicator (Requirement 3D) */}
+              <div className="py-1">
+                <div className="text-blue-100 text-[11px] font-semibold uppercase tracking-wider mb-1.5">
+                  Current Status • {activeSemester}
                 </div>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl sm:text-3xl font-extrabold tracking-tight font-mono">
-                    {showBalance ? `₦${walletBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '••••••••'}
-                  </span>
-                  {showBalance && (
-                    <span className="text-[11px] font-bold text-sky-200 tracking-wider">NGN</span>
-                  )}
-                </div>
-              </div>
-
-              {/* "REGISTER SEMESTER" BUTTON DIRECTLY INSIDE / ON THE BALANCE CONTAINER */}
-              <div className="pt-2 border-t border-white/15">
                 {isPaidAccess ? (
-                  <button
-                    id="btn-semester-status-registered"
-                    onClick={() => setIsRegisterSemesterModalOpen(true)}
-                    className="w-full py-2 px-3 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-300/40 text-white font-bold text-[12px] backdrop-blur-md shadow-xs active:scale-[0.99] transition-all flex items-center justify-between cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-emerald-400 text-emerald-950 flex items-center justify-center">
-                        <Check className="w-3 h-3 stroke-[3]" />
-                      </div>
-                      <span>Semester Access Active</span>
+                  <div className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-emerald-500/25 border border-emerald-300/40 text-white backdrop-blur-md">
+                    <div className="w-6 h-6 rounded-full bg-emerald-400 text-emerald-950 flex items-center justify-center font-bold">
+                      <Check className="w-3.5 h-3.5 stroke-[3]" />
                     </div>
-                  </button>
+                    <div>
+                      <span className="text-[14px] font-black tracking-tight block leading-tight">
+                        PAID
+                      </span>
+                      <span className="text-[11px] text-emerald-100 block">
+                        Semester Access Active
+                      </span>
+                    </div>
+                  </div>
                 ) : (
-                  <button
-                    id="btn-register-semester-primary"
-                    onClick={() => setIsRegisterSemesterModalOpen(true)}
-                    className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 hover:from-amber-300 hover:to-orange-400 text-amber-950 font-extrabold text-[12.5px] shadow-md shadow-black/15 active:scale-[0.98] transition-all flex items-center justify-between cursor-pointer"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-5 h-5 rounded-full bg-amber-950 text-amber-300 flex items-center justify-center">
-                        <Unlock className="w-3 h-3" />
-                      </div>
-                      <span>Register Semester (₦2,000)</span>
+                  <div className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-amber-500/25 border border-amber-300/40 text-white backdrop-blur-md">
+                    <div className="w-6 h-6 rounded-full bg-amber-400 text-amber-950 flex items-center justify-center font-bold">
+                      <Lock className="w-3.5 h-3.5" />
                     </div>
-                  </button>
+                    <div>
+                      <span className="text-[14px] font-black tracking-tight block leading-tight">
+                        PAYMENT REQUIRED
+                      </span>
+                      <span className="text-[11px] text-amber-100 block">
+                        Fee: ₦{SEMESTER_FEE.toLocaleString()} NGN
+                      </span>
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {/* Card Footer Summary */}
-              <div className="flex items-center justify-between text-[10.5px] text-blue-100/90 pt-0.5">
-                <span className="font-semibold text-white truncate max-w-[150px]">{studentName}</span>
-                <div className="flex items-center gap-2">
-                  <span>In: <strong className="text-emerald-300 font-mono">₦{totalInflow.toLocaleString()}</strong></span>
-                  <span>Out: <strong className="text-amber-200 font-mono">₦{totalOutflow.toLocaleString()}</strong></span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* =========================================================================
-            2. SECOND CONTAINER: ACTION BUTTONS (ADD FUNDS, TRANSFER)
-            ========================================================================= */}
-        <motion.div variants={itemVariants} className="grid grid-cols-2 gap-2.5">
-          {/* Fund Wallet via Paystack */}
-          <button
-            id="btn-fund-wallet-paystack"
-            onClick={() => {
-              setFundAmount('2000');
-              setIsFundModalOpen(true);
-            }}
-            className="flex items-center gap-2.5 p-3 rounded-[18px] bg-white border border-slate-200/80 shadow-2xs hover:border-blue-300 hover:bg-blue-50/30 active:scale-[0.98] transition-all group cursor-pointer text-left"
-          >
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#007AFF] flex items-center justify-center shrink-0 group-hover:bg-[#007AFF] group-hover:text-white transition-colors shadow-2xs">
-              <ArrowDownLeft className="w-4.5 h-4.5" />
-            </div>
-            <span className="text-[13.5px] font-bold text-slate-800">Add Funds</span>
-          </button>
-
-          {/* Transfer to Peer via Matric No */}
-          <button
-            id="btn-open-transfer-peer"
-            onClick={() => setIsTransferModalOpen(true)}
-            className="flex items-center gap-2.5 p-3 rounded-[18px] bg-white border border-slate-200/80 shadow-2xs hover:border-indigo-300 hover:bg-indigo-50/30 active:scale-[0.98] transition-all group cursor-pointer text-left"
-          >
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors shadow-2xs">
-              <Send className="w-4.5 h-4.5" />
-            </div>
-            <span className="text-[13.5px] font-bold text-slate-800">Transfer</span>
-          </button>
-        </motion.div>
-
-        {/* =========================================================================
-            3. THIRD CONTAINER: SEMESTER ACCESS OVERVIEW
-            ========================================================================= */}
-        <motion.div variants={itemVariants}>
-          <div className={`w-full p-3 sm:p-3.5 rounded-[18px] border transition-all ${
-            isPaidAccess 
-              ? 'bg-emerald-50/80 border-emerald-200/90 text-emerald-950'
-              : 'bg-amber-50/80 border-amber-200/90 text-amber-950'
-          }`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold shadow-xs ${
-                  isPaidAccess ? 'bg-emerald-600' : 'bg-amber-600'
-                }`}>
-                  {isPaidAccess ? <CheckCircle2 className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                </div>
-                <div>
-                  <h4 className="text-[13px] font-bold">
-                    {isPaidAccess ? 'Semester Access Active' : 'Semester Access Required'}
-                  </h4>
-                  <span className="text-[11px] opacity-80 block">
-                    {isPaidAccess ? (paidSemester || `${activeSemester} 2025/2026`) : `${activeSemester} • ₦2,000`}
-                  </span>
-                </div>
-              </div>
-
-              {!isPaidAccess && (
+              {/* A. PROMINENT "MAKE PAYMENT" BUTTON AT THE TOP (Requirement 3A & 4) */}
+              <div className="pt-1">
                 <button
-                  onClick={() => setIsRegisterSemesterModalOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11.5px] shadow-xs active:scale-95 transition-all cursor-pointer"
+                  id="btn-payments-make-payment"
+                  onClick={() => {
+                    if (onOpenPaymentPage) {
+                      onOpenPaymentPage();
+                      return;
+                    }
+                    const params = new URLSearchParams({
+                      student: studentMatric || studentEmail || '',
+                      matric: studentMatric || '',
+                      name: studentName || '',
+                      email: studentEmail || '',
+                      dept: studentDepartment || '',
+                      level: String(activeLevel || 100),
+                      returnUrl: window.location.origin + '/?payment_success=true',
+                    });
+                    window.location.href = `/payment-checkout/?${params.toString()}`;
+                  }}
+                  className={`w-full min-h-[48px] py-3.5 px-4 rounded-2xl font-extrabold text-[14px] shadow-lg active:scale-[0.98] transition-all flex items-center justify-between cursor-pointer touch-target ${
+                    isPaidAccess
+                      ? 'bg-white/20 hover:bg-white/30 text-white border border-white/40'
+                      : 'bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 hover:opacity-95 text-amber-950 shadow-black/15'
+                  }`}
                 >
-                  Register
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4.5 h-4.5" />
+                    <span>{isPaidAccess ? 'Payment Portal / Details' : 'Make Payment'}</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-[12px] font-bold opacity-90">
+                    <span>{isPaidAccess ? 'View / Manage' : 'Pay ₦2,000'}</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
                 </button>
-              )}
+              </div>
+
+              {/* Card Footer Summary */}
+              <div className="flex items-center justify-between text-[11px] text-blue-100/90 pt-1 border-t border-white/15">
+                <span className="font-semibold text-white truncate max-w-[200px]">{studentName}</span>
+                <span className="font-mono text-sky-200 font-semibold">{studentDepartment}</span>
+              </div>
             </div>
           </div>
         </motion.div>
 
         {/* =========================================================================
-            4. FOURTH CONTAINER: TRANSACTION HISTORY
+            2. TRANSACTION HISTORY (PRESERVED)
             ========================================================================= */}
         <motion.div variants={itemVariants} className="space-y-2.5 pt-1">
           <div className="flex items-center justify-between">
@@ -1433,48 +1425,79 @@ export const WalletView: React.FC<WalletViewProps> = ({
               </div>
 
               <div className="space-y-2">
+                {/* View Receipt in-app preview */}
+                <button
+                  type="button"
+                  onClick={() => handlePreviewReceipt(selectedTxDetail)}
+                  disabled={isGeneratingPreview}
+                  className="w-full min-h-[44px] py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-[13px] hover:from-blue-700 hover:to-indigo-700 shadow-md shadow-blue-500/20 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 touch-target"
+                >
+                  {isGeneratingPreview ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Generating Preview...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-4 h-4" />
+                      <span>View Receipt In-App</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Direct Download Receipt */}
                 <button
                   type="button"
                   onClick={() => handleDownloadReceipt(selectedTxDetail)}
                   disabled={isDownloadingReceipt}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-[13px] hover:from-blue-700 hover:to-indigo-700 shadow-md shadow-blue-500/20 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                  className="w-full min-h-[44px] py-2.5 px-3 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[13px] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 touch-target"
                 >
                   {isDownloadingReceipt ? (
                     <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Generating Receipt...</span>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Downloading PNG...</span>
                     </>
                   ) : (
                     <>
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-4 h-4" />
                       <span>Download Receipt (PNG)</span>
                     </>
                   )}
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleShareReceipt(selectedTxDetail)}
+                    disabled={isSharingReceipt}
+                    className="min-h-[42px] py-2 px-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-[11.5px] transition-colors flex items-center justify-center gap-1 cursor-pointer touch-target"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Share</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handlePrintReceipt(selectedTxDetail)}
-                    className="flex-1 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-[12px] transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                    className="min-h-[42px] py-2 px-1 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-[11.5px] transition-colors flex items-center justify-center gap-1 cursor-pointer touch-target"
                   >
-                    <Printer className="w-3.5 h-3.5" />
+                    <Printer className="w-3.5 h-3.5 text-slate-600" />
                     <span>Print</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleCopy(selectedTxDetail.ref, `full-${selectedTxDetail.id}`)}
-                    className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-700 font-semibold text-[12px] hover:bg-slate-50 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                    className="min-h-[42px] py-2 px-1 rounded-xl border border-slate-200 text-slate-700 font-semibold text-[11.5px] hover:bg-slate-50 transition-colors flex items-center justify-center gap-1 cursor-pointer touch-target"
                   >
                     {copiedRef === `full-${selectedTxDetail.id}` ? (
                       <>
-                        <Check className="w-3 h-3 text-emerald-600" />
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
                         <span>Copied</span>
                       </>
                     ) : (
                       <>
-                        <Copy className="w-3 h-3 text-slate-400" />
+                        <Copy className="w-3.5 h-3.5 text-slate-400" />
                         <span>Copy Ref</span>
                       </>
                     )}
@@ -1484,9 +1507,88 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedTxDetail(null)}
-                  className="w-full py-2 rounded-xl bg-slate-900 text-white font-bold text-[12.5px] hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="w-full min-h-[44px] py-2 rounded-xl bg-slate-900 text-white font-bold text-[12.5px] hover:bg-slate-800 transition-colors cursor-pointer touch-target"
                 >
                   Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================================
+          MODAL F: IN-APP RECEIPT VIEWER SHEET (CAPACITOR & MOBILE READY)
+          ========================================================================= */}
+      <AnimatePresence>
+        {receiptPreviewUrl && receiptPreviewTx && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.94, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.94, opacity: 0 }}
+              className="w-full max-w-md bg-white rounded-[24px] p-4 sm:p-5 shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Receipt className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-[14px] font-bold text-[#1C1C1E] leading-tight">
+                      Official Receipt Preview
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-mono">
+                      {receiptPreviewTx.ref}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReceiptPreviewUrl(null);
+                    setReceiptPreviewTx(null);
+                  }}
+                  className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors cursor-pointer touch-target text-sm"
+                  aria-label="Close Preview"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Scrollable Receipt Preview Container */}
+              <div className="flex-1 overflow-y-auto rounded-xl bg-slate-50 border border-slate-200/80 p-2 sm:p-3 flex items-center justify-center">
+                <img
+                  src={receiptPreviewUrl}
+                  alt="Official Transaction Receipt"
+                  className="w-full max-w-[340px] rounded-lg shadow-md border border-slate-200 object-contain mx-auto"
+                />
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (receiptPreviewTx) handleDownloadReceipt(receiptPreviewTx);
+                  }}
+                  disabled={isDownloadingReceipt}
+                  className="min-h-[44px] py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-[12.5px] hover:from-blue-700 hover:to-indigo-700 active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer touch-target"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download PNG</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (receiptPreviewTx) handleShareReceipt(receiptPreviewTx);
+                  }}
+                  disabled={isSharingReceipt}
+                  className="min-h-[44px] py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-[12.5px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer touch-target"
+                >
+                  <Share2 className="w-4 h-4 text-blue-600" />
+                  <span>Share Receipt</span>
                 </button>
               </div>
             </motion.div>
@@ -1496,3 +1598,6 @@ export const WalletView: React.FC<WalletViewProps> = ({
     </div>
   );
 };
+
+export const PaymentsView = WalletView;
+

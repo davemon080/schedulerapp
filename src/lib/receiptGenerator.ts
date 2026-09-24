@@ -23,15 +23,14 @@ export function formatNaira(amount: number): string {
 }
 
 /**
- * Generates an official, high-resolution graphic receipt canvas (PNG)
- * and triggers direct browser file download for the student.
+ * Renders the official graphic receipt onto an HTML5 Canvas
  */
-export async function downloadTransactionReceiptPNG(
+export function renderReceiptCanvas(
   tx: WalletTransaction,
   session: UserSession | null,
   activeLevel: number | string = 100,
   activeSemester = '1st Semester'
-): Promise<boolean> {
+): HTMLCanvasElement | null {
   try {
     const studentName = session?.fullName || (session as any)?.name || 'Student';
     const studentMatric = session?.matricNumber || (session as any)?.matric_number || '2025/PS/ICH/0001';
@@ -47,7 +46,7 @@ export async function downloadTransactionReceiptPNG(
     canvas.height = height;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return false;
+    if (!ctx) return null;
 
     // 1. Background clean white with subtle warm border
     ctx.fillStyle = '#FFFFFF';
@@ -292,18 +291,57 @@ export async function downloadTransactionReceiptPNG(
     ctx.font = '500 10.5px system-ui, -apple-system, sans-serif';
     ctx.fillText('System Generated Receipt • No signature required • Powered by Campus Digital Wallet', width / 2, height - 26);
 
-    // 7. Convert canvas to PNG blob and trigger browser download
+    return canvas;
+  } catch (err) {
+    console.error('Error rendering receipt canvas:', err);
+    return null;
+  }
+}
+
+/**
+ * Generates an official, high-resolution graphic receipt canvas (PNG)
+ * and returns it as a Base64 data URL for instant in-app viewing or saving.
+ */
+export async function generateReceiptDataURL(
+  tx: WalletTransaction,
+  session: UserSession | null,
+  activeLevel: number | string = 100,
+  activeSemester = '1st Semester'
+): Promise<string | null> {
+  const canvas = renderReceiptCanvas(tx, session, activeLevel, activeSemester);
+  if (!canvas) return null;
+  return canvas.toDataURL('image/png', 1.0);
+}
+
+/**
+ * Generates an official, high-resolution graphic receipt canvas (PNG)
+ * and triggers direct browser file download for the student.
+ */
+export async function downloadTransactionReceiptPNG(
+  tx: WalletTransaction,
+  session: UserSession | null,
+  activeLevel: number | string = 100,
+  activeSemester = '1st Semester'
+): Promise<boolean> {
+  try {
+    const canvas = renderReceiptCanvas(tx, session, activeLevel, activeSemester);
+    if (!canvas) return false;
+
+    // Convert canvas to PNG blob and trigger browser download
     return new Promise((resolve) => {
       canvas.toBlob((blob) => {
         if (!blob) {
           resolve(false);
           return;
         }
+        const cleanRef = (tx.ref || tx.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `Receipt_${cleanRef}.png`;
+
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        const cleanRef = (tx.ref || tx.id).replace(/[^a-zA-Z0-9_-]/g, '_');
-        link.download = `Receipt_${cleanRef}.png`;
+        link.download = filename;
         link.href = url;
+        link.target = '_self';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -313,6 +351,68 @@ export async function downloadTransactionReceiptPNG(
     });
   } catch (err) {
     console.error('Error generating transaction receipt:', err);
+    return false;
+  }
+}
+
+/**
+ * Shares or saves transaction receipt using Native Web Share API if supported on Android/iOS,
+ * or falls back to direct download.
+ */
+export async function shareTransactionReceipt(
+  tx: WalletTransaction,
+  session: UserSession | null,
+  activeLevel: number | string = 100,
+  activeSemester = '1st Semester'
+): Promise<boolean> {
+  try {
+    const canvas = renderReceiptCanvas(tx, session, activeLevel, activeSemester);
+    if (!canvas) return false;
+
+    const cleanRef = (tx.ref || tx.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Receipt_${cleanRef}.png`;
+
+    return new Promise((resolve) => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          resolve(false);
+          return;
+        }
+
+        if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
+          try {
+            const file = new File([blob], filename, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                title: `Receipt - ${tx.ref || tx.id}`,
+                text: `Official Campus Payment Receipt for ${tx.title} (${formatNaira(tx.amount)})`,
+                files: [file],
+              });
+              resolve(true);
+              return;
+            }
+          } catch (e: any) {
+            if (e.name === 'AbortError') {
+              resolve(true);
+              return;
+            }
+          }
+        }
+
+        // Fallback to standard download
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        resolve(true);
+      }, 'image/png', 1.0);
+    });
+  } catch (err) {
+    console.error('Error sharing receipt:', err);
     return false;
   }
 }

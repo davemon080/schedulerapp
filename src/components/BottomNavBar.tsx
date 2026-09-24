@@ -29,7 +29,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   isPaid = true,
 }) => {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 flex justify-center px-4 pb-4 pt-2 pointer-events-none">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 flex justify-center px-3 sm:px-4 pb-[max(0.85rem,env(safe-area-inset-bottom,0px))] pt-2 pointer-events-none">
       <div className="w-full max-w-md glass-container-solid rounded-[32px] px-2 py-1.5 shadow-[0_12px_40px_rgba(0,0,0,0.12)] border border-white flex items-center justify-between pointer-events-auto backdrop-blur-2xl bg-white/85">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
@@ -41,7 +41,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
               key={item.id}
               onClick={() => onSelectTab(item.id)}
               whileTap={{ scale: 0.92 }}
-              className={`flex flex-col items-center justify-center flex-1 py-1.5 px-1 rounded-[20px] cursor-pointer relative group transition-colors duration-200 ${
+              className={`flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-[20px] cursor-pointer relative group transition-colors duration-200 min-h-[48px] touch-target ${
                 isActive ? 'text-[#007AFF]' : 'text-[#8E8E93] hover:text-[#1C1C1E]'
               }`}
             >

@@ -27,7 +27,10 @@ import {
   Layers,
   AlertTriangle,
   RefreshCw,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Lock,
+  Unlock,
+  XCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -40,7 +43,9 @@ import {
   bulkClearStudentTransactions,
   bulkResetStudentWallets,
   bulkResetStudentProfilePics,
-  bulkResetStudentNotifications
+  bulkResetStudentNotifications,
+  revokeStudentSemesterAccess,
+  grantStudentSemesterAccess
 } from '../lib/dbService';
 import { StudentDetailsModal } from './StudentDetailsModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
@@ -56,6 +61,8 @@ interface AdminStudentsManagerProps {
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
   isRegistry?: boolean;
+  onRevokeAccess?: (student: StudentProfileRecord) => Promise<boolean>;
+  onGrantAccess?: (student: StudentProfileRecord) => Promise<boolean>;
   onRunBackgroundTask?: (
     taskTitle: string,
     taskFn: () => Promise<{ success: boolean; count?: number; message?: string; error?: string }>
@@ -74,6 +81,8 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   isAddModalOpen,
   setIsAddModalOpen,
   isRegistry = false,
+  onRevokeAccess,
+  onGrantAccess,
   onRunBackgroundTask,
   onManualSync,
 }) => {
@@ -595,6 +604,56 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     }
   };
 
+  // Bulk Revoke Semester Access
+  const handleBulkRevokeSemesterAccess = async () => {
+    if (selectedStudentIds.length === 0) return;
+    const targetIds = [...selectedStudentIds];
+    setActiveBulkModal(null);
+    setSelectedStudentIds([]);
+    setIsBulkProcessing(true);
+    let count = 0;
+    try {
+      for (const id of targetIds) {
+        const ok = await revokeStudentSemesterAccess(id);
+        if (ok) count++;
+      }
+      setBulkActionNotice(`Successfully revoked semester access for ${count} student(s) in Firestore.`);
+      if (onManualSync) {
+        await onManualSync();
+      }
+    } catch (e: any) {
+      setBulkActionNotice(`Error revoking semester access: ${e.message}`);
+    } finally {
+      setIsBulkProcessing(false);
+      setTimeout(() => setBulkActionNotice(null), 5000);
+    }
+  };
+
+  // Bulk Grant Semester Access
+  const handleBulkGrantSemesterAccess = async () => {
+    if (selectedStudentIds.length === 0) return;
+    const targetIds = [...selectedStudentIds];
+    setActiveBulkModal(null);
+    setSelectedStudentIds([]);
+    setIsBulkProcessing(true);
+    let count = 0;
+    try {
+      for (const id of targetIds) {
+        const ok = await grantStudentSemesterAccess(id, '1st Semester 2025/2026');
+        if (ok) count++;
+      }
+      setBulkActionNotice(`Successfully granted semester access for ${count} student(s) in Firestore.`);
+      if (onManualSync) {
+        await onManualSync();
+      }
+    } catch (e: any) {
+      setBulkActionNotice(`Error granting semester access: ${e.message}`);
+    } finally {
+      setIsBulkProcessing(false);
+      setTimeout(() => setBulkActionNotice(null), 5000);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       {/* Top Banner */}
@@ -980,6 +1039,24 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
               </button>
             )}
 
+            {/* Revoke Semester Access (Bulk) */}
+            <button
+              onClick={() => setActiveBulkModal('revoke_semester_access')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Revoke Access</span>
+            </button>
+
+            {/* Grant Semester Access (Bulk) */}
+            <button
+              onClick={() => setActiveBulkModal('grant_semester_access')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
+            >
+              <Unlock className="w-3.5 h-3.5" />
+              <span>Grant Access</span>
+            </button>
+
             {/* Reset Profile Picture */}
             <button
               onClick={() => setActiveBulkModal('reset_profile_pics')}
@@ -1054,13 +1131,14 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                 <th className="py-3 px-4">Email Address</th>
                 <th className="py-3 px-4">Department &amp; Level</th>
                 {!isRegistry && <th className="py-3 px-4">Wallet Balance</th>}
+                <th className="py-3 px-4">Semester Access</th>
                 <th className="py-3 px-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={isRegistry ? 6 : 7} className="py-12 text-center text-slate-400">
+                  <td colSpan={isRegistry ? 7 : 8} className="py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Users className="w-8 h-8 text-slate-300" />
                       <p className="text-sm font-semibold text-slate-600">No student records found</p>
@@ -1196,6 +1274,55 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                           </div>
                         </td>
                       )}
+                      <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
+                        {s.is_payed || s.is_paid || s.hasFreeAccess ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span className="max-w-[120px] truncate">{s.paid_semester || s.paidSemester || 'Active'}</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (window.confirm(`Revoke semester access for ${s.full_name || s.name || 'this student'}?`)) {
+                                  if (onRevokeAccess) {
+                                    await onRevokeAccess(s);
+                                  } else {
+                                    await revokeStudentSemesterAccess((s.id || s.uid || s.email || s.matric_number) as string);
+                                    if (onManualSync) await onManualSync();
+                                  }
+                                }
+                              }}
+                              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="Revoke semester access in database"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                              <XCircle className="w-3 h-3 text-rose-500 shrink-0" />
+                              <span>Locked</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (onGrantAccess) {
+                                  await onGrantAccess(s);
+                                } else {
+                                  await grantStudentSemesterAccess((s.id || s.uid || s.email || s.matric_number) as string, '1st Semester 2025/2026');
+                                  if (onManualSync) await onManualSync();
+                                }
+                              }}
+                              className="p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
+                              title="Grant semester access in database"
+                            >
+                              <Unlock className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3.5 px-5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         {!isRegistry ? (
                           <button
@@ -1681,6 +1808,136 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                       <>
                         <BellOff className="w-3.5 h-3.5" />
                         <span>Confirm Reset Notifications</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 5. Bulk Revoke Semester Access Modal */}
+      <AnimatePresence>
+        {activeBulkModal === 'revoke_semester_access' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-rose-100 text-rose-700 border border-rose-200">
+                    <Lock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Revoke Semester Access</h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200/80 text-xs text-rose-900 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-rose-950">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Immediate Access Restriction</span>
+                  </div>
+                  <p className="text-[11.5px] leading-relaxed">
+                    This will revoke semester access in Firestore for all {selectedStudentIds.length} selected students. Their access will be locked until fee payment or access is restored.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveBulkModal(null)}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkRevokeSemesterAccess}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isBulkProcessing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Revoking...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Revoke Access for {selectedStudentIds.length} Students</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 6. Bulk Grant Semester Access Modal */}
+      <AnimatePresence>
+        {activeBulkModal === 'grant_semester_access' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-2xl bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    <Unlock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-slate-900">Grant Semester Access</h4>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-xs text-emerald-900 space-y-1">
+                  <p className="text-[11.5px] leading-relaxed">
+                    This will grant active semester clearance in Firestore for all {selectedStudentIds.length} selected students without requiring individual payment.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveBulkModal(null)}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkGrantSemesterAccess}
+                    disabled={isBulkProcessing}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isBulkProcessing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Granting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="w-3.5 h-3.5" />
+                        <span>Grant Access for {selectedStudentIds.length} Students</span>
                       </>
                     )}
                   </button>

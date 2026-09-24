@@ -121,7 +121,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
         <motion.button
           whileTap={{ scale: 0.94 }}
           onClick={onBack}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/80 hover:bg-white text-[13px] font-semibold text-[#007AFF] border border-white/90 shadow-2xs transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-full bg-white/80 hover:bg-white text-[13px] font-semibold text-[#007AFF] border border-white/90 shadow-2xs transition-all cursor-pointer touch-target"
         >
           <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
           <span>Deadlines</span>
@@ -133,7 +133,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
               <motion.button
                 whileTap={{ scale: 0.94 }}
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 hover:bg-blue-100 text-[#007AFF] text-[12px] font-bold border border-blue-200/60 shadow-2xs transition-all cursor-pointer"
+                className="flex items-center gap-1 px-3.5 py-2 min-h-[40px] rounded-full bg-blue-50 hover:bg-blue-100 text-[#007AFF] text-[12px] font-bold border border-blue-200/60 shadow-2xs transition-all cursor-pointer touch-target"
                 title="Add photos or diagrams"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -152,7 +152,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
               <motion.button
                 whileTap={{ scale: 0.94 }}
                 onClick={() => onEdit(assignment)}
-                className="p-2 rounded-full bg-white/80 hover:bg-white text-slate-700 border border-white/90 shadow-2xs transition-all cursor-pointer"
+                className="p-2.5 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full bg-white/80 hover:bg-white text-slate-700 border border-white/90 shadow-2xs transition-all cursor-pointer touch-target"
                 title="Edit deadline"
               >
                 <Edit3 className="w-4 h-4" />
@@ -161,7 +161,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
               <motion.button
                 whileTap={{ scale: 0.94 }}
                 onClick={() => setIsConfirmDeleteOpen(true)}
-                className="p-2 rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer"
+                className="p-2.5 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full bg-red-50/80 hover:bg-red-100 text-red-600 border border-red-200/60 shadow-2xs transition-all cursor-pointer touch-target"
                 title="Delete deadline"
               >
                 <Trash2 className="w-4 h-4" />
@@ -343,7 +343,7 @@ export const AssignmentDetailsView: React.FC<AssignmentDetailsViewProps> = ({
             whileTap={{ scale: 0.96 }}
             whileHover={{ scale: 1.01 }}
             onClick={() => onToggleComplete(assignment.id)}
-            className={`w-full py-2.5 px-4 rounded-[18px] font-bold text-[13.5px] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
+            className={`w-full min-h-[46px] py-3 px-4 rounded-[18px] font-bold text-[13.5px] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm touch-target ${
               assignment.isCompleted
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
                 : 'bg-[#007AFF] hover:bg-[#0062cc] text-white shadow-blue-600/25'

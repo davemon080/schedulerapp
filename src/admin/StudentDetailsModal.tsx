@@ -32,7 +32,9 @@ import {
   History,
   Coins,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentProfileRecord, DepartmentRecord } from './types';
@@ -40,7 +42,9 @@ import { WalletTransaction } from '../types';
 import { 
   getStudentDepartmentInfo, 
   fetchUserWalletData, 
-  adminAdjustUserWalletBalance 
+  adminAdjustUserWalletBalance,
+  revokeStudentSemesterAccess,
+  grantStudentSemesterAccess
 } from '../lib/dbService';
 
 interface StudentDetailsModalProps {
@@ -78,6 +82,9 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
   const [isCourseRep, setIsCourseRep] = useState<boolean>(Boolean(student.iscourserep || student.isCourseRep));
   const [isAdmin, setIsAdmin] = useState<boolean>(Boolean(student.isadmin || student.isAdmin));
   const [isPayed, setIsPayed] = useState<boolean>(Boolean(student.is_payed ?? student.is_paid ?? true));
+  const [paidSemester, setPaidSemester] = useState<string>(student.paid_semester || student.paidSemester || '1st Semester 2025/2026');
+  const [isUpdatingAccess, setIsUpdatingAccess] = useState<boolean>(false);
+  const [accessSuccessMessage, setAccessSuccessMessage] = useState<string | null>(null);
   const [profilePicUrl, setProfilePicUrl] = useState<string>(
     student.profile_pic_url || (student as any).profileImage || student.profile_picture || student.profilePicture || student.photo_url || student.photoURL || ''
   );
@@ -216,6 +223,73 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
     }
   };
 
+  // Direct Semester Access Revocation
+  const handleDirectRevokeAccess = async () => {
+    if (!identifier) return;
+    setIsUpdatingAccess(true);
+    setErrorMessage(null);
+    try {
+      const ok = await revokeStudentSemesterAccess(identifier);
+      if (ok) {
+        setIsPayed(false);
+        setAccessSuccessMessage('Semester access revoked & updated in database.');
+        if (onUpdateStudent) {
+          await onUpdateStudent({
+            ...student,
+            is_paid: false,
+            is_payed: false,
+            hasFreeAccess: false,
+            paid_semester: null as any,
+            paidSemester: null as any,
+            paid_at: null as any,
+            paidAt: null as any,
+          });
+        }
+      } else {
+        setErrorMessage('Failed to revoke student semester access in database.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error revoking semester access.');
+    } finally {
+      setIsUpdatingAccess(false);
+      setTimeout(() => setAccessSuccessMessage(null), 3500);
+    }
+  };
+
+  // Direct Semester Access Grant
+  const handleDirectGrantAccess = async () => {
+    if (!identifier) return;
+    setIsUpdatingAccess(true);
+    setErrorMessage(null);
+    try {
+      const targetSem = paidSemester || '1st Semester 2025/2026';
+      const ok = await grantStudentSemesterAccess(identifier, targetSem);
+      if (ok) {
+        setIsPayed(true);
+        setAccessSuccessMessage(`Semester access granted for ${targetSem} & updated in database.`);
+        if (onUpdateStudent) {
+          await onUpdateStudent({
+            ...student,
+            is_paid: true,
+            is_payed: true,
+            hasFreeAccess: true,
+            paid_semester: targetSem,
+            paidSemester: targetSem,
+            paid_at: new Date().toISOString(),
+            paidAt: new Date().toISOString(),
+          });
+        }
+      } else {
+        setErrorMessage('Failed to grant student semester access in database.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error granting semester access.');
+    } finally {
+      setIsUpdatingAccess(false);
+      setTimeout(() => setAccessSuccessMessage(null), 3500);
+    }
+  };
+
   const handleSave = async () => {
     setErrorMessage(null);
     if (!email.trim() || !matricNumber.trim() || !fullName.trim()) {
@@ -253,6 +327,18 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
         is_payed: isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed,
         is_paid: isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed,
         hasFreeAccess: isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed,
+        paid_semester: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
+          ? (paidSemester || student.paid_semester || student.paidSemester || '1st Semester 2025/2026')
+          : null,
+        paidSemester: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
+          ? (paidSemester || student.paid_semester || student.paidSemester || '1st Semester 2025/2026')
+          : null,
+        paid_at: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
+          ? (student.paid_at || student.paidAt || new Date().toISOString())
+          : null,
+        paidAt: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
+          ? (student.paid_at || student.paidAt || new Date().toISOString())
+          : null,
         wallet_balance: isRegistry ? (typeof student.wallet_balance === 'number' ? student.wallet_balance : student.walletBalance || 0) : walletBalance,
         walletBalance: isRegistry ? (typeof student.wallet_balance === 'number' ? student.wallet_balance : student.walletBalance || 0) : walletBalance,
         profile_pic_url: profilePicUrl,
@@ -844,35 +930,100 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Free Semester Access Toggle */}
-                <div 
-                  onClick={() => setIsPayed(!isPayed)}
-                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
-                    isPayed 
-                      ? 'bg-emerald-50/80 border-emerald-200 shadow-xs' 
-                      : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className={`p-2 rounded-xl mt-0.5 ${isPayed ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                    <CreditCard className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-900">Free Semester Access</span>
+                {/* Semester Access & Entitlement Panel */}
+                <div className={`p-4 rounded-2xl border transition-all sm:col-span-2 ${
+                  isPayed 
+                    ? 'bg-emerald-50/80 border-emerald-200 shadow-xs' 
+                    : 'bg-rose-50/70 border-rose-200 hover:border-rose-300'
+                }`}>
+                  <div className="flex items-start justify-between flex-wrap gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className={`p-2.5 rounded-xl mt-0.5 shrink-0 ${isPayed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
+                        {isPayed ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900">Semester Portal Access</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10.5px] font-bold ${
+                            isPayed ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}>
+                            {isPayed ? 'ACCESS UNLOCKED' : 'ACCESS REVOKED / LOCKED'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                          {isPayed
+                            ? `Authorized access for ${paidSemester}. The student can view lecture schedules, materials, and deadlines.`
+                            : 'Access is suspended. The student will see the lock screen requiring semester clearance or fee payment.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         checked={isPayed}
                         onChange={(e) => setIsPayed(e.target.checked)}
-                        onClick={(e) => e.stopPropagation()}
                         className="w-4 h-4 text-emerald-600 rounded-sm border-slate-300 cursor-pointer"
+                        title="Toggle semester access"
                       />
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                      {isPayed
-                        ? 'Free 100% unlocked access granted for this semester without fee requirement.'
-                        : 'Revoke semester pass (locks portal modules until authorized).'}
-                    </p>
                   </div>
+
+                  {/* Active semester picker & One-Click DB Action Buttons */}
+                  <div className="mt-3 pt-3 border-t border-slate-200/70 flex items-center justify-between flex-wrap gap-2.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="text-[11px] font-semibold text-slate-600">Active Term:</label>
+                      <select
+                        value={paidSemester}
+                        onChange={(e) => setPaidSemester(e.target.value)}
+                        className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      >
+                        <option value="1st Semester 2025/2026">1st Semester 2025/2026</option>
+                        <option value="2nd Semester 2025/2026">2nd Semester 2025/2026</option>
+                        <option value="1st Semester 2024/2025">1st Semester 2024/2025</option>
+                        <option value="2nd Semester 2024/2025">2nd Semester 2024/2025</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isPayed ? (
+                        <button
+                          type="button"
+                          onClick={handleDirectRevokeAccess}
+                          disabled={isUpdatingAccess}
+                          className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isUpdatingAccess ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Lock className="w-3.5 h-3.5" />
+                          )}
+                          <span>Revoke Access Now</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleDirectGrantAccess}
+                          disabled={isUpdatingAccess}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isUpdatingAccess ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Unlock className="w-3.5 h-3.5" />
+                          )}
+                          <span>Grant Semester Access</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {accessSuccessMessage && (
+                    <div className="mt-2.5 p-2 rounded-lg bg-emerald-100/90 text-emerald-800 text-[11px] font-semibold flex items-center gap-1.5 border border-emerald-300">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                      <span>{accessSuccessMessage}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Administrator Role Toggle */}

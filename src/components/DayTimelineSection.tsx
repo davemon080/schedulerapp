@@ -60,16 +60,16 @@ export const DayTimelineSection: React.FC<DayTimelineSectionProps> = ({
           <button
             onClick={() => handleScroll('left')}
             aria-label="Previous days"
-            className="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-slate-600 active:scale-90 transition-all cursor-pointer"
+            className="w-8 h-8 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-slate-600 active:scale-90 transition-all cursor-pointer touch-target"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={() => handleScroll('right')}
             aria-label="Next days"
-            className="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-slate-600 active:scale-90 transition-all cursor-pointer"
+            className="w-8 h-8 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-slate-600 active:scale-90 transition-all cursor-pointer touch-target"
           >
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -90,7 +90,7 @@ export const DayTimelineSection: React.FC<DayTimelineSectionProps> = ({
               ref={isSelected ? activeBtnRef : null}
               onClick={() => onSelectDay(item.id)}
               whileTap={{ scale: 0.94 }}
-              className={`flex flex-col items-center justify-center py-2 px-1 rounded-[16px] cursor-pointer select-none relative transition-colors duration-150 w-full min-w-[42px] ${
+              className={`flex flex-col items-center justify-center py-2 px-1 rounded-[16px] cursor-pointer select-none relative transition-colors duration-150 w-full min-w-[38px] min-h-[56px] touch-target ${
                 isSelected
                   ? 'text-white z-10'
                   : isToday

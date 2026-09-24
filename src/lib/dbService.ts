@@ -89,6 +89,36 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   return errInfo;
 }
 
+/**
+ * Recursively sanitizes any payload object or array before writing to Firestore.
+ * Explicitly removes all keys whose value is undefined, preventing the error:
+ * "Unsupported field value: undefined"
+ */
+export function sanitizeFirestorePayload<T = any>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return null as any;
+  }
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeFirestorePayload(item)) as any;
+  }
+  if (typeof obj === 'object') {
+    if (obj instanceof Date) {
+      return obj;
+    }
+    const clean: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value === undefined) {
+        continue;
+      }
+      clean[key] = sanitizeFirestorePayload(value);
+    }
+    return clean as T;
+  }
+  return obj;
+}
+
 // Day conversion utilities
 export function mapDbDayToDayKey(dbDay: number | string | undefined): string {
   if (typeof dbDay === 'string') {
@@ -2689,7 +2719,36 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
       } catch {}
     }
 
+    // Auto-harmonize semester access flags (explicitly null out instead of undefined)
+    if (syncUpdates.is_paid === false || syncUpdates.is_payed === false || syncUpdates.hasFreeAccess === false) {
+      syncUpdates.is_paid = false;
+      syncUpdates.is_payed = false;
+      syncUpdates.hasFreeAccess = false;
+      syncUpdates.paid_semester = null;
+      syncUpdates.paidSemester = null;
+      syncUpdates.paid_at = null;
+      syncUpdates.paidAt = null;
+    } else if (syncUpdates.is_paid === true || syncUpdates.is_payed === true || syncUpdates.hasFreeAccess === true) {
+      syncUpdates.is_paid = true;
+      syncUpdates.is_payed = true;
+      syncUpdates.hasFreeAccess = true;
+      syncUpdates.paid_semester = syncUpdates.paid_semester || syncUpdates.paidSemester || '1st Semester 2025/2026';
+      syncUpdates.paidSemester = syncUpdates.paid_semester;
+      syncUpdates.paid_at = syncUpdates.paid_at || syncUpdates.paidAt || new Date().toISOString();
+      syncUpdates.paidAt = syncUpdates.paid_at;
+    } else {
+      if (syncUpdates.paid_semester === undefined) {
+        delete syncUpdates.paid_semester;
+      }
+      if (syncUpdates.paidSemester === undefined) {
+        delete syncUpdates.paidSemester;
+      }
+    }
+
     syncUpdates.updated_at = new Date().toISOString();
+
+    // Sanitize payload to guarantee no 'undefined' values reach Firestore
+    const cleanSyncUpdates = sanitizeFirestorePayload(syncUpdates);
 
     let updatedAny = false;
 
@@ -2698,7 +2757,7 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
       const docRef = doc(db, 'users', cleanId);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        await updateDoc(docRef, syncUpdates);
+        await updateDoc(docRef, cleanSyncUpdates);
         updatedAny = true;
       }
     } catch {}
@@ -2709,7 +2768,7 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
         const qEmail = query(collection(db, 'users'), where('email', '==', cleanEmail));
         const snapEmail = await getDocs(qEmail);
         for (const d of snapEmail.docs) {
-          await updateDoc(doc(db, 'users', d.id), syncUpdates);
+          await updateDoc(doc(db, 'users', d.id), cleanSyncUpdates);
           updatedAny = true;
         }
       } catch {}
@@ -2720,7 +2779,7 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
       const qMatric = query(collection(db, 'users'), where('matric_number', '==', cleanMatric));
       const snapMatric = await getDocs(qMatric);
       for (const d of snapMatric.docs) {
-        await updateDoc(doc(db, 'users', d.id), syncUpdates);
+        await updateDoc(doc(db, 'users', d.id), cleanSyncUpdates);
         updatedAny = true;
       }
     } catch {}
@@ -2728,13 +2787,208 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
     // 4. If doc doesn't exist yet, create with setDoc
     if (!updatedAny) {
       const docRef = doc(db, 'users', cleanId);
-      await setDoc(docRef, { ...syncUpdates, id: cleanId, uid: cleanId, email: cleanEmail, updated_at: new Date().toISOString() }, { merge: true });
+      await setDoc(docRef, sanitizeFirestorePayload({ ...cleanSyncUpdates, id: cleanId, uid: cleanId, email: cleanEmail, updated_at: new Date().toISOString() }), { merge: true });
       return true;
     }
 
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `users/${identifier}`);
+    return false;
+  }
+}
+
+/**
+ * Admin action: Revokes a student's semester access in Firestore.
+ * Sets is_paid = false, is_payed = false, hasFreeAccess = false,
+ * and sets paid_semester = null, paidSemester = null, paid_at = null in database.
+ * Also cleans up any semester_access grants.
+ */
+export async function revokeStudentSemesterAccess(identifier: string): Promise<boolean> {
+  try {
+    if (!identifier) return false;
+    const cleanId = identifier.trim();
+    const cleanEmail = cleanId.toLowerCase();
+    const cleanMatric = cleanId.toUpperCase();
+    const now = new Date().toISOString();
+
+    const revocationUpdates = {
+      is_paid: false,
+      is_payed: false,
+      hasFreeAccess: false,
+      paid_semester: null,
+      paidSemester: null,
+      paid_at: null,
+      paidAt: null,
+      updated_at: now,
+    };
+
+    let updatedAny = false;
+
+    // 1. Update by UID / doc ID
+    try {
+      const docRef = doc(db, 'users', cleanId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        await updateDoc(docRef, revocationUpdates);
+        updatedAny = true;
+      }
+    } catch {}
+
+    // 2. Update by email
+    if (cleanEmail.includes('@')) {
+      try {
+        const qEmail = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const snapEmail = await getDocs(qEmail);
+        for (const d of snapEmail.docs) {
+          await updateDoc(doc(db, 'users', d.id), revocationUpdates);
+          updatedAny = true;
+        }
+      } catch {}
+    }
+
+    // 3. Update by matric number
+    try {
+      const qMatric = query(collection(db, 'users'), where('matric_number', '==', cleanMatric));
+      const snapMatric = await getDocs(qMatric);
+      for (const d of snapMatric.docs) {
+        await updateDoc(doc(db, 'users', d.id), revocationUpdates);
+        updatedAny = true;
+      }
+    } catch {}
+
+    // 4. Remove active grants from semester_access collection
+    try {
+      const qGrant1 = query(collection(db, 'semester_access'), where('user_id', '==', cleanId));
+      const snap1 = await getDocs(qGrant1);
+      for (const d of snap1.docs) {
+        await deleteDoc(doc(db, 'semester_access', d.id));
+      }
+    } catch {}
+
+    // 5. Update local storage if current active user
+    try {
+      const rawUser = localStorage.getItem('university_schedule_user');
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        if (
+          u.id === cleanId ||
+          u.uid === cleanId ||
+          u.email?.toLowerCase() === cleanEmail ||
+          u.matric_number?.toUpperCase() === cleanMatric ||
+          u.matricNumber?.toUpperCase() === cleanMatric
+        ) {
+          const updated = {
+            ...u,
+            is_paid: false,
+            is_payed: false,
+            hasFreeAccess: false,
+            paid_semester: undefined,
+            paid_at: undefined,
+          };
+          localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+          window.dispatchEvent(new Event('storage'));
+        }
+      }
+    } catch {}
+
+    return updatedAny;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${identifier}/revoke-access`);
+    return false;
+  }
+}
+
+/**
+ * Admin action: Grants a student semester access in Firestore.
+ * Sets is_paid = true, is_payed = true, hasFreeAccess = true,
+ * and sets paid_semester = semesterCode in database.
+ */
+export async function grantStudentSemesterAccess(
+  identifier: string,
+  semester: string = '1st Semester 2025/2026'
+): Promise<boolean> {
+  try {
+    if (!identifier) return false;
+    const cleanId = identifier.trim();
+    const cleanEmail = cleanId.toLowerCase();
+    const cleanMatric = cleanId.toUpperCase();
+    const now = new Date().toISOString();
+
+    const grantUpdates = {
+      is_paid: true,
+      is_payed: true,
+      hasFreeAccess: true,
+      paid_semester: semester,
+      paidSemester: semester,
+      paid_at: now,
+      paidAt: now,
+      updated_at: now,
+    };
+
+    let updatedAny = false;
+
+    // 1. Update by UID / doc ID
+    try {
+      const docRef = doc(db, 'users', cleanId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        await updateDoc(docRef, grantUpdates);
+        updatedAny = true;
+      }
+    } catch {}
+
+    // 2. Update by email
+    if (cleanEmail.includes('@')) {
+      try {
+        const qEmail = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const snapEmail = await getDocs(qEmail);
+        for (const d of snapEmail.docs) {
+          await updateDoc(doc(db, 'users', d.id), grantUpdates);
+          updatedAny = true;
+        }
+      } catch {}
+    }
+
+    // 3. Update by matric number
+    try {
+      const qMatric = query(collection(db, 'users'), where('matric_number', '==', cleanMatric));
+      const snapMatric = await getDocs(qMatric);
+      for (const d of snapMatric.docs) {
+        await updateDoc(doc(db, 'users', d.id), grantUpdates);
+        updatedAny = true;
+      }
+    } catch {}
+
+    // 4. Update local storage if current active user
+    try {
+      const rawUser = localStorage.getItem('university_schedule_user');
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        if (
+          u.id === cleanId ||
+          u.uid === cleanId ||
+          u.email?.toLowerCase() === cleanEmail ||
+          u.matric_number?.toUpperCase() === cleanMatric ||
+          u.matricNumber?.toUpperCase() === cleanMatric
+        ) {
+          const updated = {
+            ...u,
+            is_paid: true,
+            is_payed: true,
+            hasFreeAccess: true,
+            paid_semester: semester,
+            paid_at: now,
+          };
+          localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+          window.dispatchEvent(new Event('storage'));
+        }
+      }
+    } catch {}
+
+    return updatedAny;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `users/${identifier}/grant-access`);
     return false;
   }
 }
@@ -4604,6 +4858,181 @@ export async function paySemesterAccessWithWallet(
     return {
       success: false,
       error: error?.message || 'Failed to process semester fee deduction in database.',
+    };
+  }
+}
+
+/**
+ * Verifies a Paystack transaction reference with the server-side verification endpoint,
+ * and upon verified success, activates semester access in Firestore.
+ * Grants semester access ONLY after backend verification confirms transaction status is 'success'.
+ */
+export async function recordVerifiedSemesterPayment(
+  identifier: string,
+  paystackReference: string,
+  semesterCode = '1st Semester 2025/2026',
+  feeAmount = 2000
+): Promise<{ success: boolean; error?: string; transaction?: WalletTransaction; student?: any; alreadyProcessed?: boolean }> {
+  try {
+    if (!identifier || !identifier.trim()) {
+      return { success: false, error: 'Student identifier is required.' };
+    }
+    if (!paystackReference || !paystackReference.trim()) {
+      return { success: false, error: 'Paystack transaction reference is required.' };
+    }
+
+    const cleanRef = paystackReference.trim();
+
+    // 1. Secure server-side verification with Paystack gateway via backend endpoint
+    try {
+      const verifyRes = await fetch(`/api/paystack/verify/${encodeURIComponent(cleanRef)}`);
+      const verifyData = await verifyRes.json();
+
+      if (!verifyRes.ok || !verifyData.status || !verifyData.success || verifyData.data?.status !== 'success') {
+        const errorMsg =
+          verifyData.message ||
+          verifyData.data?.gateway_response ||
+          'Payment could not be verified with Paystack. Transaction status is not confirmed.';
+        return { success: false, error: errorMsg };
+      }
+
+      const verifiedAmount = Number(verifyData.data?.amount);
+      if (verifiedAmount > 0 && verifiedAmount < feeAmount) {
+        return {
+          success: false,
+          error: `Verified payment amount (₦${verifiedAmount.toLocaleString()}) is less than the required semester fee (₦${feeAmount.toLocaleString()}).`,
+        };
+      }
+    } catch (netErr: any) {
+      console.error('Backend Paystack verification fetch error:', netErr);
+      return {
+        success: false,
+        error: 'Unable to connect to the payment verification service. Please check your internet connection.',
+      };
+    }
+
+    // 2. Resolve authenticated student in database
+    const resolved = await resolveUserDocRef(identifier);
+    if (!resolved) {
+      return { success: false, error: 'Student account could not be found in the database.' };
+    }
+
+    const { docId, docRef, data } = resolved;
+    const now = new Date();
+    const dateFormatted = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const txId = `tx-ps-${cleanRef}`;
+
+    const newTx: WalletTransaction = {
+      id: txId,
+      user_id: docId,
+      type: 'debit',
+      title: `Semester App Access (${semesterCode})`,
+      category: 'access',
+      amount: feeAmount,
+      date: dateFormatted,
+      timestamp: now.getTime(),
+      ref: cleanRef,
+      status: 'Success',
+      recipientOrSender: 'Academic Portal Treasury',
+      note: `Paystack Verified (${cleanRef}) - Active Semester Access`,
+      created_at: now.toISOString(),
+    };
+
+    // 3. Update student document with verified paid status in Firestore
+    await updateDoc(docRef, {
+      is_paid: true,
+      is_payed: true,
+      paid_semester: semesterCode,
+      paid_at: now.toISOString(),
+      paystack_reference: cleanRef,
+      updated_at: now.toISOString(),
+    });
+
+    // 4. Persist transaction record in student subcollection and audit collection
+    try {
+      await setDoc(doc(db, 'users', docId, 'transactions', txId), newTx);
+    } catch (e) {
+      console.warn('Notice saving user transaction subcollection:', e);
+    }
+
+    try {
+      await setDoc(doc(db, 'wallet_transactions', txId), {
+        ...newTx,
+        student_email: data.email || '',
+        matric_number: data.matric_number || data.matricNumber || '',
+        paystack_reference: cleanRef,
+      });
+    } catch (e) {
+      console.warn('Notice saving wallet_transactions audit record:', e);
+    }
+
+    // 5. Write active grant record in semester_access collection
+    const accessKey = `${docId}_${semesterCode.replace(/[\s\/]/g, '_')}`;
+    try {
+      await setDoc(doc(db, 'semester_access', accessKey), {
+        user_id: docId,
+        student_email: data.email || '',
+        matric_number: data.matric_number || data.matricNumber || '',
+        semester_code: semesterCode,
+        status: 'active',
+        fee_paid: feeAmount,
+        paystack_ref: cleanRef,
+        created_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Notice saving semester_access record:', e);
+    }
+
+    // 6. Update local session cache if matching current user
+    try {
+      const savedUserRaw = localStorage.getItem('university_schedule_user');
+      if (savedUserRaw) {
+        const parsed = JSON.parse(savedUserRaw);
+        const userMatches =
+          parsed.uid === docId ||
+          parsed.id === docId ||
+          parsed.matricNumber === data.matric_number ||
+          parsed.email === data.email;
+
+        if (userMatches) {
+          const updated = {
+            ...parsed,
+            is_paid: true,
+            is_payed: true,
+            paid_semester: semesterCode,
+            paid_at: now.toISOString(),
+            paystack_reference: cleanRef,
+          };
+          localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+        }
+      }
+    } catch (e) {}
+
+    // 7. Update transaction local cache
+    try {
+      const cacheKey = `wallet_txns_${docId}`;
+      const rawCache = localStorage.getItem(cacheKey);
+      const existingTxns: WalletTransaction[] = rawCache ? JSON.parse(rawCache) : [];
+      const updatedTxns = [newTx, ...existingTxns.filter((t) => t.id !== txId && t.ref !== cleanRef)];
+      localStorage.setItem(cacheKey, JSON.stringify(updatedTxns));
+    } catch (e) {}
+
+    return {
+      success: true,
+      transaction: newTx,
+      student: {
+        ...data,
+        is_paid: true,
+        is_payed: true,
+        paid_semester: semesterCode,
+      },
+    };
+  } catch (error: any) {
+    handleFirestoreError(error, OperationType.UPDATE, `users/payment/record-verified/${identifier}`);
+    return {
+      success: false,
+      error: error?.message || 'Failed to record verified semester payment in database.',
     };
   }
 }

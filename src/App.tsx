@@ -57,6 +57,7 @@ import {
   recordOrUpdateDeadlineDeletedNotification,
   recordOrUpdateBroadcastDeletedNotification,
 } from './lib/dbService';
+import { PaymentPage } from './components/PaymentPage';
 import { CourseRecord, DepartmentRecord } from '@admin/types';
 import { CourseFormData } from './components/AddCourseModal';
 import { getStudentActiveLevel, getStudentActiveSemester } from './lib/academicScope';
@@ -78,11 +79,26 @@ export default function App() {
     );
   };
 
+  const checkIsPaymentRoute = () => {
+    if (typeof window === 'undefined') return false;
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    const search = window.location.search.toLowerCase();
+    return (
+      path.startsWith('/payment') ||
+      path.startsWith('/pay') ||
+      hash.includes('payment') ||
+      search.includes('view=payment')
+    );
+  };
+
   const [isAdminView, setIsAdminView] = useState<boolean>(() => checkIsAdminRoute());
+  const [isPaymentView, setIsPaymentView] = useState<boolean>(() => checkIsPaymentRoute());
 
   useEffect(() => {
     const handleUrlChange = () => {
       setIsAdminView(checkIsAdminRoute());
+      setIsPaymentView(checkIsPaymentRoute());
     };
     window.addEventListener('popstate', handleUrlChange);
     window.addEventListener('hashchange', handleUrlChange);
@@ -1634,6 +1650,96 @@ export default function App() {
     },
   };
 
+  // Refresh student payment status from database whenever app gains focus or becomes visible
+  useEffect(() => {
+    // Check if returning from payment success callback
+    if (typeof window !== 'undefined' && window.location.search.includes('payment_success')) {
+      const handleReturnSuccess = async () => {
+        try {
+          const raw = localStorage.getItem('university_schedule_user');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            setUserSession((prev) => {
+              const base = prev || (parsed as UserSession);
+              return {
+                ...base,
+                ...parsed,
+                isLoggedIn: true,
+                is_paid: true,
+                is_payed: true,
+              };
+            });
+            const id = parsed.uid || parsed.matricNumber || parsed.email;
+            if (id) {
+              const fresh = await fetchStudentByEmailOrMatric(id);
+              if (fresh) {
+                setUserSession((prev) => {
+                  if (!prev) return null;
+                  return {
+                    ...prev,
+                    ...fresh,
+                    fullName: fresh.full_name || fresh.fullName || prev.fullName,
+                    matricNumber: fresh.matric_number || fresh.matricNumber || prev.matricNumber,
+                    isLoggedIn: true,
+                    is_paid: true,
+                    is_payed: true,
+                  };
+                });
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Payment success return notice:', e);
+        }
+        try {
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, document.title, cleanUrl);
+        } catch {}
+      };
+      handleReturnSuccess();
+    }
+
+    const handleReverifyOnFocus = async () => {
+      if (document.visibilityState === 'visible' && userSession) {
+        const id = userSession.uid || userSession.matricNumber || userSession.email;
+        if (id) {
+          try {
+            const freshStudent = await fetchStudentByEmailOrMatric(id);
+            if (freshStudent) {
+              const isPaid = Boolean(
+                freshStudent.is_paid ||
+                freshStudent.is_payed ||
+                freshStudent.hasFreeAccess ||
+                freshStudent.iscourserep ||
+                freshStudent.isCourseRep ||
+                freshStudent.isadmin ||
+                freshStudent.isAdmin
+              );
+              setUserSession((prev) => {
+                if (!prev) return null;
+                const wasPaid = Boolean(prev.is_paid || prev.is_payed);
+                if (wasPaid === isPaid && prev.paid_semester === freshStudent.paid_semester) return prev;
+                return {
+                  ...prev,
+                  is_paid: isPaid,
+                  is_payed: isPaid,
+                  paid_semester: freshStudent.paid_semester,
+                };
+              });
+            }
+          } catch (e) {}
+        }
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleReverifyOnFocus);
+    window.addEventListener('focus', handleReverifyOnFocus);
+    return () => {
+      window.removeEventListener('visibilitychange', handleReverifyOnFocus);
+      window.removeEventListener('focus', handleReverifyOnFocus);
+    };
+  }, [userSession]);
+
   // Dedicated Desktop-Only Admin Dashboard Route (/adminschedulerapp)
   if (isAdminView) {
     return (
@@ -1675,7 +1781,7 @@ export default function App() {
     <ErrorBoundary fallbackTitle="Student Portal Safe Mode">
       <div className="min-h-screen bg-[#F5F5F7] text-[#1C1C1E] relative overflow-x-clip flex flex-col items-center">
         {/* Splash Screen */}
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {showSplash && (
             <SplashScreen
               onComplete={() => setShowSplash(false)}
@@ -1686,9 +1792,27 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Main Content: Authenticated Dashboard vs Login Screen */}
+        {/* Main Content: Authenticated Dashboard vs Login Screen vs Payment View */}
         {!userSession ? (
           <LoginPage onLogin={handleLogin} />
+        ) : isPaymentView ? (
+          <div className="w-full max-w-lg min-h-screen flex flex-col px-3.5 sm:px-4 py-4 sm:py-7 relative">
+            <PaymentPage
+              initialUserSession={userSession}
+              onReturnToApp={() => {
+                if (typeof window !== 'undefined') {
+                  if (window.location.pathname.startsWith('/payment') || window.location.pathname.startsWith('/pay')) {
+                    window.location.href = '/';
+                  } else {
+                    window.history.pushState(null, '', '/');
+                    setIsPaymentView(false);
+                  }
+                } else {
+                  setIsPaymentView(false);
+                }
+              }}
+            />
+          </div>
         ) : isDirectWalletOpen ? (
           <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-3 pb-20 relative">
             <WalletView
@@ -1698,6 +1822,10 @@ export default function App() {
               activeSemester={activeSemester}
               isCourseRep={isCourseRep}
               onSessionUpdated={handleUpdateUserSession}
+              onOpenPaymentPage={() => {
+                setIsDirectWalletOpen(false);
+                setIsPaymentView(true);
+              }}
             />
           </div>
         ) : (
@@ -1711,7 +1839,7 @@ export default function App() {
             <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-1 pb-32 relative">
               {/* Standalone User Profile Pill & Icons fixed in position hovering over content */}
               {activeTab !== 'Notifications' && (
-                <div className="fixed top-2.5 inset-x-0 max-w-lg mx-auto px-4 sm:px-5 z-40 pointer-events-none">
+                <div className="fixed top-2.5 inset-x-0 max-w-lg mx-auto px-4 sm:px-5 z-40 pointer-events-none safe-area-top">
                   <div className="pointer-events-auto">
                     <HeaderSection
                       onOpenNotifications={() => {
@@ -1742,7 +1870,7 @@ export default function App() {
               <div className={`space-y-4 flex-1 ${activeTab !== 'Notifications' ? 'pt-[84px] sm:pt-[88px]' : 'pt-2'}`}>
 
                 {/* Conditional View by Active Navigation Tab */}
-                <AnimatePresence mode="wait">
+                <AnimatePresence>
                   {!isPaidAccess && activeTab !== 'Profile' ? (
                     <motion.div
                       key="tab-locked-semester-access"
@@ -1756,6 +1884,9 @@ export default function App() {
                         activeSemester={activeSemester}
                         onOpenWallet={() => setIsDirectWalletOpen(true)}
                         onNavigateToProfile={() => setActiveTab('Profile')}
+                        onOpenPaymentPage={() => {
+                          setIsPaymentView(true);
+                        }}
                       />
                     </motion.div>
                   ) : activeTab === 'Schedule' ? (
@@ -1982,6 +2113,9 @@ export default function App() {
                           }
                           setIsAdminView(true);
                         }}
+                        onOpenPaymentPage={() => {
+                          setIsPaymentView(true);
+                        }}
                       />
                     </motion.div>
                   ) : null}
@@ -1999,7 +2133,7 @@ export default function App() {
                 activeTab !== 'Modules' &&
                 !(activeTab === 'Deadlines' && selectedAssignmentForDetails !== null) &&
                 !(activeTab === 'Broadcasts' && selectedBroadcastForDetails !== null) && (
-                  <div className="fixed bottom-[84px] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
+                  <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
                     <motion.button
                       key="floating-fab-btn"
                       initial={{ opacity: 0, scale: 0.75, y: 15 }}
