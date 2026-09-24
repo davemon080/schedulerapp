@@ -29,5 +29,34 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "src",
+    "admin"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "api",
+    "assets",
+    "src/components/AISparksPanel.tsx",
+    "src/components/AddEditPage.tsx",
+    "src/components/AdminDashboard.tsx",
+    "src/components/Announcements.tsx",
+    "src/components/AnonymousChatOverlay.tsx",
+    "src/components/CourseRepDashboard.tsx",
+    "src/components/CourseRepLogsView.tsx",
+    "src/components/DateScheduleView.tsx",
+    "src/components/LoginScreen.tsx",
+    "src/components/ModulesView.tsx",
+    "src/components/AssetGallery.tsx",
+    "src/components/CanvasStudio.tsx",
+    "src/components/DocsLab.tsx",
+    "src/components/FocusTimerModal.tsx",
+    "src/components/SprintBoard.tsx",
+    "src/components/TaskDetailDrawer.tsx",
+    "src/components/TaskModal.tsx",
+    "src/components/VelocityAnalytics.tsx",
+    "src/data/initialData.ts"
+  ]
 }

@@ -123,6 +123,8 @@
         "year_level": { "type": "string" },
         "isadmin": { "type": "boolean" },
         "iscourserep": { "type": "boolean" },
+        "profile_pic_url": { "type": "string" },
+        "profile_pic_storage_path": { "type": "string" },
         "created_at": { "type": "string" }
       },
       "required": ["email", "full_name"]

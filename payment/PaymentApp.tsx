@@ -58,17 +58,27 @@ export const PaymentApp: React.FC = () => {
     const paramUrl = queryParams.get('returnUrl') || queryParams.get('return_url');
     if (paramUrl) {
       try {
-        const decoded = decodeURIComponent(paramUrl);
-        // Ensure it's safe (starts with http, https, or relative /)
-        if (decoded.startsWith('http://') || decoded.startsWith('https://') || decoded.startsWith('/') || decoded.startsWith('scheduler://')) {
-          return decoded;
+        const decoded = decodeURIComponent(paramUrl).trim();
+        // Ensure it's safe and NEVER points back to Paystack or checkout links
+        if (
+          !decoded.toLowerCase().includes('paystack') &&
+          !decoded.toLowerCase().includes('/payment') &&
+          (decoded.startsWith('/') || decoded.startsWith(window.location.origin))
+        ) {
+          return decoded.startsWith('/') ? `${window.location.origin}${decoded}` : decoded;
         }
       } catch {
-        return paramUrl;
+        // Fallback to origin root
       }
     }
-    // Fallback: document referrer or origin root
-    if (document.referrer && !document.referrer.includes('/payment')) {
+
+    // NEVER use document.referrer if it's from paystack or external origin!
+    if (
+      document.referrer &&
+      !document.referrer.includes('/payment') &&
+      !document.referrer.toLowerCase().includes('paystack') &&
+      document.referrer.startsWith(window.location.origin)
+    ) {
       return document.referrer;
     }
     return `${window.location.origin}/`;
@@ -177,28 +187,37 @@ export const PaymentApp: React.FC = () => {
 
   // Handle Return Navigation to App
   const handleReturnToApp = useCallback(() => {
-    // If student was updated to paid, persist to local storage before navigating
-    if (student && (paymentStatus === 'success' || isAlreadyPaid)) {
+    const isPaid = paymentStatus === 'success' || isAlreadyPaid;
+
+    // 1. If student was updated to paid, persist to local storage before navigating
+    if (student) {
       try {
         const updated = {
           ...student,
-          is_paid: true,
-          is_payed: true,
-          paid_semester: activeSemesterCode,
+          is_paid: isPaid ? true : student.is_paid,
+          is_payed: isPaid ? true : student.is_payed,
+          paid_semester: isPaid ? activeSemesterCode : student.paid_semester,
+          paid_at: isPaid ? (student.paid_at || new Date().toISOString()) : student.paid_at,
         };
         localStorage.setItem('university_schedule_user', JSON.stringify(updated));
       } catch {}
     }
 
-    // Append flag so app can trigger celebration/welcome
+    // 2. Resolve safe target back to the main app interface (never back to Paystack checkout)
     let target = resolvedReturnUrl;
-    if (!target.includes('payment_success=true') && (paymentStatus === 'success' || isAlreadyPaid)) {
+    if (!target || target.toLowerCase().includes('paystack') || target.includes('/payment')) {
+      target = `${window.location.origin}/`;
+    }
+
+    // 3. Append payment flags so app immediately grants full semester access and welcomes student
+    if (isPaid) {
       const sep = target.includes('?') ? '&' : '?';
-      target = `${target}${sep}payment_success=true`;
+      const studentIdent = student?.matricNumber || student?.matric_number || student?.email || queryParams.get('student') || '';
+      target = `${target}${sep}payment_success=true&paid=true&semester=${encodeURIComponent(activeSemesterCode)}${studentIdent ? `&student=${encodeURIComponent(studentIdent)}` : ''}`;
     }
 
     window.location.href = target;
-  }, [student, paymentStatus, isAlreadyPaid, activeSemesterCode, resolvedReturnUrl]);
+  }, [student, paymentStatus, isAlreadyPaid, activeSemesterCode, resolvedReturnUrl, queryParams]);
 
   // Auto-countdown after payment success
   useEffect(() => {
@@ -437,10 +456,11 @@ export const PaymentApp: React.FC = () => {
     const studentLvl = student.level || 100;
     const txRef = `PS_SEM_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
-    // Build complete callback URL pointing back to this payment webpage
+    // Build complete callback URL pointing back to this payment webpage with safe returnUrl
     const currentOrigin = window.location.origin;
     const currentPath = window.location.pathname.endsWith('/') ? window.location.pathname : `${window.location.pathname}/`;
-    const callbackUrl = `${currentOrigin}${currentPath}?student=${encodeURIComponent(studentMatric)}&name=${encodeURIComponent(studentName)}&returnUrl=${encodeURIComponent(resolvedReturnUrl)}`;
+    const safeReturn = `${currentOrigin}/`;
+    const callbackUrl = `${currentOrigin}${currentPath}?student=${encodeURIComponent(studentMatric)}&name=${encodeURIComponent(studentName)}&returnUrl=${encodeURIComponent(safeReturn)}`;
 
     try {
       const response = await fetch('/api/paystack/initialize', {

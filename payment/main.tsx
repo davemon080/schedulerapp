@@ -5,9 +5,5 @@ import './styles.css';
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
-  ReactDOM.createRoot(rootElement).render(
-    <React.StrictMode>
-      <PaymentApp />
-    </React.StrictMode>
-  );
+  ReactDOM.createRoot(rootElement).render(<PaymentApp />);
 }

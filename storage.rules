@@ -1,0 +1,31 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Profile pictures: profilePictures/{userId}/{fileName}
+    match /profilePictures/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // User-uploaded images for broadcasts, announcements, and assignments
+    match /images/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Course materials and PDF documents
+    match /courseMaterials/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 50 * 1024 * 1024
+                   && (request.resource.contentType.matches('application/pdf') || request.resource.contentType.matches('.*'));
+    }
+
+    // General fallback for application assets
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 50 * 1024 * 1024;
+    }
+  }
+}
