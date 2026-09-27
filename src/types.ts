@@ -57,9 +57,12 @@ export interface UserSession {
   uid?: string;
   email: string;
   matricNumber: string;
+  matric_number?: string;
   fullName: string;
+  name?: string;
   department: string;
   department_id?: string;
+  department_code?: string;
   faculty?: string;
   yearLevel?: string;
   year_level?: string;
@@ -94,8 +97,30 @@ export interface UserSession {
   active_session_token?: string;
   last_active_at?: string;
   last_active_device?: string;
+  phone?: string;
+  phoneNumber?: string;
+  phone_number?: string;
+  address?: string;
+  privacy_settings?: StudentPrivacySettings;
+  privacySettings?: StudentPrivacySettings;
   isLoggedIn: boolean;
 }
+
+export interface StudentPrivacySettings {
+  showPhone: boolean;
+  showEmail: boolean;
+  showMatric: boolean;
+  showAddress: boolean;
+  showProfilePic: boolean;
+}
+
+export const DEFAULT_PRIVACY_SETTINGS: StudentPrivacySettings = {
+  showPhone: true,
+  showEmail: true,
+  showMatric: true,
+  showAddress: true,
+  showProfilePic: true,
+};
 
 export interface LevelAdvisorInfo {
   id?: string;
@@ -176,6 +201,7 @@ export interface NotificationItem {
   time: string;
   timeAgo?: string;
   isUnread: boolean;
+  isRead?: boolean;
   type?: 'alert' | 'info' | 'success' | 'activity';
   category?: 'schedule' | 'profile' | 'deadline' | 'system' | 'broadcast' | 'modules' | 'wallet';
   timestamp?: number;

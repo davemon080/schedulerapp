@@ -49,6 +49,9 @@ import {
 } from 'lucide-react';
 import GlassCard from './GlassCard';
 import { motion, AnimatePresence } from 'motion/react';
+import { dispatchCourseRepActivityPushNotification } from '../lib/pushNotificationClient';
+import { PdfViewerPage } from './PdfViewerPage';
+import { CoursePdfModule } from '@admin/types';
 
 export interface Course {
   id: string;
@@ -79,6 +82,11 @@ interface ModulesViewProps {
   matchedDepartment?: any;
   departments?: any[];
   onGetAIHelp?: (source: { type: 'pdf'; id: string; name: string; details?: string }) => void;
+  courses?: any[];
+  isLoading?: boolean;
+  onBackToSchedule?: () => void;
+  availableDepartments?: any[];
+  userSession?: any;
 }
 
 // Automatically convert common file hosting sharing links (like Google Drive, Dropbox) to direct raw PDF download endpoints
@@ -178,18 +186,61 @@ export default function ModulesView({
   repName,
   matchedDepartment,
   departments = [],
-  onGetAIHelp
+  onGetAIHelp,
+  courses: propCourses = [],
+  isLoading = false,
 }: ModulesViewProps) {
-  // Realtime lists
-  const [courses, setCourses] = useState<Course[]>([]);
+  // Realtime lists preloaded from app startup
+  const [courses, setCourses] = useState<Course[]>(() => {
+    if (propCourses && propCourses.length > 0) {
+      return propCourses.map((c: any) => ({
+        id: c.id,
+        courseCode: c.courseCode || c.code || '',
+        title: c.title || '',
+        description: c.description || '',
+        createdBy: c.createdBy || '',
+        createdAt: c.createdAt || c.created_at || '',
+        departmentId: c.departmentId || c.department_id || '',
+        pdfModules: c.pdfModules || c.pdfMaterials || [],
+        videoModules: c.videoModules || c.videoMaterials || [],
+      }));
+    }
+    try {
+      const cached = localStorage.getItem('app_cache_courses');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((c: any) => ({
+            id: c.id,
+            courseCode: c.courseCode || c.code || '',
+            title: c.title || '',
+            description: c.description || '',
+            createdBy: c.createdBy || '',
+            createdAt: c.createdAt || c.created_at || '',
+            departmentId: c.departmentId || c.department_id || '',
+            pdfModules: c.pdfModules || c.pdfMaterials || [],
+            videoModules: c.videoModules || c.videoMaterials || [],
+          }));
+        }
+      }
+    } catch {}
+    return [];
+  });
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [currentModules, setCurrentModules] = useState<PdfModule[]>([]);
   const [pdfCounts, setPdfCounts] = useState<{[courseId: string]: number}>({});
   const [videoCounts, setVideoCounts] = useState<{[courseId: string]: number}>({});
 
-  // Search & Loading
+  // Search & Loading: immediately false if courses are already loaded
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoadingCourses, setIsLoadingCourses] = useState(true);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(() => {
+    if (propCourses && propCourses.length > 0) return false;
+    try {
+      const cached = localStorage.getItem('app_cache_courses');
+      if (cached && JSON.parse(cached)?.length > 0) return false;
+    } catch {}
+    return isLoading;
+  });
   const [isLoadingModules, setIsLoadingModules] = useState(false);
 
   // Modal States
@@ -201,6 +252,7 @@ export default function ModulesView({
   const [courseVideos, setCourseVideos] = useState<any[]>([]);
   const [isLoadingVideos, setIsLoadingVideos] = useState(false);
   const [activeVideo, setActiveVideo] = useState<any | null>(null);
+  const [viewingPdfModule, setViewingPdfModule] = useState<CoursePdfModule | null>(null);
 
   // Add Video Input & UI Modals
   const [isAddingVideo, setIsAddingVideo] = useState(false);
@@ -240,7 +292,9 @@ export default function ModulesView({
 
   // 1. Fetch all courses in real-time
   useEffect(() => {
-    setIsLoadingCourses(true);
+    if (courses.length === 0) {
+      setIsLoadingCourses(true);
+    }
     const q = query(collection(db, 'courses'), orderBy('courseCode', 'asc'));
     const unsubscribe = onSnapshot(q, (snap) => {
       const list: Course[] = [];
@@ -294,14 +348,31 @@ export default function ModulesView({
     };
   }, [courses]);
 
-  // 2. Fetch modules for selected course
+  // 2. Fetch modules for selected course with zero-delay pre-seeding
   useEffect(() => {
     if (!selectedCourse) {
       setCurrentModules([]);
       return;
     }
 
-    setIsLoadingModules(true);
+    // Pre-populate immediately from course record if available (Zero wait!)
+    const preloadedPdfs: any[] = (selectedCourse as any).pdfModules || (selectedCourse as any).pdfMaterials;
+    if (Array.isArray(preloadedPdfs) && preloadedPdfs.length > 0) {
+      setCurrentModules(preloadedPdfs.map((p: any) => ({
+        id: p.id,
+        title: p.title,
+        pdfUrl: p.pdfUrl,
+        description: p.topic || p.description || '',
+        uploadedAt: p.uploadedAt || new Date().toISOString(),
+        createdBy: p.createdBy || 'Course Rep',
+        fileSize: p.fileSize || '',
+        views: p.views || 0,
+      })));
+      setIsLoadingModules(false);
+    } else {
+      setIsLoadingModules(true);
+    }
+
     const subColRef = collection(db, 'courses', selectedCourse.id, 'pdf-modules');
     const q = query(subColRef, orderBy('uploadedAt', 'desc'));
 
@@ -310,7 +381,9 @@ export default function ModulesView({
       snap.forEach((docSnap) => {
         list.push({ id: docSnap.id, ...docSnap.data() } as PdfModule);
       });
-      setCurrentModules(list);
+      if (list.length > 0) {
+        setCurrentModules(list);
+      }
       setIsLoadingModules(false);
     }, (err) => {
       console.error('Error listening to PDF modules:', err);
@@ -538,19 +611,14 @@ export default function ModulesView({
       );
 
       // Trigger background push notification for new PDF
-      try {
-        await fetch('/api/send-broadcast-push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: 'New PDF Handbook Uploaded 📚',
-            body: `Resource Available: "${titleClean}" has been successfully distributed by the Course Rep.`,
-            category: 'modules'
-          })
-        });
-      } catch (pushErr) {
+      dispatchCourseRepActivityPushNotification({
+        title: 'New PDF Handbook Uploaded 📚',
+        message: `Resource Available: "${titleClean}" has been successfully distributed by the Course Rep for ${selectedCourse.courseCode}.`,
+        category: 'modules',
+        department: selectedCourse.departmentId,
+      }).catch((pushErr) => {
         console.warn('Failed to dispatch module push:', pushErr);
-      }
+      });
 
       // Reset fields
       setNewModTitle('');
@@ -639,19 +707,14 @@ export default function ModulesView({
       );
 
       // Trigger standard background push notification
-      try {
-        await fetch('/api/send-broadcast-push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: `New Lecture Video Uploaded 🎥`,
-            body: `Video Lecture: "${videoTitle}" has been made available under ${selectedCourse.courseCode}.`,
-            category: 'modules'
-          })
-        });
-      } catch (pushErr) {
+      dispatchCourseRepActivityPushNotification({
+        title: 'New Lecture Video Uploaded 🎥',
+        message: `Video Lecture: "${videoTitle}" has been made available under ${selectedCourse.courseCode}.`,
+        category: 'modules',
+        department: selectedCourse.departmentId,
+      }).catch((pushErr) => {
         console.warn('Failed to dispatch video push:', pushErr);
-      }
+      });
 
       setNewVideoUrl('');
       setIsAddingVideo(false);
@@ -993,18 +1056,27 @@ export default function ModulesView({
                             </button>
                           )}
                           
-                          {/* FILE VIEWER LINK (EXTERNAL WEB VIEWER, NEW TAB) */}
-                          <a
-                            href={getPDFViewUrl(mod.pdfUrl)}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={() => handlePdfView(mod.id)}
+                          {/* VIEW PDF IN NATIVE VIEWER */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handlePdfView(mod.id);
+                              setViewingPdfModule({
+                                id: mod.id,
+                                title: mod.title,
+                                pdfUrl: mod.pdfUrl,
+                                topic: mod.description || '',
+                                fileSize: mod.fileSize || '',
+                                uploadedAt: mod.uploadedAt,
+                                views: mod.views || 0,
+                              });
+                            }}
                             className="p-1.5 bg-indigo-500/10 hover:bg-indigo-500/25 border border-indigo-500/20 rounded-lg text-indigo-400 transition-all flex items-center justify-center cursor-pointer pointer-events-auto outline-none"
-                            title="View PDF"
+                            title="Read in Native PDF Viewer"
                             id={`view-pdf-btn-${mod.id}`}
                           >
                             <Eye className="w-3.5 h-3.5" />
-                          </a>
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -1609,6 +1681,27 @@ export default function ModulesView({
           </div>
         </div>
       )}
+      {/* ----------------- NATIVE PDF VIEWER OVERLAY ----------------- */}
+      <AnimatePresence>
+        {viewingPdfModule && (
+          <PdfViewerPage
+            pdf={viewingPdfModule}
+            courseCode={selectedCourse?.courseCode || 'Course'}
+            courseTitle={selectedCourse?.title || ''}
+            allPdfs={modules.map((m) => ({
+              id: m.id,
+              title: m.title,
+              pdfUrl: m.pdfUrl,
+              topic: m.description || '',
+              fileSize: m.fileSize || '',
+              uploadedAt: m.uploadedAt,
+              views: m.views || 0,
+            }))}
+            onBack={() => setViewingPdfModule(null)}
+            onSelectPdf={(p) => setViewingPdfModule(p)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

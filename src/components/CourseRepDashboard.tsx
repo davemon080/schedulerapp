@@ -32,6 +32,7 @@ import {
   serverTimestamp 
 } from "firebase/firestore";
 import { UserRecord } from "../types";
+import { recordActivityNotification } from "../lib/dbService";
 
 // Dynamic types for Course Representative operations
 export interface ScheduleItem {
@@ -231,6 +232,18 @@ export default function CourseRepDashboard({
         `Created new real-time course instruction session scheduled on ${payload.day} at ${payload.time}.`
       );
 
+      // Instantly record activity notification and dispatch push notification to student devices
+      await recordActivityNotification({
+        title: `New Class Added: ${payload.courseCode}`,
+        message: `${payload.courseCode} (${payload.courseTitle}) scheduled for ${payload.day} at ${payload.time}. Venue: ${payload.venue}.`,
+        category: 'schedule',
+        type: 'activity',
+        department: currentUser?.department,
+        level: currentUser?.level,
+        author: currentUser?.fullName || currentUser?.name || currentUser?.email || 'Course Rep',
+        dispatchPush: true,
+      }).catch((e) => console.warn('[Push] Schedule notif notice:', e));
+
       // Clean form state
       setCourseCode("");
       setCourseTitle("");
@@ -270,6 +283,18 @@ export default function CourseRepDashboard({
         `Created academic tracker target. Category: ${payload.category}, Due: ${new Date(payload.dueDate).toLocaleString()}`
       );
 
+      // Instantly record activity notification and dispatch push notification to student devices
+      await recordActivityNotification({
+        title: `New ${payload.category}: ${payload.title}`,
+        message: `${payload.category} deadline set for ${new Date(payload.dueDate).toLocaleDateString()}. Priority: ${payload.priority}.`,
+        category: 'deadline',
+        type: payload.priority === 'High' ? 'alert' : 'info',
+        department: currentUser?.department,
+        level: currentUser?.level,
+        author: currentUser?.fullName || currentUser?.name || currentUser?.email || 'Course Rep',
+        dispatchPush: true,
+      }).catch((e) => console.warn('[Push] Deadline notif notice:', e));
+
       // Clean
       setDeadlineTitle("");
       setDeadlineDate("");
@@ -305,6 +330,18 @@ export default function CourseRepDashboard({
         "info",
         `Posted class-wide notifications message. Severity: ${payload.priority.toUpperCase()}`
       );
+
+      // Instantly record activity notification and dispatch push notification to student devices
+      await recordActivityNotification({
+        title: `Broadcast: ${payload.title}`,
+        message: payload.content,
+        category: 'broadcast',
+        type: payload.priority === 'Urgent' ? 'alert' : 'info',
+        department: currentUser?.department,
+        level: currentUser?.level,
+        author: currentUser?.fullName || currentUser?.name || currentUser?.email || 'Course Rep',
+        dispatchPush: true,
+      }).catch((e) => console.warn('[Push] Broadcast notif notice:', e));
 
       setBroadcastTitle("");
       setBroadcastContent("");
@@ -353,60 +390,6 @@ export default function CourseRepDashboard({
       );
     } catch (err: any) {
       console.warn(err);
-    }
-  };
-
-  // Seeder to quickly initialize interactive data if the dashboard views are currently empty
-  const handleSeedCourseRepData = async () => {
-    try {
-      // Seed Class Schedules
-      const sampleSchedules = [
-        { courseCode: "CSC 311", courseTitle: "Distributed Systems & Cloud Networks", day: "Monday", time: "09:00 AM - 11:30 AM", venue: "Engineering Amphitheatre B" },
-        { courseCode: "MAT 305", courseTitle: "Numerical Analysis & Computations", day: "Tuesday", time: "12:00 PM - 02:00 PM", venue: "Mathematics Block Lab 1" },
-        { courseCode: "CSC 315", courseTitle: "Artificial Intelligence & Heuristics", day: "Wednesday", time: "08:30 AM - 11:00 AM", venue: "New Computer Science Dome" },
-        { courseCode: "CSC 319", courseTitle: "Software Architecture & System Design", day: "Thursday", time: "02:30 PM - 05:00 PM", venue: "Hall of Scholars II" }
-      ];
-
-      for (const item of sampleSchedules) {
-        await addDoc(collection(db, "schedules"), {
-          ...item,
-          addedBy: currentUser?.email || "seeded@course.rep",
-          createdAt: new Date().toISOString()
-        });
-      }
-
-      // Seed Deadlines
-      const sampleDeadlines = [
-        { title: "Distributed Systems Lab Report 3", category: "Lab", dueDate: new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0], priority: "High", notes: "Submit PDF via LMS; must contain proof-of-work container charts." },
-        { title: "Midterm Comprehensive Examination", category: "Exam", dueDate: new Date(Date.now() + 86400000 * 7).toISOString().split("T")[0], priority: "High", notes: "Will cover chapters 1 to 5. Bring scientific calculators." },
-        { title: "AI Pacman Agent Script Project", category: "Project", dueDate: new Date(Date.now() + 86400000 * 14).toISOString().split("T")[0], priority: "Medium", notes: "Group work upload. Max 3 members per project folder." }
-      ];
-
-      for (const item of sampleDeadlines) {
-        await addDoc(collection(db, "deadlines"), {
-          ...item,
-          addedBy: currentUser?.email || "seeded@course.rep",
-          createdAt: new Date().toISOString()
-        });
-      }
-
-      // Seed Broadcast
-      await addDoc(collection(db, "broadcasts"), {
-        title: "Urgent Venue Update for AI Lectures",
-        content: "Please note that tomorrow's CSC 315 guest lecture has been shifted to the Main Senate Hall because the CS Dome is undergoing physical networking maintenance. Be seated by 08:15 AM sharp.",
-        priority: "Urgent",
-        addedBy: currentUser?.email || "seeded@course.rep",
-        createdAt: new Date().toISOString()
-      });
-
-      await logActivity(
-        "Seeded representative coordinates",
-        "system",
-        "success",
-        "Initialized schedules, deadlines, and announcement broadcasts in standard formats."
-      );
-    } catch (err: any) {
-      console.error(err);
     }
   };
 
@@ -491,19 +474,14 @@ export default function CourseRepDashboard({
                 Syncing schedules with cloud store...
               </div>
             ) : schedules.length === 0 ? (
-              <div className="py-12 border border-dashed border-white/[0.05] rounded-xl text-center space-y-3">
+              <div className="py-12 border border-dashed border-white/[0.05] rounded-xl text-center space-y-2">
                 <Layers className="h-8 w-8 text-slate-600 mx-auto" />
                 <div className="text-xs font-semibold text-slate-400">Class timetable is currently empty.</div>
-                {activeCourseRepAccess ? (
-                  <button
-                    onClick={handleSeedCourseRepData}
-                    className="text-[10px] font-bold text-indigo-400 hover:text-white underline cursor-pointer"
-                  >
-                    Load Sample Schedule & Lectures
-                  </button>
-                ) : (
-                  <p className="text-[10px] text-slate-500">Wait for your assigned Course Rep to write class registers.</p>
-                )}
+                <p className="text-[10px] text-slate-500">
+                  {activeCourseRepAccess 
+                    ? 'Use the "Create Academic Record" tab above to schedule lectures and practicals.' 
+                    : 'Your Course Representative has not published any lecture schedules for this period.'}
+                </p>
               </div>
             ) : (
               <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">

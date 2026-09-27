@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EventItem, DayTimelineItem } from '../types';
 import { X, Check, Clock, MapPin, Video, Globe, Building2, Link as LinkIcon, BookOpen, Layers, ChevronRight } from 'lucide-react';
 import { normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
-import { ClockTimePickerModal } from './ClockTimePickerModal';
 
 interface EventEditModalProps {
   isOpen: boolean;
@@ -31,15 +30,30 @@ function parseTimeTo24h(str?: string, defaultVal = '08:00'): string {
     if (isNaN(h)) return defaultVal;
     if (isPM && h < 12) h += 12;
     if (isAM && h === 12) h = 0;
-    return `${h.toString().padStart(2, '0')}:${m}`;
+    return `${Math.min(23, Math.max(0, h)).toString().padStart(2, '0')}:${m}`;
   }
   return defaultVal;
 }
 
+function clean24hHHMM(str?: string, defaultVal = '08:00'): string {
+  if (!str) return defaultVal;
+  const parts = str.trim().split(':');
+  if (parts.length >= 2) {
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (!isNaN(h) && !isNaN(m)) {
+      return `${Math.min(23, Math.max(0, h)).toString().padStart(2, '0')}:${Math.min(59, Math.max(0, m)).toString().padStart(2, '0')}`;
+    }
+  }
+  return parseTimeTo24h(str, defaultVal);
+}
+
 function format24hTo12h(time24: string): string {
   if (!time24) return '08:00 AM';
-  const parts = time24.split(':');
-  let h = parseInt(parts[0], 10) || 8;
+  const clean = clean24hHHMM(time24, '08:00');
+  const parts = clean.split(':');
+  const parsedH = parseInt(parts[0], 10);
+  let h = isNaN(parsedH) ? 8 : parsedH;
   const m = (parseInt(parts[1], 10) || 0).toString().padStart(2, '0');
   const ampm = h >= 12 ? 'PM' : 'AM';
   h = h % 12;
@@ -84,10 +98,6 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
   const [location, setLocation] = useState('Lecture Theatre 1');
   const [isPostponed, setIsPostponed] = useState(false);
 
-  // Clock picker popup state
-  const [isClockPickerOpen, setIsClockPickerOpen] = useState(false);
-  const [clockPickerTarget, setClockPickerTarget] = useState<'start' | 'end'>('start');
-
   // Determine student's active department, level and semester
   const rawLevel = userSession?.level || userSession?.yearLevel;
   let activeLevel = 100;
@@ -109,7 +119,9 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
   const deptId = deptInfo.id;
 
   // Filter semester courses strictly by student department, level, and semester
-  const semesterCourses = filterCoursesForStudentScope(courses, deptId, activeLevel, activeSemester);
+  const semesterCourses = useMemo(() => {
+    return filterCoursesForStudentScope(courses, deptId, activeLevel, activeSemester);
+  }, [courses, deptId, activeLevel, activeSemester]);
 
   // Activities should not show in course dropdown on add schedule page
   const registeredCourses = useMemo(() => {
@@ -131,70 +143,87 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
   const matchedDayObj = days.find((d) => d.id === selectedDayKey);
   const displayDayLabel = matchedDayObj ? `${matchedDayObj.dayName}, ${matchedDayObj.fullDate}` : selectedDayKey;
 
+  // Track initialization so form values are never wiped while course rep is editing/selecting times
+  const hasInitializedRef = useRef(false);
+  const prevEventIdRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    if (event) {
-      const isOtherEvent =
-        !event.course ||
-        event.course.trim().toUpperCase() === 'OTHER' ||
-        event.tags?.some((t) => t.toLowerCase() === 'other');
+    if (!isOpen) {
+      hasInitializedRef.current = false;
+      prevEventIdRef.current = undefined;
+      return;
+    }
 
-      setCourse(isOtherEvent ? '' : event.course);
-      setTitle(event.title);
+    const isNewEventTarget = event?.id !== prevEventIdRef.current;
 
-      // Parse time range
-      if (event.time && event.time.includes('-')) {
-        const parts = event.time.split('-');
-        setStartTime(parseTimeTo24h(parts[0], '08:00'));
-        setEndTime(parseTimeTo24h(parts[1], '10:00'));
-      } else {
-        setStartTime(event.startTime ? event.startTime.substring(0, 5) : '08:00');
-        setEndTime(event.endTime ? event.endTime.substring(0, 5) : '10:00');
-      }
+    if (!hasInitializedRef.current || isNewEventTarget) {
+      hasInitializedRef.current = true;
+      prevEventIdRef.current = event?.id;
 
-      const isOnline = event.deliveryMode === 'online' ||
-        Boolean(event.meetingLink) ||
-        event.tags?.some(t => t.toLowerCase().includes('online')) ||
-        event.location?.toLowerCase().includes('meet') ||
-        event.location?.toLowerCase().includes('zoom');
+      if (event) {
+        const isOtherEvent =
+          !event.course ||
+          event.course.trim().toUpperCase() === 'OTHER' ||
+          event.tags?.some((t) => t.toLowerCase() === 'other');
 
-      setDeliveryMode(isOnline ? 'online' : 'physical');
-      setMeetingLink(event.meetingLink || '');
-      setLocation(event.location);
-      setIsPostponed(Boolean(event.isPostponed));
+        setCourse(isOtherEvent ? '' : event.course);
+        setTitle(event.title);
 
-      if (isOtherEvent) {
-        setActivityType('Other');
-      } else {
-        // Extract existing activity type if present in tags
-        const foundType = ACTIVITY_TYPES.find(
-          (at) => event.tags?.some((t) => t.toLowerCase() === at.id.toLowerCase() || t.toLowerCase() === at.label.toLowerCase())
-        );
-        if (foundType) {
-          setActivityType(foundType.id);
-        } else if (event.tags?.some((t) => t.toLowerCase().includes('test') || t.toLowerCase().includes('quiz'))) {
-          setActivityType('Test');
-        } else if (event.tags?.some((t) => t.toLowerCase().includes('exam'))) {
-          setActivityType('Exam');
-        } else if (event.tags?.some((t) => t.toLowerCase().includes('practical') || t.toLowerCase().includes('lab'))) {
-          setActivityType('Practicals');
-        } else if (event.tags?.some((t) => t.toLowerCase().includes('lecture') || t.toLowerCase().includes('class'))) {
-          setActivityType('Lecture');
+        // Parse time range
+        if (event.time && event.time.includes('-')) {
+          const parts = event.time.split('-');
+          setStartTime(parseTimeTo24h(parts[0], '08:00'));
+          setEndTime(parseTimeTo24h(parts[1], '10:00'));
         } else {
-          setActivityType('Other');
+          setStartTime(event.startTime ? clean24hHHMM(event.startTime, '08:00') : '08:00');
+          setEndTime(event.endTime ? clean24hHHMM(event.endTime, '10:00') : '10:00');
         }
+
+        const isOnline = event.deliveryMode === 'online' ||
+          Boolean(event.meetingLink) ||
+          event.tags?.some(t => t.toLowerCase().includes('online')) ||
+          event.location?.toLowerCase().includes('meet') ||
+          event.location?.toLowerCase().includes('zoom');
+
+        setDeliveryMode(isOnline ? 'online' : 'physical');
+        setMeetingLink(event.meetingLink || '');
+        setLocation(event.location);
+        setIsPostponed(Boolean(event.isPostponed));
+
+        if (isOtherEvent) {
+          setActivityType('Other');
+        } else {
+          // Extract existing activity type if present in tags
+          const foundType = ACTIVITY_TYPES.find(
+            (at) => event.tags?.some((t) => t.toLowerCase() === at.id.toLowerCase() || t.toLowerCase() === at.label.toLowerCase())
+          );
+          if (foundType) {
+            setActivityType(foundType.id);
+          } else if (event.tags?.some((t) => t.toLowerCase().includes('test') || t.toLowerCase().includes('quiz'))) {
+            setActivityType('Test');
+          } else if (event.tags?.some((t) => t.toLowerCase().includes('exam'))) {
+            setActivityType('Exam');
+          } else if (event.tags?.some((t) => t.toLowerCase().includes('practical') || t.toLowerCase().includes('lab'))) {
+            setActivityType('Practicals');
+          } else if (event.tags?.some((t) => t.toLowerCase().includes('lecture') || t.toLowerCase().includes('class'))) {
+            setActivityType('Lecture');
+          } else {
+            setActivityType('Other');
+          }
+        }
+      } else {
+        const initialCourse = registeredCourses.length > 0 ? (registeredCourses[0].courseCode || registeredCourses[0].code) : '';
+        const initialTitle = registeredCourses.length > 0 ? (registeredCourses[0].title || registeredCourses[0].name) : 'Academic';
+        setCourse(initialCourse);
+        setTitle(initialCourse ? `${initialTitle} Lecture` : 'General Activity');
+        setActivityType(initialCourse ? 'Lecture' : 'Other');
+        setStartTime('08:00');
+        setEndTime('10:00');
+        setDeliveryMode('physical');
+        setMeetingLink('');
+        setLocation('Lecture Theatre 1');
+        setIsPostponed(false);
       }
-    } else {
-      const initialCourse = registeredCourses.length > 0 ? (registeredCourses[0].courseCode || registeredCourses[0].code) : '';
-      const initialTitle = registeredCourses.length > 0 ? (registeredCourses[0].title || registeredCourses[0].name) : 'Academic';
-      setCourse(initialCourse);
-      setTitle(initialCourse ? `${initialTitle} Lecture` : 'General Activity');
-      setActivityType(initialCourse ? 'Lecture' : 'Other');
-      setStartTime('08:00');
-      setEndTime('10:00');
-      setDeliveryMode('physical');
-      setMeetingLink('');
-      setLocation('Lecture Theatre 1');
-      setIsPostponed(false);
     }
   }, [event, isOpen, selectedDayKey, registeredCourses]);
 
@@ -265,16 +294,6 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
     }
   };
 
-  const openClockPicker = (target: 'start' | 'end') => {
-    setClockPickerTarget(target);
-    setIsClockPickerOpen(true);
-  };
-
-  const handleSaveClockTimes = (newStart: string, newEnd: string) => {
-    setStartTime(newStart);
-    setEndTime(newEnd);
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const isOther = activityType === 'Other';
@@ -282,7 +301,9 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
     if (!title.trim()) return;
 
     const resolvedDeptId = deptId || 'dept-ich';
-    const formattedTime = `${format24hTo12h(startTime)} - ${format24hTo12h(endTime)}`;
+    const cleanStart = clean24hHHMM(startTime, '08:00');
+    const cleanEnd = clean24hHHMM(endTime, '10:00');
+    const formattedTime = `${format24hTo12h(cleanStart)} - ${format24hTo12h(cleanEnd)}`;
     const finalLocation = deliveryMode === 'online'
       ? (location.trim() || 'Online Class')
       : (location.trim() || 'Lecture Theatre 1');
@@ -300,8 +321,8 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
       course: isOther ? '' : course.trim().toUpperCase(),
       title: title.trim(),
       time: formattedTime,
-      startTime: `${startTime}:00`,
-      endTime: `${endTime}:00`,
+      startTime: `${cleanStart}:00`,
+      endTime: `${cleanEnd}:00`,
       location: finalLocation,
       deliveryMode,
       meetingLink: finalMeetingLink,
@@ -494,54 +515,53 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
                   />
                 </div>
 
-                {/* 4. INTERACTIVE CLOCK TIME SELECTOR */}
+                {/* 4. NATIVE TIME SELECTION (Start Time & End Time) */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="block text-[12px] font-semibold text-[#1C1C1E] flex items-center gap-1.5">
+                    <label className="text-[12px] font-bold text-[#1C1C1E] flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-[#007AFF]" />
-                      <span>Scheduled Time</span>
+                      <span>Class Schedule Time</span>
                       <span className="text-red-500">*</span>
                     </label>
-                    <span className="text-[11px] font-bold text-[#007AFF] bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/50">
-                      Tap time box to open Clock
+                    <span className="text-[11.5px] font-bold text-[#007AFF] bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200/60">
+                      {format24hTo12h(startTime)} — {format24hTo12h(endTime)}
                     </span>
                   </div>
 
-                  {/* Interactive Start Time & End Time Buttons */}
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {/* Start Time Trigger */}
-                    <button
-                      type="button"
-                      onClick={() => openClockPicker('start')}
-                      className="p-3 rounded-[16px] bg-white/90 hover:bg-white border border-slate-200/90 text-left transition-all hover:border-[#007AFF] shadow-xs group cursor-pointer"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] font-bold uppercase text-slate-400 group-hover:text-[#007AFF] transition-colors flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> Start Time
-                        </span>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-[#007AFF] transition-colors" />
-                      </div>
-                      <div className="text-[16px] font-extrabold text-[#1C1C1E]">
-                        {format24hTo12h(startTime)}
-                      </div>
-                    </button>
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Start Time Native Input */}
+                    <div>
+                      <label htmlFor="schedule-start-time" className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 px-1">
+                        Start Time
+                      </label>
+                      <input
+                        id="schedule-start-time"
+                        type="time"
+                        value={startTime}
+                        onChange={(e) => {
+                          if (e.target.value) setStartTime(e.target.value);
+                        }}
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-[16px] bg-white border border-slate-200 text-[#1C1C1E] text-[15px] font-bold focus:outline-none focus:ring-2 focus:ring-[#007AFF] shadow-2xs transition-all cursor-pointer"
+                      />
+                    </div>
 
-                    {/* End Time Trigger */}
-                    <button
-                      type="button"
-                      onClick={() => openClockPicker('end')}
-                      className="p-3 rounded-[16px] bg-white/90 hover:bg-white border border-slate-200/90 text-left transition-all hover:border-[#007AFF] shadow-xs group cursor-pointer"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[11px] font-bold uppercase text-slate-400 group-hover:text-[#007AFF] transition-colors flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> End Time
-                        </span>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-[#007AFF] transition-colors" />
-                      </div>
-                      <div className="text-[16px] font-extrabold text-[#1C1C1E]">
-                        {format24hTo12h(endTime)}
-                      </div>
-                    </button>
+                    {/* End Time Native Input */}
+                    <div>
+                      <label htmlFor="schedule-end-time" className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1 px-1">
+                        End Time
+                      </label>
+                      <input
+                        id="schedule-end-time"
+                        type="time"
+                        value={endTime}
+                        onChange={(e) => {
+                          if (e.target.value) setEndTime(e.target.value);
+                        }}
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-[16px] bg-white border border-slate-200 text-[#1C1C1E] text-[15px] font-bold focus:outline-none focus:ring-2 focus:ring-[#007AFF] shadow-2xs transition-all cursor-pointer"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -666,16 +686,6 @@ export const EventEditModal: React.FC<EventEditModalProps> = ({
           </motion.div>
         </div>
       </AnimatePresence>
-
-      {/* Visual Clock Time Picker Modal */}
-      <ClockTimePickerModal
-        isOpen={isClockPickerOpen}
-        onClose={() => setIsClockPickerOpen(false)}
-        initialStartTime={startTime}
-        initialEndTime={endTime}
-        initialActiveTarget={clockPickerTarget}
-        onSave={handleSaveClockTimes}
-      />
     </>
   );
 };

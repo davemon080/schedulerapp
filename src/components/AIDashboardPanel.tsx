@@ -246,6 +246,30 @@ const mockQuizzes: Record<string, Array<{ q: string; o: string[]; a: number }>> 
   ]
 };
 
+const STATIC_MOCK_PDFS: AvailablePdf[] = [
+  {
+    id: "mock-1",
+    title: "MTH101_Calculus_Limits_Integration.pdf",
+    courseCode: "MTH 101",
+    pdfUrl: "",
+    description: "Comprehensive lecture notes outlining calculus fundamentals, trigonometric limits, Riemann sums, and visual proof of integration theorems."
+  },
+  {
+    id: "mock-2",
+    title: "PHY102_Electromagnetism_Physics_Intro.pdf",
+    courseCode: "PHY 102",
+    pdfUrl: "",
+    description: "Theoretical framework covering Coulomb's experimental laws, Gauss integrals, electromagnetic field vectors, and electric potential derivatives."
+  },
+  {
+    id: "mock-3",
+    title: "CHM111_Analytical_Inorganic_Chemistry.pdf",
+    courseCode: "CHM 111",
+    pdfUrl: "",
+    description: "Analytical procedures for buffer solutions, weak acid conjugate dissociation equations, and thermodynamic balance laws."
+  }
+];
+
 export default function AIDashboardPanel({
   isOpen,
   onClose,
@@ -388,32 +412,7 @@ export default function AIDashboardPanel({
     }
   };
 
-  // Fallback mock document libraries 
-  const mockPdfs: AvailablePdf[] = [
-    {
-      id: "mock-1",
-      title: "MTH101_Calculus_Limits_Integration.pdf",
-      courseCode: "MTH 101",
-      pdfUrl: "",
-      description: "Comprehensive lecture notes outlining calculus fundamentals, trigonometric limits, Riemann sums, and visual proof of integration theorems."
-    },
-    {
-      id: "mock-2",
-      title: "PHY102_Electromagnetism_Physics_Intro.pdf",
-      courseCode: "PHY 102",
-      pdfUrl: "",
-      description: "Theoretical framework covering Coulomb's experimental laws, Gauss integrals, electromagnetic field vectors, and electric potential derivatives."
-    },
-    {
-      id: "mock-3",
-      title: "CHM111_Analytical_Inorganic_Chemistry.pdf",
-      courseCode: "CHM 111",
-      pdfUrl: "",
-      description: "Analytical procedures for buffer solutions, weak acid conjugate dissociation equations, and thermodynamic balance laws."
-    }
-  ];
-
-  const combinedPdfs = availablePdfs.length > 0 ? availablePdfs : mockPdfs;
+  const combinedPdfs = availablePdfs.length > 0 ? availablePdfs : STATIC_MOCK_PDFS;
 
   // Retrieve Firestore uploaded resources
   useEffect(() => {
@@ -482,7 +481,7 @@ export default function AIDashboardPanel({
     if (!selectedDeadlineId && deadlines.length > 0) {
       setSelectedDeadlineId(deadlines[0].id);
     }
-  }, [selectedPdfId, selectedDeadlineId, deadlines, combinedPdfs]);
+  }, [selectedPdfId, selectedDeadlineId, deadlines.length, combinedPdfs.length]);
 
   // Run Simulated GenAI Flash Analysis loading screen transitions 
   const executeAISpinner = () => {

@@ -15,8 +15,37 @@ import {
 } from 'lucide-react';
 import { normalizeSemester, resolveStudentDepartmentId, filterCoursesForStudentScope } from '../lib/academicScope';
 import { CalendarModal } from './CalendarModal';
-import { ClockTimePickerModal } from './ClockTimePickerModal';
 import { uploadContentImage } from '../lib/storageService';
+
+function parseTimeTo24h(str?: string, defaultVal = '23:59'): string {
+  if (!str) return defaultVal;
+  const clean = str.trim().toUpperCase();
+  if (clean.includes(':')) {
+    const isPM = clean.includes('PM');
+    const isAM = clean.includes('AM');
+    const timeOnly = clean.replace(/AM|PM/g, '').trim();
+    const parts = timeOnly.split(':');
+    let h = parseInt(parts[0], 10);
+    const m = (parseInt(parts[1], 10) || 0).toString().padStart(2, '0');
+    if (isNaN(h)) return defaultVal;
+    if (isPM && h < 12) h += 12;
+    if (isAM && h === 12) h = 0;
+    return `${Math.min(23, Math.max(0, h)).toString().padStart(2, '0')}:${m}`;
+  }
+  return defaultVal;
+}
+
+function format24hTo12h(time24: string): string {
+  if (!time24) return '11:59 PM';
+  const parts = time24.split(':');
+  let h = parseInt(parts[0], 10);
+  if (isNaN(h)) return '11:59 PM';
+  const m = (parseInt(parts[1], 10) || 0).toString().padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  h = h ? h : 12;
+  return `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
+}
 
 interface DeadlineEditModalProps {
   isOpen: boolean;
@@ -43,7 +72,6 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
   const [dueTime, setDueTime] = useState('11:59 PM');
   const [selectedDayNum, setSelectedDayNum] = useState<number>(21);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const [isClockPickerOpen, setIsClockPickerOpen] = useState(false);
   const [priority, setPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
   const [description, setDescription] = useState('');
   const [submissionType, setSubmissionType] = useState('Online Student Portal PDF');
@@ -131,11 +159,6 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
     // Format to readable date string e.g. "Oct 21, 2026"
     setDueDate(`Oct ${dayNum}, 2026`);
     setIsCalendarOpen(false);
-  };
-
-  const handleTimeSelected = (formatted12h: string) => {
-    setDueTime(formatted12h);
-    setIsClockPickerOpen(false);
   };
 
   const [isUploadingImages, setIsUploadingImages] = useState(false);
@@ -328,22 +351,23 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Due Time with interactive Clock Picker trigger */}
+                  {/* Due Time Native Input */}
                   <div>
-                    <label className="block text-[12px] font-semibold text-[#1C1C1E] mb-1.5">
-                      Due Time
+                    <label htmlFor="deadline-due-time" className="block text-[12px] font-semibold text-[#1C1C1E] mb-1.5 flex items-center justify-between">
+                      <span>Due Time</span>
+                      <span className="text-[11px] font-bold text-[#007AFF]">{dueTime}</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setIsClockPickerOpen(true)}
-                      className="w-full px-3 py-2.5 rounded-[16px] bg-white/85 hover:bg-white border border-slate-200 text-[12.5px] text-[#1C1C1E] font-semibold flex items-center justify-between shadow-2xs transition-all cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Clock className="w-3.5 h-3.5 text-[#007AFF] shrink-0" />
-                        <span className="truncate">{dueTime || 'Select Time'}</span>
-                      </div>
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
-                    </button>
+                    <input
+                      id="deadline-due-time"
+                      type="time"
+                      value={parseTimeTo24h(dueTime, '23:59')}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setDueTime(format24hTo12h(e.target.value));
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-[16px] bg-white/85 hover:bg-white border border-slate-200 text-[13px] text-[#1C1C1E] font-bold shadow-2xs transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+                    />
                   </div>
 
                   {/* Priority */}
@@ -501,17 +525,6 @@ export const DeadlineEditModal: React.FC<DeadlineEditModalProps> = ({
         selectedDate={selectedDayNum}
         onClose={() => setIsCalendarOpen(false)}
         onSelectDate={handleDateSelected}
-        zIndex={70}
-      />
-
-      {/* Embedded Clock Time Picker Modal for Due Time Picking */}
-      <ClockTimePickerModal
-        isOpen={isClockPickerOpen}
-        initialStartTime={dueTime}
-        isSingleTime={true}
-        title="Select Due Time"
-        onClose={() => setIsClockPickerOpen(false)}
-        onSaveSingle={handleTimeSelected}
         zIndex={70}
       />
     </>

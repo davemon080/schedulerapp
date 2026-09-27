@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { EventItem, DayTimelineItem } from '../types';
+import { isEventMatchingDay } from '../lib/dbService';
 import { ChevronLeft, ChevronRight, Video } from 'lucide-react';
 
 interface CalendarViewProps {
@@ -72,9 +73,9 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
       const dayAbbr = WEEKDAYS[weekdayIndex];
       const targetDayId = `${dayAbbr} ${d}`;
 
-      // Strictly match exact dayKey so an event on Monday Aug 31 does NOT appear on all Mondays!
+      // Match exact dayKey (e.g. "SAT 26") or recurring weekday class schedules
       const matched = events.filter((e) => {
-        return e.dayKey === targetDayId;
+        return isEventMatchingDay(e.dayKey, targetDayId);
       });
 
       map[d] = matched.sort((a, b) => getEventSortTime(a) - getEventSortTime(b));
@@ -116,11 +117,11 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
     <div className="w-full pb-20 rounded-none">
       {/* Calendar Header Bar - Squared & Direct on App */}
       <div className="flex items-center justify-between pt-0.5 pb-2.5 mb-2 border-b border-black/10 rounded-none">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-[22px] sm:text-[26px] font-extrabold text-[#1C1C1E] tracking-tight">
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-[17px] sm:text-[20px] font-extrabold text-[#1C1C1E] tracking-tight">
             {MONTH_NAMES[currentMonthIndex]} {currentYear}
           </h1>
-          <span className="text-[12px] font-semibold text-[#8E8E93] uppercase tracking-wider hidden sm:inline-block">
+          <span className="text-[10.5px] font-semibold text-[#8E8E93] uppercase tracking-wider hidden sm:inline-block">
             Academic Calendar
           </span>
         </div>
@@ -131,14 +132,14 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
             type="button"
             onClick={handlePrevMonth}
             aria-label="Previous month"
-            className="w-9 h-9 flex items-center justify-center border-r border-black/15 text-[#1C1C1E] hover:bg-black/5 active:bg-black/10 transition-colors cursor-pointer rounded-none"
+            className="w-7.5 h-7.5 sm:w-8 sm:h-8 flex items-center justify-center border-r border-black/15 text-[#1C1C1E] hover:bg-black/5 active:bg-black/10 transition-colors cursor-pointer rounded-none"
           >
-            <ChevronLeft className="w-4 h-4" />
+            <ChevronLeft className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             onClick={handleToday}
-            className="px-3 h-9 text-[12px] font-bold text-[#007AFF] hover:bg-blue-50/80 active:bg-blue-100 transition-colors cursor-pointer rounded-none border-r border-black/15"
+            className="px-2.5 h-7.5 sm:h-8 text-[11px] font-bold text-[#007AFF] hover:bg-blue-50/80 active:bg-blue-100 transition-colors cursor-pointer rounded-none border-r border-black/15"
           >
             Today
           </button>
@@ -146,9 +147,9 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
             type="button"
             onClick={handleNextMonth}
             aria-label="Next month"
-            className="w-9 h-9 flex items-center justify-center text-[#1C1C1E] hover:bg-black/5 active:bg-black/10 transition-colors cursor-pointer rounded-none"
+            className="w-7.5 h-7.5 sm:w-8 sm:h-8 flex items-center justify-center text-[#1C1C1E] hover:bg-black/5 active:bg-black/10 transition-colors cursor-pointer rounded-none"
           >
-            <ChevronRight className="w-4 h-4" />
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -160,7 +161,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
           return (
             <div
               key={day}
-              className={`py-2.5 text-center text-[11px] sm:text-[12px] font-bold uppercase tracking-wider border-r last:border-r-0 border-black/15 rounded-none ${
+              className={`py-1.5 text-center text-[10px] sm:text-[11px] font-bold uppercase tracking-wider border-r last:border-r-0 border-black/15 rounded-none ${
                 isWeekend ? 'text-[#8E8E93] bg-black/[0.03]' : 'text-[#1C1C1E]'
               }`}
             >
@@ -176,7 +177,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
         {Array.from({ length: firstDayWeekday }).map((_, idx) => (
           <div
             key={`empty-${idx}`}
-            className="min-h-[85px] sm:min-h-[110px] border-b border-r border-black/15 bg-black/[0.02] opacity-40 rounded-none"
+            className="min-h-[48px] sm:min-h-[64px] border-b border-r border-black/15 bg-black/[0.02] opacity-40 rounded-none"
           />
         ))}
 
@@ -208,7 +209,7 @@ export const CalendarView: React.FC<CalendarViewProps> = React.memo(({
               key={`day-${dayNum}`}
               type="button"
               onClick={() => onSelectDate(dayNum, dayId, dateObj)}
-              className={`min-h-[85px] sm:min-h-[110px] p-2 sm:p-2.5 text-left flex flex-col justify-between border-b border-r border-black/15 transition-colors cursor-pointer rounded-none relative ${
+              className={`min-h-[48px] sm:min-h-[64px] p-1 sm:p-1.5 text-left flex flex-col justify-between border-b border-r border-black/15 transition-colors cursor-pointer rounded-none relative ${
                 isSelected
                   ? 'bg-blue-50/90 ring-2 ring-inset ring-[#007AFF] z-10'
                   : isToday

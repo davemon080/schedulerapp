@@ -22,9 +22,11 @@ const AdminDashboard = React.lazy(() =>
 );
 import { INITIAL_DAYS, getWeekDaysForDate } from './data/mockData';
 import { AssignmentItem, EventItem, NavigationTab, NotificationItem, UserSession } from './types';
-import { Plus, Check, CheckCheck, Trash2, ShieldAlert, Smartphone } from 'lucide-react';
+import { Plus, Check, CheckCheck, Trash2, ShieldAlert, Smartphone, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from './lib/firebase';
 import {
   fetchScheduleActivities,
   createScheduleActivity,
@@ -59,14 +61,30 @@ import {
   recordOrUpdateClassCancelledNotification,
   recordOrUpdateDeadlineDeletedNotification,
   recordOrUpdateBroadcastDeletedNotification,
+  recordActivityNotification,
   updateStudentProfileInDb,
+  ensureAllDepartmentLevelDashboards,
+  fetchDepartmentLevels,
+  preloadStudentPortalStartupData,
+  isEventMatchingDay,
+  isMockEvent,
+  isMockAssignment,
+  isMockNotification,
 } from './lib/dbService';
+import { ensureNativePushRegistered, registerAppServiceWorker, getPushPermissionState, showDeviceLocalNotification } from './lib/pushNotificationClient';
 import { uploadProfilePicture, validateImageFile } from './lib/storageService';
 import { PaymentPage } from './components/PaymentPage';
 import { CourseRecord, DepartmentRecord } from '@admin/types';
 import { CourseFormData } from './components/AddCourseModal';
-import { getStudentActiveLevel, getStudentActiveSemester } from './lib/academicScope';
+import { getStudentActiveLevel, getStudentActiveSemester, resolveStudentDepartmentId } from './lib/academicScope';
 import { isChannelNotificationEnabled } from './lib/notificationSettings';
+import {
+  getUserNotificationKey,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  clearAllNotificationsReadState,
+  applyReadStateToNotifications,
+} from './lib/notificationReadStore';
 
 export default function App() {
   const checkIsAdminRoute = () => {
@@ -118,36 +136,128 @@ export default function App() {
     const todayMatch = INITIAL_DAYS.find((d) => d.isToday);
     return todayMatch?.id || INITIAL_DAYS[0]?.id || 'MON 31';
   });
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
-  const [broadcasts, setBroadcasts] = useState<NotificationItem[]>([]);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [courses, setCourses] = useState<CourseRecord[]>([]);
-  const [departments, setDepartments] = useState<DepartmentRecord[]>([]);
-  const [currentSemester, setCurrentSemester] = useState<string>('1st Semester');
+  // Offline-first cached initial states (instantly available even without internet)
+  const [events, setEvents] = useState<EventItem[]>(() => {
+    try {
+      const c = localStorage.getItem('app_cache_events');
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((e) => !isMockEvent(e?.id));
+        }
+      }
+    } catch {}
+    return [];
+  });
+  const [assignments, setAssignments] = useState<AssignmentItem[]>(() => {
+    try {
+      const c = localStorage.getItem('app_cache_assignments');
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((a) => !isMockAssignment(a?.id));
+        }
+      }
+    } catch {}
+    return [];
+  });
+  const [broadcasts, setBroadcasts] = useState<NotificationItem[]>(() => {
+    try {
+      const c = localStorage.getItem('app_cache_broadcasts');
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((b) => !isMockNotification(b?.id));
+        }
+      }
+    } catch {}
+    return [];
+  });
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
+    try {
+      const c = localStorage.getItem('app_cache_notifications');
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const clean = parsed.filter((n) => !isMockNotification(n?.id));
+          const userKey = getUserNotificationKey();
+          return applyReadStateToNotifications(clean, userKey);
+        }
+      }
+    } catch {}
+    return [];
+  });
+  const [courses, setCourses] = useState<CourseRecord[]>(() => {
+    try {
+      const c = localStorage.getItem('app_cache_courses');
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [departments, setDepartments] = useState<DepartmentRecord[]>(() => {
+    try {
+      const c = localStorage.getItem('app_cache_departments');
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+  const [currentSemester, setCurrentSemester] = useState<string>(() => {
+    try {
+      const c = localStorage.getItem('app_cache_current_semester');
+      if (c) return c;
+    } catch {}
+    return '1st Semester';
+  });
   const [activeTab, setActiveTab] = useState<NavigationTab>('Schedule');
   const [showSplash, setShowSplash] = useState(true);
   const [isStartupVerified, setIsStartupVerified] = useState<boolean>(false);
   const [splashStatusMessage, setSplashStatusMessage] = useState<string>('Verifying account state...');
   const [isDataLoading, setIsDataLoading] = useState<boolean>(false);
   const [showPermissionsPrompt, setShowPermissionsPrompt] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  });
 
-  // Auto-request / prompt for notification and photos permissions on app startup
+  // Auto-register Service Worker and prompt for notification permissions on app startup
   useEffect(() => {
-    try {
-      const hasPrompted = localStorage.getItem('app_permissions_prompted_v1');
-      const notifStatus = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'granted';
+    registerAppServiceWorker().catch(() => {});
+    let isCancelled = false;
 
-      if (!hasPrompted || notifStatus === 'default') {
-        const timer = setTimeout(() => {
-          setShowPermissionsPrompt(true);
-        }, 1400);
-        return () => clearTimeout(timer);
+    (async () => {
+      try {
+        const hasPrompted = localStorage.getItem('app_notification_prompt_completed');
+        const permState = await getPushPermissionState();
+
+        if (!hasPrompted || permState === 'default') {
+          const timer = setTimeout(() => {
+            if (!isCancelled) {
+              setShowPermissionsPrompt(true);
+            }
+          }, 1000);
+          return () => clearTimeout(timer);
+        } else if (permState === 'granted') {
+          // Silently ensure native push subscription is active in background
+          ensureNativePushRegistered(userSession);
+        }
+      } catch (e) {
+        console.warn('Notification permissions startup check notice:', e);
       }
-    } catch (e) {
-      console.warn('Permissions startup check notice:', e);
-    }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
+
+  // Track known notification IDs to prevent duplicate native mobile banners
+  const hasInitializedNotifsRef = useRef<boolean>(false);
+  const knownNotifIdsRef = useRef<Set<string>>(new Set());
   
   // Student Portal Auth Session
   const [userSession, setUserSession] = useState<UserSession | null>(() => {
@@ -276,13 +386,19 @@ export default function App() {
       ]);
 
       if (dbEvents) {
-        setEvents(dbEvents);
+        const cleanEvents = dbEvents.filter((e) => !isMockEvent(e?.id));
+        setEvents(cleanEvents);
+        try { localStorage.setItem('app_cache_events', JSON.stringify(cleanEvents)); } catch {}
       }
       if (dbAssigns) {
-        setAssignments(dbAssigns);
+        const cleanAssigns = dbAssigns.filter((a) => !isMockAssignment(a?.id));
+        setAssignments(cleanAssigns);
+        try { localStorage.setItem('app_cache_assignments', JSON.stringify(cleanAssigns)); } catch {}
       }
       if (dbBroadcasts) {
-        setBroadcasts(dbBroadcasts);
+        const cleanBroadcasts = dbBroadcasts.filter((b) => !isMockNotification(b?.id));
+        setBroadcasts(cleanBroadcasts);
+        try { localStorage.setItem('app_cache_broadcasts', JSON.stringify(cleanBroadcasts)); } catch {}
       }
       if (dbNotifs) {
         setNotifications((prev) => {
@@ -295,18 +411,24 @@ export default function App() {
             seen.add(item.id);
             deduped.push(item);
           }
-          return deduped;
+          const userKey = getUserNotificationKey(userSession);
+          const processed = applyReadStateToNotifications(deduped, userKey);
+          try { localStorage.setItem('app_cache_notifications', JSON.stringify(processed)); } catch {}
+          return processed;
         });
       }
       if (dbCourses) {
         setCourses(dbCourses);
+        try { localStorage.setItem('app_cache_courses', JSON.stringify(dbCourses)); } catch {}
       }
       if (dbDepts && Array.isArray(dbDepts)) {
         setDepartments(dbDepts);
+        try { localStorage.setItem('app_cache_departments', JSON.stringify(dbDepts)); } catch {}
       }
       if (dbSem?.semester_code) {
         const parsed = normalizeSemester(dbSem.semester_code);
         setCurrentSemester(parsed);
+        try { localStorage.setItem('app_cache_current_semester', parsed); } catch {}
         setUserSession((prev) => {
           if (!prev) return null;
           if (prev.semester === parsed && prev.current_semester === parsed) return prev;
@@ -332,110 +454,147 @@ export default function App() {
 
     const performStartupVerification = async () => {
       try {
-        if (!isCancelled) setSplashStatusMessage('Verifying account state...');
+        if (!isCancelled) setSplashStatusMessage('Loading timetable, courses & account...');
 
-        // 1. Check & verify user account session if one exists in localStorage or state
+        // 0. Remove any legacy or static profile image caches from localStorage so app always loads actual picture from database
+        try {
+          localStorage.removeItem('university_schedule_profile_img');
+          const keysToRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith('university_profile_img_') || k.startsWith('profile_pic_'))) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach((k) => localStorage.removeItem(k));
+        } catch {}
+
+        // 1. Identify user account session if one exists in localStorage
         const savedUserRaw = localStorage.getItem('university_schedule_user');
         const localToken = localStorage.getItem('university_active_session_token');
+        let userIdentifier: string | undefined = undefined;
+        let parsedSavedUser: any = null;
 
         if (savedUserRaw) {
           try {
-            const parsed = JSON.parse(savedUserRaw);
-            const userIdentifier = parsed.uid || parsed.matricNumber || parsed.email;
-
-            // A. Check concurrent session token on database
-            if (localToken && userIdentifier) {
-              const sessionRes = await verifyUserActiveSession(userIdentifier, localToken);
-              if (!sessionRes.isValid && sessionRes.reason === 'CONCURRENT_LOGIN_DETECTED') {
-                if (!isCancelled) {
-                  setSessionExpiredNotice(
-                    'Your student account was signed in on another device. For security and exam integrity, simultaneous logins on multiple devices are not permitted.'
-                  );
-                  setUserSession(null);
-                  try {
-                    localStorage.removeItem('university_schedule_user');
-                    localStorage.removeItem('university_active_session_token');
-                  } catch (e) {}
-                }
-              }
-            }
-
-            // B. Fetch fresh student document from Firestore to verify account validity, payment, & active term
-            if (userIdentifier) {
-              const verifiedStudent = await fetchStudentByEmailOrMatric(userIdentifier);
-              if (verifiedStudent && !isCancelled) {
-                const matchLevel = getStudentActiveLevel(verifiedStudent);
-                const matchYearLevel = `${matchLevel} Level`;
-                const matchDept = verifiedStudent.department || parsed.department;
-                const matchDeptId = verifiedStudent.department_id || parsed.department_id;
-                const matchCourseRep = Boolean(verifiedStudent.iscourserep || verifiedStudent.isCourseRep);
-                const matchAdmin = Boolean(verifiedStudent.isadmin || verifiedStudent.isAdmin);
-                const matchHasFreeAccess = Boolean(
-                  matchCourseRep ||
-                  matchAdmin ||
-                  verifiedStudent.hasFreeAccess ||
-                  (verifiedStudent as any).has_free_access ||
-                  (verifiedStudent as any).free_access ||
-                  (verifiedStudent as any).freeSemesterGranted ||
-                  parsed.hasFreeAccess
-                );
-                const matchIsPaid = Boolean(
-                  matchHasFreeAccess ||
-                  verifiedStudent.is_paid ||
-                  verifiedStudent.is_payed ||
-                  parsed.is_paid ||
-                  parsed.is_payed
-                );
-                const matchPaidSemester = verifiedStudent.paid_semester || (verifiedStudent as any).paidSemester || (matchHasFreeAccess ? (parsed.semester || '1st Semester') : undefined);
-
-                const syncedSession: UserSession = {
-                  ...parsed,
-                  fullName: verifiedStudent.full_name || verifiedStudent.name || parsed.fullName,
-                  matricNumber: verifiedStudent.matric_number || verifiedStudent.matricNumber || parsed.matricNumber,
-                  email: verifiedStudent.email || parsed.email,
-                  level: matchLevel,
-                  year_level: matchYearLevel,
-                  yearLevel: matchYearLevel,
-                  department: matchDept,
-                  department_id: matchDeptId,
-                  isCourseRep: matchCourseRep,
-                  isAdmin: matchAdmin,
-                  is_paid: matchIsPaid,
-                  is_payed: matchIsPaid,
-                  hasFreeAccess: matchHasFreeAccess,
-                  paid_semester: matchPaidSemester,
-                  profileImage: verifiedStudent.profile_pic_url || verifiedStudent.profileImage || parsed.profileImage || null,
-                };
-
-                setUserSession(syncedSession);
-                try {
-                  localStorage.setItem('university_schedule_user', JSON.stringify(syncedSession));
-                } catch (e) {}
-
-                if (verifiedStudent.profile_pic_url || verifiedStudent.profileImage) {
-                  setProfileImage((verifiedStudent.profile_pic_url || verifiedStudent.profileImage) ?? null);
-                }
-              }
-            }
-          } catch (sessionErr) {
-            console.warn('Startup session verification warning:', sessionErr);
-          }
+            parsedSavedUser = JSON.parse(savedUserRaw);
+            userIdentifier = parsedSavedUser.uid || parsedSavedUser.matricNumber || parsedSavedUser.email;
+          } catch {}
         }
 
-        // 2. Fetch and synchronize timetable, deadlines, broadcasts, courses, and active semester
-        if (!isCancelled) {
-          setSplashStatusMessage('Synchronizing timetable & academic data...');
-        }
-        await syncStudentPortalData();
+        // 2. ULTRA-FAST PARALLEL PRELOAD: Fire ALL 8-9 database requests concurrently in a single batch!
+        const preloadData = await preloadStudentPortalStartupData(userIdentifier, localToken || undefined);
 
+        if (isCancelled) return;
+
+        // 3. Atomically populate all app data state from the preloaded batch (Strict real database data only)
+        if (preloadData.events) {
+          setEvents(preloadData.events);
+        }
+        if (preloadData.assignments) {
+          setAssignments(preloadData.assignments);
+        }
+        if (preloadData.broadcasts) {
+          setBroadcasts(preloadData.broadcasts);
+        }
+        if (preloadData.notifications) {
+          setNotifications(preloadData.notifications);
+        }
+        if (preloadData.courses) {
+          setCourses(preloadData.courses);
+        }
+        if (preloadData.departments && preloadData.departments.length > 0) {
+          setDepartments(preloadData.departments);
+        }
+        if (preloadData.currentSemester?.semester_code) {
+          const parsedSem = normalizeSemester(preloadData.currentSemester.semester_code);
+          setCurrentSemester(parsedSem);
+        }
+
+        // 4. Handle session verification and verified student profile
+        if (
+          preloadData.sessionCheck &&
+          !preloadData.sessionCheck.isValid &&
+          preloadData.sessionCheck.reason === 'CONCURRENT_LOGIN_DETECTED'
+        ) {
+          setSessionExpiredNotice(
+            'Your student account was signed in on another device. For security and exam integrity, simultaneous logins on multiple devices are not permitted.'
+          );
+          setUserSession(null);
+          try {
+            localStorage.removeItem('university_schedule_user');
+            localStorage.removeItem('university_active_session_token');
+          } catch (e) {}
+        } else if (preloadData.verifiedStudent && parsedSavedUser) {
+          const verifiedStudent = preloadData.verifiedStudent;
+          const matchLevel = getStudentActiveLevel(verifiedStudent);
+          const matchYearLevel = `${matchLevel} Level`;
+          const matchDept = verifiedStudent.department || parsedSavedUser.department;
+          const matchDeptId = verifiedStudent.department_id || parsedSavedUser.department_id;
+          const matchCourseRep = Boolean(verifiedStudent.iscourserep || verifiedStudent.isCourseRep);
+          const matchAdmin = Boolean(verifiedStudent.isadmin || verifiedStudent.isAdmin);
+          const matchHasFreeAccess = Boolean(
+            matchCourseRep ||
+            matchAdmin ||
+            verifiedStudent.hasFreeAccess ||
+            (verifiedStudent as any).has_free_access ||
+            (verifiedStudent as any).free_access ||
+            (verifiedStudent as any).freeSemesterGranted ||
+            parsedSavedUser.hasFreeAccess
+          );
+          const matchIsPaid = Boolean(
+            matchHasFreeAccess ||
+            verifiedStudent.is_paid ||
+            verifiedStudent.is_payed ||
+            parsedSavedUser.is_paid ||
+            parsedSavedUser.is_payed
+          );
+          const matchPaidSemester = verifiedStudent.paid_semester || (verifiedStudent as any).paidSemester || (matchHasFreeAccess ? (parsedSavedUser.semester || '1st Semester') : undefined);
+
+          const syncedSession: UserSession = {
+            ...parsedSavedUser,
+            fullName: verifiedStudent.full_name || verifiedStudent.name || parsedSavedUser.fullName,
+            matricNumber: verifiedStudent.matric_number || verifiedStudent.matricNumber || parsedSavedUser.matricNumber,
+            email: verifiedStudent.email || parsedSavedUser.email,
+            level: matchLevel,
+            year_level: matchYearLevel,
+            yearLevel: matchYearLevel,
+            department: matchDept,
+            department_id: matchDeptId,
+            isCourseRep: matchCourseRep,
+            isAdmin: matchAdmin,
+            is_paid: matchIsPaid,
+            is_payed: matchIsPaid,
+            hasFreeAccess: matchHasFreeAccess,
+            paid_semester: matchPaidSemester,
+            profileImage: verifiedStudent.profile_pic_url || verifiedStudent.profileImage || verifiedStudent.photoURL || verifiedStudent.profile_picture || null,
+            profile_pic_url: verifiedStudent.profile_pic_url || verifiedStudent.profileImage || verifiedStudent.photoURL || verifiedStudent.profile_picture || '',
+          };
+
+          setUserSession(syncedSession);
+          try {
+            localStorage.setItem('university_schedule_user', JSON.stringify(syncedSession));
+          } catch (e) {}
+
+          const freshDbPic = verifiedStudent.profile_pic_url || verifiedStudent.profileImage || verifiedStudent.photoURL || verifiedStudent.profile_picture || null;
+          setProfileImage(freshDbPic);
+        }
+
+        // 5. Ensure all department level dashboards in background
+        ensureAllDepartmentLevelDashboards().catch(() => {});
+
+        // 6. Signal data readiness: App is 100% loaded and ready before splash dismisses!
         if (!isCancelled) {
           setSplashStatusMessage('Ready');
           setIsStartupVerified(true);
+          setIsDataLoading(false);
         }
       } catch (err) {
-        console.warn('Startup initialization error:', err);
+        console.warn('Startup initialization notice:', err);
         if (!isCancelled) {
+          setSplashStatusMessage('Ready');
           setIsStartupVerified(true);
+          setIsDataLoading(false);
         }
       }
     };
@@ -446,6 +605,7 @@ export default function App() {
     const safeguardTimer = setTimeout(() => {
       if (!isCancelled) {
         setIsStartupVerified(true);
+        setIsDataLoading(false);
       }
     }, 4500);
 
@@ -453,22 +613,80 @@ export default function App() {
       isCancelled = true;
       clearTimeout(safeguardTimer);
     };
-  }, [syncStudentPortalData]);
+  }, []);
 
   // On mount and when session activates, subscribe to live Firestore changes
   useEffect(() => {
     const unsubscribe = subscribeToRealtimeDatabase({
       onEvents: (dbEvents) => {
-        if (dbEvents) setEvents(dbEvents);
+        if (dbEvents) {
+          const cleanEvents = dbEvents.filter((e) => !isMockEvent(e?.id));
+          setEvents(cleanEvents);
+          try { localStorage.setItem('app_cache_events', JSON.stringify(cleanEvents)); } catch {}
+        }
       },
       onAssignments: (dbAssigns) => {
-        if (dbAssigns) setAssignments(dbAssigns);
+        if (dbAssigns) {
+          const cleanAssigns = dbAssigns.filter((a) => !isMockAssignment(a?.id));
+          setAssignments(cleanAssigns);
+          try { localStorage.setItem('app_cache_assignments', JSON.stringify(cleanAssigns)); } catch {}
+        }
       },
       onBroadcasts: (dbBroadcasts) => {
-        if (dbBroadcasts) setBroadcasts(dbBroadcasts);
+        if (dbBroadcasts) {
+          const cleanBroadcasts = dbBroadcasts.filter((b) => !isMockNotification(b?.id));
+          if (hasInitializedNotifsRef.current) {
+            for (const b of cleanBroadcasts) {
+              if (b?.id && !knownNotifIdsRef.current.has(b.id)) {
+                knownNotifIdsRef.current.add(b.id);
+                const userDept = userSessionRef.current?.department || '';
+                const userLvl = userSessionRef.current?.level || 100;
+                const matchesDept = !b.department_id || b.department_id === 'ALL' || b.department_id === userDept;
+                const matchesLvl = !b.level || b.level === 'ALL' || Number(b.level) === userLvl;
+                if (matchesDept && matchesLvl) {
+                  showDeviceLocalNotification({
+                    title: b.title || 'Official University Broadcast 📢',
+                    body: b.message || 'New broadcast announcement posted.',
+                    data: { id: b.id, category: 'broadcast' },
+                  }).catch(() => {});
+                }
+              }
+            }
+          } else {
+            for (const b of cleanBroadcasts) {
+              if (b?.id) knownNotifIdsRef.current.add(b.id);
+            }
+          }
+          setBroadcasts(cleanBroadcasts);
+          try { localStorage.setItem('app_cache_broadcasts', JSON.stringify(cleanBroadcasts)); } catch {}
+        }
       },
       onNotifications: (dbNotifs) => {
         if (dbNotifs) {
+          if (hasInitializedNotifsRef.current) {
+            for (const n of dbNotifs) {
+              if (n?.id && !knownNotifIdsRef.current.has(n.id)) {
+                knownNotifIdsRef.current.add(n.id);
+                const userDept = userSessionRef.current?.department || '';
+                const userLvl = userSessionRef.current?.level || 100;
+                const dept = (n as any).department || n.department_id;
+                const matchesDept = !dept || dept === 'ALL' || dept === userDept;
+                const matchesLvl = !n.level || n.level === 'ALL' || Number(n.level) === userLvl;
+                if (matchesDept && matchesLvl) {
+                  showDeviceLocalNotification({
+                    title: n.title || 'Academic Update 🔔',
+                    body: n.message || 'Timetable or schedule update.',
+                    data: { id: n.id, category: n.category || 'schedule' },
+                  }).catch(() => {});
+                }
+              }
+            }
+          } else {
+            for (const n of dbNotifs) {
+              if (n?.id) knownNotifIdsRef.current.add(n.id);
+            }
+            hasInitializedNotifsRef.current = true;
+          }
           setNotifications((prev) => {
             const localActivities = prev.filter((p) => p.id?.startsWith('act-'));
             const combined = [...localActivities, ...dbNotifs];
@@ -479,17 +697,24 @@ export default function App() {
               seen.add(item.id);
               deduped.push(item);
             }
-            return deduped;
+            const userKey = getUserNotificationKey(userSession);
+            const processed = applyReadStateToNotifications(deduped, userKey);
+            try { localStorage.setItem('app_cache_notifications', JSON.stringify(processed)); } catch {}
+            return processed;
           });
         }
       },
       onCourses: (dbCourses) => {
-        if (dbCourses) setCourses(dbCourses);
+        if (dbCourses) {
+          setCourses(dbCourses);
+          try { localStorage.setItem('app_cache_courses', JSON.stringify(dbCourses)); } catch {}
+        }
       },
       onCurrentSemester: (code) => {
         if (code) {
           const parsed = normalizeSemester(code);
-          setCurrentSemester(parsed);
+          setCurrentSemester((prev) => (prev !== parsed ? parsed : prev));
+          try { localStorage.setItem('app_cache_current_semester', parsed); } catch {}
           setUserSession((prev) => {
             if (!prev) return null;
             if (prev.semester === parsed && prev.current_semester === parsed) return prev;
@@ -506,23 +731,30 @@ export default function App() {
         }
       },
       onStudents: (allStudents) => {
-        if (userSession && allStudents && allStudents.length > 0) {
-          const currentMatric = (userSession.matricNumber || '').toUpperCase().trim();
-          const currentEmail = (userSession.email || '').toLowerCase().trim();
-          const currentUid = userSession.uid || userSession.id || '';
+        const currentSession = userSessionRef.current;
+        if (currentSession && allStudents && allStudents.length > 0) {
+          const currentMatric = (currentSession.matricNumber || currentSession.matric_number || '').toUpperCase().trim();
+          const currentEmail = (currentSession.email || '').toLowerCase().trim();
+          const currentUid = currentSession.uid || currentSession.id || '';
 
           const matched = allStudents.find((s) => {
             const sMatric = (s.matric_number || s.matricNumber || '').toUpperCase().trim();
             const sEmail = (s.email || '').toLowerCase().trim();
             const sUid = s.uid || s.id || '';
-            return (currentUid && sUid === currentUid) || (currentMatric && sMatric === currentMatric) || (currentEmail && sEmail === currentEmail);
+            return (currentUid && (sUid === currentUid || s.id === currentUid)) || 
+                   (currentMatric && sMatric === currentMatric) || 
+                   (currentEmail && sEmail === currentEmail);
           });
 
           if (matched) {
+            const matchMatric = (matched.matric_number || matched.matricNumber || currentSession.matricNumber).toUpperCase().trim();
+            const matchEmail = (matched.email || currentSession.email).toLowerCase().trim();
+            const matchFullName = matched.full_name || matched.fullName || matched.name || currentSession.fullName;
             const matchLevel = getStudentActiveLevel(matched);
             const matchYearLevel = `${matchLevel} Level`;
-            const matchDept = matched.department || userSession.department;
-            const matchDeptId = matched.department_id || userSession.department_id;
+            const matchDept = matched.department || currentSession.department;
+            const matchDeptId = matched.department_id || currentSession.department_id;
+            const matchDeptCode = (matched as any).department_code || (matched as any).departmentCode || currentSession.department_code;
             const matchCourseRep = Boolean(matched.iscourserep || matched.isCourseRep);
             const matchAdmin = Boolean(matched.isadmin || matched.isAdmin);
             const matchSemester = getStudentActiveSemester(matched, currentSemester);
@@ -536,26 +768,39 @@ export default function App() {
               matched.is_paid ||
               matched.is_payed
             );
-            const matchIsPaid = matchHasFreeAccess;
-            const matchPaidSemester = matched.paid_semester || (matched as any).paidSemester || (matchHasFreeAccess ? (userSession.semester || '1st Semester') : undefined);
+            const matchIsPaid = matchHasFreeAccess || Boolean(matched.is_paid || matched.is_payed);
+            const matchPaidSemester = matched.paid_semester || (matched as any).paidSemester || (matchHasFreeAccess ? (currentSession.semester || '1st Semester') : undefined);
 
             const matchPic = matched.profile_pic_url || matched.profileImage || matched.photoURL || '';
-            const shouldUpdatePic = Boolean(matchPic && matchPic !== userSession.profile_pic_url && matchPic !== profileImage);
+            const shouldUpdatePic = Boolean(matchPic && matchPic !== currentSession.profile_pic_url && matchPic !== profileImage);
 
-            if (
-              userSession.level !== matchLevel ||
-              userSession.yearLevel !== matchYearLevel ||
-              userSession.department !== matchDept ||
-              userSession.isCourseRep !== matchCourseRep ||
-              userSession.isAdmin !== matchAdmin ||
-              userSession.is_paid !== matchIsPaid ||
-              userSession.is_payed !== matchIsPaid ||
-              userSession.hasFreeAccess !== matchHasFreeAccess ||
-              userSession.paid_semester !== matchPaidSemester ||
-              shouldUpdatePic
-            ) {
+            const normalizedCurrentPaidSem = currentSession.paid_semester || undefined;
+            const normalizedMatchPaidSem = matchPaidSemester || undefined;
+
+            const hasChanged = 
+              currentSession.matricNumber !== matchMatric ||
+              currentSession.email !== matchEmail ||
+              currentSession.fullName !== matchFullName ||
+              currentSession.level !== matchLevel ||
+              currentSession.yearLevel !== matchYearLevel ||
+              currentSession.department !== matchDept ||
+              currentSession.department_id !== matchDeptId ||
+              currentSession.isCourseRep !== matchCourseRep ||
+              currentSession.isAdmin !== matchAdmin ||
+              Boolean(currentSession.is_paid) !== matchIsPaid ||
+              Boolean(currentSession.is_payed) !== matchIsPaid ||
+              Boolean(currentSession.hasFreeAccess) !== matchHasFreeAccess ||
+              normalizedCurrentPaidSem !== normalizedMatchPaidSem ||
+              shouldUpdatePic;
+
+            if (hasChanged) {
+              const deptOrLevelChanged = currentSession.level !== matchLevel || currentSession.department !== matchDept || currentSession.department_id !== matchDeptId;
               const syncedSession: UserSession = {
-                ...userSession,
+                ...currentSession,
+                matricNumber: matchMatric,
+                matric_number: matchMatric,
+                email: matchEmail,
+                fullName: matchFullName,
                 level: matchLevel,
                 year_level: matchYearLevel,
                 yearLevel: matchYearLevel,
@@ -563,25 +808,29 @@ export default function App() {
                 current_semester: matchSemester,
                 department: matchDept,
                 department_id: matchDeptId,
+                department_code: matchDeptCode,
                 isCourseRep: matchCourseRep,
                 isAdmin: matchAdmin,
                 is_paid: matchIsPaid,
                 is_payed: matchIsPaid,
                 hasFreeAccess: matchHasFreeAccess,
                 paid_semester: matchPaidSemester,
-                profile_pic_url: matchPic || userSession.profile_pic_url,
-                profileImage: matchPic || userSession.profileImage,
+                profile_pic_url: matchPic || currentSession.profile_pic_url,
+                profileImage: matchPic || currentSession.profileImage,
               };
+              userSessionRef.current = syncedSession;
               setUserSession(syncedSession);
               if (shouldUpdatePic) {
-                setProfileImage(matchPic);
+                setProfileImage(matchPic || null);
               }
               try {
                 localStorage.setItem('university_schedule_user', JSON.stringify(syncedSession));
-                if (shouldUpdatePic) {
-                  localStorage.setItem(`university_profile_img_${userSession.email || userSession.matricNumber}`, matchPic);
-                }
               } catch (e) {}
+
+              // Refresh portal course schedule and timetable instantly if department or level changed
+              if (deptOrLevelChanged) {
+                syncStudentPortalData().catch(() => {});
+              }
             }
           }
         }
@@ -590,7 +839,173 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, [userSession?.uid, userSession?.matricNumber, userSession?.email]);
+  }, [userSession?.uid, userSession?.matricNumber, userSession?.email, syncStudentPortalData]);
+
+  // Ensure native device push notifications token is synced with current student department & level
+  useEffect(() => {
+    (async () => {
+      try {
+        const permState = await getPushPermissionState();
+        if (permState === 'granted') {
+          const fallbackDept = userSession?.department || userSession?.department_id || 'dept-ich';
+          const fallbackLevel = userSession?.level || 100;
+          await ensureNativePushRegistered(
+            userSession || ({
+              department: fallbackDept,
+              level: fallbackLevel,
+              matricNumber: '',
+              fullName: 'Student',
+            } as any)
+          );
+        }
+      } catch (e) {
+        console.warn('Native push session sync note:', e);
+      }
+    })();
+  }, [userSession?.matricNumber, userSession?.department, userSession?.level, userSession?.uid]);
+
+  // Online/Offline listener: automatic instant real-time sync when internet reconnects
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      showToast('🟢 Back online! Syncing live timetable...');
+      syncStudentPortalData().catch(() => {});
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      showToast('📡 Offline mode active. Timetable and modules available from cache.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [syncStudentPortalData]);
+
+  // Realtime Live Profile & User Credentials Synchronization directly with Firestore Database
+  useEffect(() => {
+    if (!userSession) return;
+    const userKey = userSession.id || userSession.uid || userSession.email || userSession.matricNumber;
+    if (!userKey) return;
+
+    // Listen to user document for instantaneous credentials, department, level, and photo updates
+    const unsub = onSnapshot(doc(db, 'users', userKey), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        const livePic = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || null;
+        if (livePic) {
+          setProfileImage(livePic);
+        }
+
+        setUserSession((prev) => {
+          if (!prev) return null;
+          const newLevel = typeof d.level === 'number' ? d.level : (d.year_level ? parseInt(String(d.year_level).replace(/\D/g, ''), 10) : prev.level) || prev.level;
+          const newYearLevel = `${newLevel} Level`;
+          const newDept = d.department || prev.department;
+          const newDeptId = d.department_id || prev.department_id;
+          const newMatric = (d.matric_number || d.matricNumber || prev.matricNumber || '').trim().toUpperCase();
+          const newEmail = (d.email || prev.email || '').trim().toLowerCase();
+          const newFullName = (d.full_name || d.fullName || d.name || prev.fullName || '').trim();
+          const newIsPaid = Boolean(d.is_paid ?? d.is_payed ?? false);
+          const newHasFreeAccess = Boolean(d.hasFreeAccess || d.has_free_access || false);
+          const newPaidSemester = d.paid_semester || d.paidSemester || null;
+          const newIsRep = Boolean(d.iscourserep ?? d.isCourseRep ?? prev.isCourseRep);
+          const newIsAdmin = Boolean(d.isadmin ?? d.isAdmin ?? prev.isAdmin);
+          const newWalletBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : prev.walletBalance);
+
+          const hasChanged = 
+            prev.level !== newLevel ||
+            prev.yearLevel !== newYearLevel ||
+            prev.department !== newDept ||
+            prev.department_id !== newDeptId ||
+            (newMatric && prev.matricNumber !== newMatric) ||
+            (newEmail && prev.email !== newEmail) ||
+            (newFullName && prev.fullName !== newFullName) ||
+            prev.isCourseRep !== newIsRep ||
+            prev.isAdmin !== newIsAdmin ||
+            Boolean(prev.is_paid) !== newIsPaid ||
+            Boolean(prev.hasFreeAccess) !== newHasFreeAccess ||
+            prev.paid_semester !== newPaidSemester ||
+            prev.walletBalance !== newWalletBal ||
+            (livePic && prev.profileImage !== livePic);
+
+          if (!hasChanged) return prev;
+
+          const updated: UserSession = {
+            ...prev,
+            level: newLevel,
+            yearLevel: newYearLevel,
+            year_level: newYearLevel,
+            department: newDept,
+            department_id: newDeptId,
+            department_code: d.department_code || d.departmentCode || prev.department_code,
+            matricNumber: newMatric || prev.matricNumber,
+            matric_number: newMatric || prev.matric_number,
+            email: newEmail || prev.email,
+            fullName: newFullName || prev.fullName,
+            name: newFullName || prev.name,
+            isCourseRep: newIsRep,
+            isAdmin: newIsAdmin,
+            is_paid: newIsPaid,
+            is_payed: newIsPaid,
+            hasFreeAccess: newHasFreeAccess,
+            paid_semester: newPaidSemester,
+            walletBalance: newWalletBal,
+            wallet_balance: newWalletBal,
+            profileImage: livePic || prev.profileImage,
+            profile_pic_url: livePic || prev.profile_pic_url,
+          };
+          userSessionRef.current = updated;
+          try {
+            localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+          } catch {}
+
+          if (prev.level !== newLevel || prev.department !== newDept || prev.department_id !== newDeptId) {
+            syncStudentPortalData().catch(() => {});
+          }
+
+          return updated;
+        });
+      }
+    }, () => {});
+
+    // Also listen for local custom update events
+    const handleLocalUserUpdate = (e: Event) => {
+      const customEvt = e as CustomEvent<any>;
+      if (!customEvt.detail) return;
+      const detail = customEvt.detail;
+      setUserSession((prev) => {
+        if (!prev) return null;
+        const newLvl = typeof detail.level === 'number' ? detail.level : prev.level;
+        const updated: UserSession = {
+          ...prev,
+          matricNumber: detail.matric_number || detail.matricNumber || prev.matricNumber,
+          matric_number: detail.matric_number || detail.matricNumber || prev.matric_number,
+          email: detail.email || prev.email,
+          fullName: detail.full_name || detail.fullName || prev.fullName,
+          department: detail.department || prev.department,
+          department_id: detail.department_id || prev.department_id,
+          department_code: detail.department_code || prev.department_code,
+          level: newLvl,
+          year_level: detail.year_level || `${newLvl} Level`,
+          yearLevel: detail.yearLevel || `${newLvl} Level`,
+        };
+        userSessionRef.current = updated;
+        syncStudentPortalData().catch(() => {});
+        return updated;
+      });
+    };
+
+    window.addEventListener('university_user_updated', handleLocalUserUpdate);
+
+    return () => {
+      unsub();
+      window.removeEventListener('university_user_updated', handleLocalUserUpdate);
+    };
+  }, [userSession?.id, userSession?.uid, userSession?.email, userSession?.matricNumber, syncStudentPortalData]);
 
   // Single Active Device Session Guard: Detects if another device signs in with the same account
   useEffect(() => {
@@ -706,16 +1121,11 @@ export default function App() {
     setUserSession(session);
     try {
       localStorage.setItem('university_schedule_user', JSON.stringify(session));
-      const userKey = session.email || session.matricNumber;
-      const savedPic = localStorage.getItem(`university_profile_img_${userKey}`);
-      if (savedPic) {
-        setProfileImage(savedPic);
-      } else if (session.profileImage || session.profile_pic_url) {
-        setProfileImage(session.profileImage || session.profile_pic_url || null);
-      }
     } catch (e) {
       console.error(e);
     }
+    const actualPic = session.profile_pic_url || session.profileImage || session.photoURL || session.profile_picture || null;
+    setProfileImage(actualPic);
     showToast(`Welcome, ${session.fullName}!`);
     addActivityNotification(
       'Portal Session Active',
@@ -723,7 +1133,10 @@ export default function App() {
       'system',
       'success'
     );
-    syncStudentPortalData();
+    setIsDataLoading(true);
+    syncStudentPortalData().finally(() => {
+      setIsDataLoading(false);
+    });
   };
 
   const handleLogout = () => {
@@ -738,20 +1151,40 @@ export default function App() {
     showToast('Signed out of Student Portal');
   };
 
-  // Custom uploaded profile avatar (saved in local memory / device)
+  const handleDismissSplash = useCallback(() => {
+    setShowSplash(false);
+  }, []);
+
+  const handlePaymentReturnToApp = useCallback((updatedUser?: any) => {
+    if (updatedUser) {
+      setUserSession((prev) => ({
+        ...(prev || {}),
+        ...updatedUser,
+        is_paid: true,
+        is_payed: true,
+        paid_semester: updatedUser.paid_semester || prev?.semester || '1st Semester',
+      }));
+    }
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname.startsWith('/payment') || window.location.pathname.startsWith('/pay')) {
+        window.location.href = '/?payment_success=true&paid=true';
+      } else {
+        window.history.pushState(null, '', '/');
+        setIsPaymentView(false);
+      }
+    } else {
+      setIsPaymentView(false);
+    }
+  }, []);
+
+  // Profile avatar state directly loaded from authenticated session / database (no local image caching)
   const [profileImage, setProfileImage] = useState<string | null>(() => {
     try {
       const savedUser = localStorage.getItem('university_schedule_user');
       if (savedUser) {
         const user = JSON.parse(savedUser);
-        const savedPic = localStorage.getItem(`university_profile_img_${user.email || user.matricNumber}`);
-        if (savedPic) return savedPic;
-        if (user.profileImage || user.profile_pic_url || user.photoURL) {
-          return user.profileImage || user.profile_pic_url || user.photoURL;
-        }
+        return user.profile_pic_url || user.profileImage || user.photoURL || user.profile_picture || null;
       }
-      const generic = localStorage.getItem('university_schedule_profile_img');
-      if (generic) return generic;
     } catch (e) {
       console.error(e);
     }
@@ -787,42 +1220,43 @@ export default function App() {
   const activeLevel = getStudentActiveLevel(userSession);
   const activeSemester = normalizeSemester(getStudentActiveSemester(userSession, currentSemester));
 
-  const isICH =
-    studentDeptId === 'dept-ich' ||
-    studentMatric.includes('ICH') ||
-    studentDeptRaw.toLowerCase().includes('industrial');
-  const isCHM =
-    !isICH &&
-    (studentDeptId === 'dept-chm' ||
-      studentMatric.includes('CHM') ||
-      studentDeptRaw.toLowerCase().includes('chemistry'));
-  const isCSC =
-    studentDeptId === 'dept-csc' ||
-    studentMatric.includes('CSC') ||
-    studentDeptRaw.toLowerCase().includes('computer');
-
-  const deptId = isICH ? 'dept-ich' : isCHM ? 'dept-chm' : isCSC ? 'dept-csc' : studentDeptId || 'dept-ich';
+  const deptInfo = resolveStudentDepartmentId(userSession, departments);
+  const activeDeptId = deptInfo.id;
+  const deptId = activeDeptId;
+  const deptCode = (deptInfo.code || 'ICH').toUpperCase();
 
   // Filter events strictly matching student's department, level, and semester
   const filteredEvents = useMemo(() => {
     return events.filter((e) => {
-      // 1. Department match
+      // 1. Department match:
+      // Exact department_id match, normalized prefix match, or global 'dept-all'
+      // If legacy event without department_id, check course code prefix against department code
       const eDeptId = e.department_id || '';
       const cCode = (e.course || '').toUpperCase();
-      const matchesDept =
-        !eDeptId ||
-        eDeptId === 'dept-all' ||
-        (isICH && (eDeptId === 'dept-ich' || cCode.startsWith('ICH') || cCode.startsWith('CHM') || cCode.startsWith('PHY') || cCode.startsWith('MTH') || cCode.startsWith('GST') || cCode.startsWith('BIO'))) ||
-        (isCHM && (eDeptId === 'dept-chm' || cCode.startsWith('CHM'))) ||
-        (isCSC && (eDeptId === 'dept-csc' || cCode.startsWith('CSC'))) ||
-        (!isICH && !isCHM && !isCSC && (eDeptId === studentDeptId || eDeptId === 'dept-ich'));
+
+      let matchesDept = false;
+      if (eDeptId) {
+        const normEDeptId = eDeptId.replace(/^dept-ps-/, 'dept-');
+        const normActiveDeptId = activeDeptId.replace(/^dept-ps-/, 'dept-');
+        matchesDept = eDeptId === activeDeptId || normEDeptId === normActiveDeptId || eDeptId === 'dept-all';
+      } else {
+        if (activeDeptId === 'dept-ich') {
+          matchesDept = cCode.startsWith('ICH') || cCode.startsWith('CHM') || cCode.startsWith('PHY') || cCode.startsWith('MTH') || cCode.startsWith('GST') || cCode.startsWith('BIO');
+        } else if (activeDeptId === 'dept-chm') {
+          matchesDept = cCode.startsWith('CHM') && !cCode.startsWith('ICH');
+        } else if (activeDeptId === 'dept-csc') {
+          matchesDept = cCode.startsWith('CSC');
+        } else {
+          matchesDept = deptCode.length >= 2 && cCode.startsWith(deptCode);
+        }
+      }
 
       // 2. Strict Level match
       const codeDigits = cCode.replace(/\D/g, '');
       const codeLevel = codeDigits.length > 0 ? parseInt(codeDigits.slice(0, 1) + '00', 10) : 0;
       const eLevel = typeof e.level === 'number' && e.level >= 100
         ? e.level
-        : (codeLevel >= 100 && codeLevel <= 500 ? codeLevel : 100);
+        : (codeLevel >= 100 && codeLevel <= 600 ? codeLevel : 100);
       const matchesLevel = eLevel === activeLevel;
 
       // 3. Strict Semester match
@@ -831,13 +1265,12 @@ export default function App() {
 
       return matchesDept && matchesLevel && matchesSemester;
     });
-  }, [events, isICH, isCHM, isCSC, studentDeptId, activeLevel, activeSemester]);
+  }, [events, activeDeptId, activeLevel, activeSemester, deptCode]);
 
-  // Filter events for currently selected day (matches by exact dayKey) & sort by time
+  // Filter events for currently selected day (matches by exact dayKey, day of week, or date) & sort by time
   const currentDayEvents = useMemo(() => {
     const matchedList = filteredEvents.filter((e) => {
-      if (e.dayKey === selectedDayId) return true;
-      return false;
+      return isEventMatchingDay(e.dayKey, selectedDayId);
     });
 
     const getMinutes = (ev: EventItem): number => {
@@ -864,10 +1297,10 @@ export default function App() {
     return matchedList.sort((a, b) => getMinutes(a) - getMinutes(b));
   }, [filteredEvents, selectedDayId]);
 
-  // Recalculate event counts on days strictly for that exact day
+  // Recalculate event counts on days strictly for that day
   const updatedDays = useMemo(() => {
     return days.map((day) => {
-      const count = filteredEvents.filter((e) => e.dayKey === day.id).length;
+      const count = filteredEvents.filter((e) => isEventMatchingDay(e.dayKey, day.id)).length;
       return {
         ...day,
         eventsCount: count,
@@ -885,11 +1318,13 @@ export default function App() {
 
   const isPaidAccess = Boolean(
     isActualCourseRep ||
-    userSession?.is_paid ||
-    userSession?.is_payed ||
-    userSession?.hasFreeAccess ||
-    (userSession as any)?.has_free_access ||
-    (userSession as any)?.free_access
+    (
+      (userSession?.is_paid || userSession?.is_payed || userSession?.hasFreeAccess || (userSession as any)?.has_free_access || (userSession as any)?.free_access) &&
+      (
+        Boolean(userSession?.hasFreeAccess || (userSession as any)?.has_free_access || (userSession as any)?.free_access) ||
+        (!userSession?.paid_semester || !activeSemester || normalizeSemester(userSession.paid_semester) === normalizeSemester(activeSemester))
+      )
+    )
   );
 
   const unreadNotifCount = useMemo(() => {
@@ -899,6 +1334,12 @@ export default function App() {
 
   // Automated Activity & Deadline Reminder Engine
   const sentRemindersRef = useRef<Set<string>>(new Set());
+  const filteredEventsRef = useRef(filteredEvents);
+  filteredEventsRef.current = filteredEvents;
+  const addActivityNotifRef = useRef(addActivityNotification);
+  addActivityNotifRef.current = addActivityNotification;
+  const isPaidAccessRef = useRef(isPaidAccess);
+  isPaidAccessRef.current = isPaidAccess;
 
   useEffect(() => {
     // Request notification permission if supported
@@ -909,7 +1350,9 @@ export default function App() {
     }
 
     const checkReminders = () => {
-      if (!isPaidAccess) return;
+      if (!isPaidAccessRef.current) return;
+      const currentFiltered = filteredEventsRef.current;
+      if (!currentFiltered || currentFiltered.length === 0) return;
       const now = new Date();
       const currentMinutes = now.getHours() * 60 + now.getMinutes();
       const todayDateNum = now.getDate();
@@ -918,7 +1361,7 @@ export default function App() {
       const todayStr = `${todayDayName} ${todayDateNum}`;
 
       // 1. Check upcoming and live activities for today
-      filteredEvents.forEach((ev) => {
+      currentFiltered.forEach((ev) => {
         if (ev.isPostponed) return;
 
         // Check if event is scheduled for today
@@ -959,7 +1402,7 @@ export default function App() {
           sentRemindersRef.current.add(reminder15Key);
           const msg = `${ev.course} (${ev.title}) is starting in ${diffMinutes} minutes at ${ev.startTime ? ev.startTime.substring(0, 5) : ev.time}. Venue: ${ev.location}`;
           showToast(`⏰ Upcoming Class: ${ev.course} in ${diffMinutes}m!`);
-          addActivityNotification(
+          addActivityNotifRef.current(
             `Class Reminder: ${ev.course}`,
             msg,
             'schedule',
@@ -980,7 +1423,7 @@ export default function App() {
           sentRemindersRef.current.add(startingNowKey);
           const msg = `${ev.course} (${ev.title}) is starting now at ${ev.location}! ${ev.deliveryMode === 'online' ? 'Online meeting link ready.' : ''}`;
           showToast(`🔴 Class Starting Now: ${ev.course}!`);
-          addActivityNotification(
+          addActivityNotifRef.current(
             `Class In Session: ${ev.course}`,
             msg,
             'schedule',
@@ -1000,7 +1443,7 @@ export default function App() {
     checkReminders();
     const interval = setInterval(checkReminders, 25000);
     return () => clearInterval(interval);
-  }, [filteredEvents, addActivityNotification]);
+  }, []);
 
   // Check if any drawer/sheet is currently open
   const isAnyDrawerOpen = isBottomSheetOpen || isEditModalOpen || isDeadlineModalOpen || isBroadcastModalOpen;
@@ -1090,6 +1533,24 @@ export default function App() {
       'schedule',
       statusAfter ? 'alert' : 'success'
     );
+
+    const targetEvent = events.find((e) => e.id === eventId);
+    recordActivityNotification({
+      title: statusAfter ? `Class Postponed: ${targetCourse}` : `Class Reactivated: ${targetCourse}`,
+      message: statusAfter
+        ? `${targetCourse} has been postponed by the Course Rep until further notice.`
+        : `${targetCourse} is active and scheduled for session.`,
+      category: 'schedule',
+      type: statusAfter ? 'alert' : 'success',
+      department_id: targetEvent?.department_id || activeDeptId,
+      department: userSession?.department,
+      level: activeLevel,
+      semester: activeSemester,
+      author: userSession?.fullName || 'Course Rep',
+      target_id: eventId,
+      dispatchPush: true,
+    }).catch(() => {});
+
     await updateScheduleActivity(eventId, { isPostponed: statusAfter });
   };
 
@@ -1138,6 +1599,25 @@ export default function App() {
       'success'
     );
 
+    const notifTitle = isEdit ? `Class Updated: ${saved.course}` : `New Class Added: ${saved.course}`;
+    const notifMsg = isEdit
+      ? `Schedule details updated for ${saved.course}: ${saved.title} at ${saved.time}, Venue: ${saved.location}.`
+      : `${saved.course} (${saved.title}) scheduled for ${saved.dayKey} at ${saved.time}. Venue: ${saved.location}.`;
+
+    recordActivityNotification({
+      title: notifTitle,
+      message: notifMsg,
+      category: 'schedule',
+      type: isEdit ? 'info' : 'activity',
+      department_id: saved.department_id || activeDeptId,
+      department: userSession?.department,
+      level: activeLevel,
+      semester: activeSemester,
+      author: userSession?.fullName || 'Course Rep',
+      target_id: saved.id,
+      dispatchPush: true,
+    }).catch(() => {});
+
     if (isEdit) {
       await updateScheduleActivity(saved.id, saved);
     } else {
@@ -1146,12 +1626,44 @@ export default function App() {
   };
 
   const handleMarkAllNotifsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, isUnread: false })));
+    const userKey = getUserNotificationKey(userSession);
+    const notifIds = notifications.map((n) => n.id).filter(Boolean);
+    markAllNotificationsAsRead(userKey, notifIds);
+    const updated = notifications.map((n) => ({
+      ...n,
+      isUnread: false,
+      isRead: true,
+    }));
+    setNotifications(updated);
+    try {
+      localStorage.setItem('app_cache_notifications', JSON.stringify(updated));
+    } catch {}
     showToast('All notifications marked as read');
   };
 
+  const handleMarkSingleNotifRead = (notifId: string) => {
+    if (!notifId) return;
+    const userKey = getUserNotificationKey(userSession);
+    markNotificationAsRead(userKey, notifId);
+    setNotifications((prev) => {
+      const updated = prev.map((n) =>
+        n.id === notifId ? { ...n, isUnread: false, isRead: true } : n
+      );
+      try {
+        localStorage.setItem('app_cache_notifications', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
   const handleClearAllNotifs = () => {
+    const userKey = getUserNotificationKey(userSession);
+    const notifIds = notifications.map((n) => n.id).filter(Boolean);
+    clearAllNotificationsReadState(userKey, notifIds);
     setNotifications([]);
+    try {
+      localStorage.removeItem('app_cache_notifications');
+    } catch {}
     showToast('All notifications cleared');
   };
 
@@ -1202,7 +1714,6 @@ export default function App() {
         setUserSession(updated);
         try {
           localStorage.setItem('university_schedule_user', JSON.stringify(updated));
-          localStorage.removeItem(`university_profile_img_${userSession.email || userSession.matricNumber}`);
         } catch {}
       }
       showToast('Profile photo removed');
@@ -1237,7 +1748,6 @@ export default function App() {
         setUserSession(updated);
         try {
           localStorage.setItem('university_schedule_user', JSON.stringify(updated));
-          localStorage.setItem(`university_profile_img_${userSession.email || userSession.matricNumber}`, url);
         } catch {}
       }
       showToast('Profile picture updated and saved!');
@@ -1302,8 +1812,6 @@ export default function App() {
 
         try {
           localStorage.setItem('university_schedule_user', JSON.stringify(updatedSession));
-          localStorage.setItem(`university_profile_img_${userSession.email || userSession.matricNumber}`, downloadUrl);
-          localStorage.setItem('university_schedule_profile_img', downloadUrl);
         } catch {}
       }
 
@@ -1336,6 +1844,21 @@ export default function App() {
           'modules',
           'success'
         );
+
+        recordActivityNotification({
+          title: `Module Registered: ${created.courseCode}`,
+          message: `${created.courseCode}: ${created.title} has been added to the curriculum.`,
+          category: 'modules',
+          type: 'success',
+          department_id: deptId,
+          department: userSession?.department,
+          level: activeLevel,
+          semester: activeSemester,
+          author: userSession?.fullName || 'Course Rep',
+          target_id: created.id,
+          dispatchPush: true,
+        }).catch(() => {});
+
         return true;
       }
     } catch (err) {
@@ -1357,6 +1880,21 @@ export default function App() {
           'modules',
           'info'
         );
+
+        recordActivityNotification({
+          title: `Module Updated: ${updated.courseCode}`,
+          message: `Curriculum details for ${updated.courseCode} (${updated.title}) were updated.`,
+          category: 'modules',
+          type: 'info',
+          department_id: deptId,
+          department: userSession?.department,
+          level: activeLevel,
+          semester: activeSemester,
+          author: userSession?.fullName || 'Course Rep',
+          target_id: updated.id,
+          dispatchPush: true,
+        }).catch(() => {});
+
         return true;
       }
     } catch (err) {
@@ -1450,6 +1988,23 @@ export default function App() {
       'deadline',
       'info'
     );
+
+    const notifTitle = isEdit ? `Deadline Updated: ${savedAssignment.course}` : `New Deadline: ${savedAssignment.course}`;
+    const notifMsg = `${savedAssignment.title} is due on ${savedAssignment.dueDate || 'date announced'} at ${savedAssignment.dueTime || 'time announced'}. Check Deadlines tab.`;
+
+    recordActivityNotification({
+      title: notifTitle,
+      message: notifMsg,
+      category: 'deadline',
+      type: isEdit ? 'info' : 'alert',
+      department_id: savedAssignment.department_id || activeDeptId,
+      department: userSession?.department,
+      level: activeLevel,
+      semester: activeSemester,
+      author: userSession?.fullName || 'Course Rep',
+      target_id: savedAssignment.id,
+      dispatchPush: true,
+    }).catch(() => {});
 
     if (isEdit) {
       await updateAssignment(savedAssignment.id, savedAssignment);
@@ -1588,6 +2143,21 @@ export default function App() {
           ),
         ]);
         showToast('Broadcast published to students!');
+
+        recordActivityNotification({
+          title: `Announcement: ${created.title}`,
+          message: created.message,
+          category: 'broadcast',
+          type: created.type as any,
+          department_id: deptId,
+          department: userSession?.department,
+          level: activeLevel,
+          semester: activeSemester,
+          author: created.author || 'Course Rep',
+          target_id: created.id,
+          dispatchPush: false,
+        }).catch(() => {});
+
         return true;
       }
     } catch (err) {
@@ -1768,111 +2338,114 @@ export default function App() {
     },
   };
 
-  // Refresh student payment status from database whenever app gains focus or becomes visible
+  // Ref to ensure payment return flow only runs once and never loops
+  const hasProcessedPaymentReturnRef = useRef<boolean>(false);
+
+  // Check once on mount if returning from payment gateway callback
   useEffect(() => {
-    // Check if returning from payment gateway callback
-    if (typeof window !== 'undefined') {
-      const search = window.location.search;
-      const isPaymentReturn =
-        search.includes('payment_success') ||
-        search.includes('paid=true') ||
-        search.includes('reference=') ||
-        search.includes('trxref=');
+    if (typeof window === 'undefined') return;
+    const search = window.location.search;
+    const isPaymentReturn =
+      search.includes('payment_success') ||
+      search.includes('paid=true') ||
+      search.includes('reference=') ||
+      search.includes('trxref=');
 
-      if (isPaymentReturn) {
-        const handleReturnSuccess = async () => {
-          const params = new URLSearchParams(window.location.search);
-          const payReference = params.get('reference') || params.get('trxref');
-          const studentQuery = params.get('student') || params.get('matric') || params.get('email');
-          const semesterQuery = params.get('semester');
+    if (!isPaymentReturn || hasProcessedPaymentReturnRef.current) return;
+    hasProcessedPaymentReturnRef.current = true;
 
+    // Immediately clean URL search query so subsequent renders and route listeners see a clean URL
+    const cleanUrl = window.location.pathname + (window.location.hash || '');
+    try {
+      window.history.replaceState({}, document.title, cleanUrl || '/');
+    } catch {}
+
+    const handleReturnSuccess = async () => {
+      const params = new URLSearchParams(search);
+      const payReference = params.get('reference') || params.get('trxref');
+      const studentQuery = params.get('student') || params.get('matric') || params.get('email');
+      const semesterQuery = params.get('semester');
+
+      try {
+        const raw = localStorage.getItem('university_schedule_user');
+        let currentUser: any = raw ? JSON.parse(raw) : null;
+        const currentSession = userSessionRef.current || currentUser;
+        const targetId = studentQuery || currentSession?.uid || currentSession?.matricNumber || currentSession?.matric_number || currentSession?.email;
+
+        // If reference exists, ensure verified in backend & Firestore
+        if (payReference && targetId) {
           try {
-            const raw = localStorage.getItem('university_schedule_user');
-            let currentUser: any = raw ? JSON.parse(raw) : null;
-            const targetId = studentQuery || currentUser?.uid || currentUser?.matricNumber || currentUser?.matric_number || currentUser?.email;
+            await recordVerifiedSemesterPayment(
+              targetId,
+              payReference,
+              semesterQuery || activeSemester || '1st Semester 2025/2026',
+              3000
+            );
+          } catch (recErr) {
+            console.warn('Payment record notice on app return:', recErr);
+          }
+        }
 
-            // If reference exists, ensure verified in backend & Firestore
-            if (payReference && targetId) {
-              try {
-                await recordVerifiedSemesterPayment(
-                  targetId,
-                  payReference,
-                  semesterQuery || activeSemester || '1st Semester 2025/2026',
-                  3000
-                );
-              } catch (recErr) {
-                console.warn('Payment record notice on app return:', recErr);
-              }
-            }
+        // Immediately grant paid access in state & storage
+        const semToSet = semesterQuery || currentSession?.paid_semester || activeSemester || '1st Semester 2025/2026';
+        const updatedUser = {
+          ...(currentSession || {}),
+          isLoggedIn: true,
+          is_paid: true,
+          is_payed: true,
+          paid_semester: semToSet,
+          paid_at: currentSession?.paid_at || new Date().toISOString(),
+        };
 
-            // Immediately grant paid access in state & storage
-            const semToSet = semesterQuery || currentUser?.paid_semester || activeSemester || '1st Semester 2025/2026';
-            const updatedUser = {
-              ...(currentUser || {}),
+        userSessionRef.current = updatedUser;
+        setUserSession(updatedUser);
+        try {
+          localStorage.setItem('university_schedule_user', JSON.stringify(updatedUser));
+        } catch {}
+
+        // Close any lingering payment view
+        setIsPaymentView(false);
+
+        // Re-fetch fresh student profile from Firestore
+        if (targetId) {
+          const fresh = await fetchStudentByEmailOrMatric(targetId);
+          if (fresh) {
+            const finalSynced: UserSession = {
+              ...(userSessionRef.current || {}),
+              ...fresh,
+              department: fresh.department || userSessionRef.current?.department || 'Department of Industrial Chemistry',
+              department_id: fresh.department_id || userSessionRef.current?.department_id || 'dept-ich',
+              level: fresh.level || userSessionRef.current?.level || 100,
+              yearLevel: `${fresh.level || userSessionRef.current?.level || 100} Level`,
+              year_level: `${fresh.level || userSessionRef.current?.level || 100} Level`,
+              fullName: fresh.full_name || fresh.fullName || userSessionRef.current?.fullName || 'Student',
+              matricNumber: fresh.matric_number || fresh.matricNumber || userSessionRef.current?.matricNumber || '',
               isLoggedIn: true,
               is_paid: true,
               is_payed: true,
-              paid_semester: semToSet,
-              paid_at: currentUser?.paid_at || new Date().toISOString(),
+              paid_semester: fresh.paid_semester || semToSet,
             };
-
-            setUserSession((prev) => ({
-              ...(prev || {}),
-              ...updatedUser,
-              isLoggedIn: true,
-              is_paid: true,
-              is_payed: true,
-              paid_semester: semToSet,
-            }));
-
+            userSessionRef.current = finalSynced;
+            setUserSession(finalSynced);
             try {
-              localStorage.setItem('university_schedule_user', JSON.stringify(updatedUser));
-            } catch {}
-
-            // Close any lingering payment view
-            setIsPaymentView(false);
-
-            // Re-fetch fresh student profile from Firestore
-            if (targetId) {
-              const fresh = await fetchStudentByEmailOrMatric(targetId);
-              if (fresh) {
-                setUserSession((prev) => {
-                  if (!prev) return null;
-                  return {
-                    ...prev,
-                    ...fresh,
-                    fullName: fresh.full_name || fresh.fullName || prev.fullName,
-                    matricNumber: fresh.matric_number || fresh.matricNumber || prev.matricNumber,
-                    isLoggedIn: true,
-                    is_paid: true,
-                    is_payed: true,
-                    paid_semester: fresh.paid_semester || semToSet,
-                  };
-                });
-                try {
-                  localStorage.setItem(
-                    'university_schedule_user',
-                    JSON.stringify({ ...fresh, is_paid: true, is_payed: true, paid_semester: fresh.paid_semester || semToSet })
-                  );
-                } catch {}
-              }
-            }
-          } catch (e) {
-            console.warn('Payment success return notice:', e);
-          } finally {
-            try {
-              const cleanUrl = window.location.pathname + window.location.hash;
-              window.history.replaceState({}, document.title, cleanUrl || '/');
+              localStorage.setItem('university_schedule_user', JSON.stringify(finalSynced));
             } catch {}
           }
-        };
-        handleReturnSuccess();
+        }
+      } catch (e) {
+        console.warn('Payment success return notice:', e);
       }
-    }
+    };
 
+    handleReturnSuccess();
+  }, []);
+
+  // Refresh student payment status from database whenever app gains focus or becomes visible
+  useEffect(() => {
     const handleReverifyOnFocus = async () => {
-      if (document.visibilityState === 'visible' && userSession) {
-        const id = userSession.uid || userSession.matricNumber || userSession.email;
+      const current = userSessionRef.current;
+      if (document.visibilityState === 'visible' && current) {
+        const id = current.uid || current.matricNumber || current.email;
         if (id) {
           try {
             const freshStudent = await fetchStudentByEmailOrMatric(id);
@@ -1890,12 +2463,14 @@ export default function App() {
                 if (!prev) return null;
                 const wasPaid = Boolean(prev.is_paid || prev.is_payed);
                 if (wasPaid === isPaid && prev.paid_semester === freshStudent.paid_semester) return prev;
-                return {
+                const updated = {
                   ...prev,
                   is_paid: isPaid,
                   is_payed: isPaid,
                   paid_semester: freshStudent.paid_semester,
                 };
+                userSessionRef.current = updated;
+                return updated;
               });
             }
           } catch (e) {}
@@ -1909,7 +2484,7 @@ export default function App() {
       window.removeEventListener('visibilitychange', handleReverifyOnFocus);
       window.removeEventListener('focus', handleReverifyOnFocus);
     };
-  }, [userSession]);
+  }, []);
 
   // Dedicated Desktop-Only Admin Dashboard Route (/adminschedulerapp)
   if (isAdminView) {
@@ -1959,12 +2534,12 @@ export default function App() {
 
   return (
     <ErrorBoundary fallbackTitle="Student Portal Safe Mode">
-      <div className="min-h-screen bg-[#F5F5F7] text-[#1C1C1E] relative overflow-x-clip flex flex-col items-center">
+      <div className="min-h-screen min-h-[100dvh] w-full bg-[#F5F5F7] text-[#1C1C1E] relative overflow-x-hidden flex flex-col items-center">
         {/* Splash Screen */}
         <AnimatePresence>
           {showSplash && (
             <SplashScreen
-              onComplete={() => setShowSplash(false)}
+              onComplete={handleDismissSplash}
               appName="Scheduler"
               isReady={isStartupVerified}
               statusMessage={splashStatusMessage}
@@ -1976,34 +2551,14 @@ export default function App() {
         {!userSession ? (
           <LoginPage onLogin={handleLogin} />
         ) : isPaymentView ? (
-          <div className="w-full max-w-lg min-h-screen flex flex-col px-3.5 sm:px-4 py-4 sm:py-7 relative">
+          <div className="w-full max-w-[440px] sm:max-w-[480px] md:max-w-[500px] min-h-screen flex flex-col px-3 xs:px-4 py-2 sm:py-3.5 relative">
             <PaymentPage
               initialUserSession={userSession}
-              onReturnToApp={(updatedUser) => {
-                if (updatedUser) {
-                  setUserSession((prev) => ({
-                    ...(prev || {}),
-                    ...updatedUser,
-                    is_paid: true,
-                    is_payed: true,
-                    paid_semester: updatedUser.paid_semester || activeSemester,
-                  }));
-                }
-                if (typeof window !== 'undefined') {
-                  if (window.location.pathname.startsWith('/payment') || window.location.pathname.startsWith('/pay')) {
-                    window.location.href = '/?payment_success=true&paid=true';
-                  } else {
-                    window.history.pushState(null, '', '/');
-                    setIsPaymentView(false);
-                  }
-                } else {
-                  setIsPaymentView(false);
-                }
-              }}
+              onReturnToApp={handlePaymentReturnToApp}
             />
           </div>
         ) : isDirectWalletOpen ? (
-          <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-3 pb-20 relative">
+          <div className="w-full max-w-[440px] sm:max-w-[480px] md:max-w-[500px] min-h-screen flex flex-col px-3 xs:px-4 pt-1 pb-16 relative">
             <WalletView
               onBack={() => setIsDirectWalletOpen(false)}
               userSession={userSession}
@@ -2024,11 +2579,11 @@ export default function App() {
             <div className="fixed top-[280px] right-[-100px] w-[360px] h-[360px] rounded-full bg-gradient-to-br from-indigo-200/30 to-purple-200/25 blur-[100px] pointer-events-none -z-10" />
             <div className="fixed bottom-[-60px] left-[15%] w-[380px] h-[380px] rounded-full bg-gradient-to-tr from-sky-200/35 to-emerald-100/30 blur-[110px] pointer-events-none -z-10" />
 
-            {/* Main Container mimicking iOS screen boundaries */}
-            <div className="w-full max-w-lg min-h-screen flex flex-col px-4 sm:px-5 pt-1 pb-32 relative">
+            {/* Main Container mimicking iOS/Android native screen boundaries */}
+            <div className="w-full max-w-[440px] sm:max-w-[480px] md:max-w-[500px] min-h-screen min-h-[100dvh] flex flex-col px-3 xs:px-3.5 sm:px-4 pt-0.5 pb-20 sm:pb-24 relative overflow-y-visible">
               {/* Standalone User Profile Pill & Icons fixed in position hovering over content */}
               {activeTab !== 'Notifications' && (
-                <div className="fixed top-2.5 inset-x-0 max-w-lg mx-auto px-4 sm:px-5 z-40 pointer-events-none safe-area-top">
+                <div className="fixed top-1 inset-x-0 max-w-[440px] sm:max-w-[480px] md:max-w-[500px] mx-auto px-3 xs:px-3.5 sm:px-4 z-40 pointer-events-none safe-area-top">
                   <div className="pointer-events-auto">
                     <HeaderSection
                       onOpenNotifications={() => {
@@ -2056,7 +2611,18 @@ export default function App() {
               )}
 
               {/* iOS Dynamic Header & Status Bar Area */}
-              <div className={`space-y-4 flex-1 ${activeTab !== 'Notifications' ? 'pt-[84px] sm:pt-[88px]' : 'pt-2'}`}>
+              <div className={`space-y-3 sm:space-y-4 flex-1 ${activeTab !== 'Notifications' ? 'pt-[74px] sm:pt-[80px]' : 'pt-2.5 sm:pt-3'}`}>
+                {/* Offline Cache Status Banner */}
+                {!isOnline && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-2.5 rounded-2xl bg-amber-500/90 text-white text-[12px] font-semibold flex items-center justify-center gap-2 shadow-xs backdrop-blur-md border border-amber-400/40 text-center"
+                  >
+                    <WifiOff className="w-4 h-4 shrink-0 animate-pulse" />
+                    <span>Offline Mode • Using cached schedules, deadlines &amp; modules</span>
+                  </motion.div>
+                )}
 
                 {/* Conditional View by Active Navigation Tab */}
                 <AnimatePresence mode="wait">
@@ -2085,13 +2651,14 @@ export default function App() {
                       initial="initial"
                       animate="animate"
                       exit="exit"
-                      className="space-y-4"
+                      className="space-y-4 pt-1 sm:pt-1.5"
                     >
                       {/* Day Timeline Section */}
                       <DayTimelineSection
                         days={updatedDays}
                         selectedDayId={selectedDayId}
                         onSelectDay={(id) => setSelectedDayId(id)}
+                        isLoading={isDataLoading}
                       />
 
                       {/* Today's Activities Section */}
@@ -2148,6 +2715,7 @@ export default function App() {
                         notifications={notifications}
                         onBackToSchedule={() => setActiveTab('Schedule')}
                         onDeleteNotif={handleDeleteNotif}
+                        onMarkAsRead={handleMarkSingleNotifRead}
                         isLoading={isDataLoading}
                       />
                     </motion.div>
@@ -2383,18 +2951,18 @@ export default function App() {
                   }}
                   exit={{ opacity: 0, y: 30 }}
                   transition={{ duration: 0.22, ease: 'easeOut' }}
-                  className="fixed bottom-0 left-0 right-0 z-40 flex justify-center px-4 pb-4 pt-2 pointer-events-none"
+                  className="fixed bottom-0 left-0 right-0 z-40 flex justify-center px-3 pb-3 pt-1 pointer-events-none"
                 >
-                  <div className="w-full max-w-md flex items-center justify-between gap-3 pointer-events-auto">
+                  <div className="w-full max-w-[440px] sm:max-w-[480px] md:max-w-[500px] flex items-center justify-between gap-2.5 pointer-events-auto">
                     <motion.button
                       whileTap={{ scale: 0.94 }}
                       whileHover={{ scale: 1.02, y: -2 }}
                       onClick={handleMarkAllNotifsRead}
                       disabled={unreadNotifCount === 0}
-                      className={`flex-1 py-3 px-5 rounded-[28px] font-bold text-[13px] border backdrop-blur-2xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
+                      className={`flex-1 py-2.5 px-4 rounded-[22px] font-bold text-[12px] border backdrop-blur-2xl transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
                         unreadNotifCount > 0
-                          ? 'bg-[#007AFF]/90 hover:bg-[#007AFF] text-white border-blue-400/60 shadow-[0_12px_32px_rgba(0,122,255,0.38)]'
-                          : 'bg-white/80 text-[#8E8E93] border-white/90 cursor-not-allowed opacity-60 shadow-[0_8px_24px_rgba(0,0,0,0.06)]'
+                          ? 'bg-[#007AFF]/90 hover:bg-[#007AFF] text-white border-blue-400/60 shadow-[0_8px_24px_rgba(0,122,255,0.3)]'
+                          : 'bg-white/80 text-[#8E8E93] border-white/90 cursor-not-allowed opacity-60 shadow-[0_4px_16px_rgba(0,0,0,0.04)]'
                       }`}
                     >
                       <CheckCheck className="w-4 h-4" />
@@ -2510,6 +3078,7 @@ export default function App() {
         <PermissionsPromptModal
           isOpen={showPermissionsPrompt}
           onClose={() => setShowPermissionsPrompt(false)}
+          userSession={userSession}
         />
       </div>
     </ErrorBoundary>

@@ -16,12 +16,14 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
   statusMessage,
 }) => {
   const [minTimeElapsed, setMinTimeElapsed] = React.useState(false);
+  const onCompleteRef = React.useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
-    // Minimum smooth splash duration for high-end branded look
+    // Fast minimum splash time (700ms) for smooth entrance animation without artificial lag
     const timer = setTimeout(() => {
       setMinTimeElapsed(true);
-    }, 1800);
+    }, 700);
 
     return () => clearTimeout(timer);
   }, []);
@@ -30,20 +32,20 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
   useEffect(() => {
     if (minTimeElapsed && isReady) {
       const exitTimer = setTimeout(() => {
-        onComplete();
+        onCompleteRef.current();
       }, 120);
       return () => clearTimeout(exitTimer);
     }
-  }, [minTimeElapsed, isReady, onComplete]);
+  }, [minTimeElapsed, isReady]);
 
   // Safeguard: Dismiss after 5.0 seconds under any circumstance (e.g. extreme network freeze)
   useEffect(() => {
     const safetyTimer = setTimeout(() => {
-      onComplete();
+      onCompleteRef.current();
     }, 5000);
 
     return () => clearTimeout(safetyTimer);
-  }, [onComplete]);
+  }, []);
 
   return (
     <motion.div

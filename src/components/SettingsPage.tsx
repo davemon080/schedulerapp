@@ -53,6 +53,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         onBack={() => setActiveSubPage('main')}
         onAddNotification={onAddNotification}
         onShowToast={onShowToast}
+        userSession={userSession}
       />
     );
   }
@@ -82,7 +83,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     {
       id: 'settings-notifications-row',
       title: 'Notification',
-      subtitle: `${activeNotifChannels} of 5 alert channels active`,
+      subtitle: `${activeNotifChannels} of 4 alert channels active`,
       icon: <Bell className="w-4.5 h-4.5 text-indigo-600" />,
       bgColor: 'bg-indigo-50',
       action: () => setActiveSubPage('notifications'),

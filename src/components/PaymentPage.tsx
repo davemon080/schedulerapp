@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck,
@@ -247,10 +247,12 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   }, []);
 
   // Handle Paystack callback redirect parameter if Paystack redirects back with ?reference=... or ?trxref=...
+  const hasTriggeredRedirectVerificationRef = useRef<boolean>(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const redirectRef = params.get('reference') || params.get('trxref');
-    if (redirectRef && paymentStatus === 'idle') {
+    if (redirectRef && paymentStatus === 'idle' && !hasTriggeredRedirectVerificationRef.current) {
+      hasTriggeredRedirectVerificationRef.current = true;
       handleVerifyPayment(redirectRef);
     }
   }, [student, paymentStatus]);

@@ -112,7 +112,7 @@ export const SupportPage: React.FC<SupportPageProps> = ({
 
   useEffect(() => {
     fetchLevelAdvisor(userSession?.department_id || 'dept-ich', userSession?.level || 100).then(setAdvisor);
-  }, [userSession]);
+  }, [userSession?.department_id, userSession?.level]);
 
   useEffect(() => {
     if (userSession?.email && activeTab === 'my_tickets') {
@@ -121,7 +121,7 @@ export const SupportPage: React.FC<SupportPageProps> = ({
         .then(setMyTickets)
         .finally(() => setIsLoadingTickets(false));
     }
-  }, [userSession, activeTab]);
+  }, [userSession?.email, activeTab]);
 
   const handleCopy = (text: string, label: string) => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {

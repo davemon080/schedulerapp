@@ -1,6 +1,7 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, AlertCircle, FileText, CheckCircle2, Megaphone, BookMarked, FlaskConical, Award, Bell, Shield, ChevronRight, Camera, Image as ImageIcon, Check, Plus, LogOut, Mail, GraduationCap, Edit3, Trash2, MoreVertical, Wallet, CreditCard, ArrowUpRight, ArrowDownLeft, Receipt, Eye, EyeOff, Send, Sparkles, UserCheck, Phone, MapPin, X, HelpCircle, Copy, ExternalLink, MessageSquare, Headphones, Settings } from 'lucide-react';
+import { Clock, AlertCircle, FileText, CheckCircle2, Megaphone, BookMarked, FlaskConical, Award, Bell, Shield, ChevronRight, Camera, Image as ImageIcon, Check, Plus, LogOut, Mail, GraduationCap, Edit3, Trash2, MoreVertical, Wallet, CreditCard, ArrowUpRight, ArrowDownLeft, Receipt, Eye, EyeOff, Send, Sparkles, UserCheck, Phone, MapPin, X, HelpCircle, Copy, ExternalLink, MessageSquare, Headphones, Settings, Users, Search } from 'lucide-react';
+import { CourseMatesView } from './CourseMatesView';
 import { AssignmentItem, UserSession, NotificationItem } from '../types';
 import {
   DeadlinesSkeleton,
@@ -982,6 +983,7 @@ export const ModulesView: React.FC<OtherViewProps> = React.memo(({
   selectedCourseForDetails,
   onSelectCourse,
 }) => {
+  const [searchQuery, setSearchQuery] = useState('');
   const [internalSelectedCourse, setInternalSelectedCourse] = useState<any | null>(null);
   const selectedCourseDetail = selectedCourseForDetails !== undefined ? selectedCourseForDetails : internalSelectedCourse;
   const setSelectedCourseDetail = onSelectCourse || setInternalSelectedCourse;
@@ -1005,6 +1007,18 @@ export const ModulesView: React.FC<OtherViewProps> = React.memo(({
 
   // Filter courses strictly for this student's department, enrolled level, and active semester
   const filteredCourses = filterCoursesForStudentScope(courses, deptId, activeLevel, activeSemester);
+
+  // Search filter across registered courses
+  const searchedCourses = useMemo(() => {
+    if (!searchQuery.trim()) return filteredCourses;
+    const q = searchQuery.toLowerCase().trim();
+    return filteredCourses.filter((c: any) => {
+      const code = (c.courseCode || c.code || '').toLowerCase();
+      const title = (c.title || c.name || '').toLowerCase();
+      const desc = (c.description || '').toLowerCase();
+      return code.includes(q) || title.includes(q) || desc.includes(q);
+    });
+  }, [filteredCourses, searchQuery]);
 
   // Calculate total units
   const totalUnits = filteredCourses.reduce((acc: number, curr: any) => {
@@ -1066,88 +1080,141 @@ export const ModulesView: React.FC<OtherViewProps> = React.memo(({
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="space-y-4 pb-24"
+      className="space-y-4 pb-28"
     >
-      {/* Registered Modules List Header */}
+      {/* Registered Courses Top Header Bar directly on the page */}
       <motion.div variants={itemVariants} className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2">
-          <h2 className="text-[18px] font-bold text-[#1C1C1E] tracking-tight">
-            Registered Modules
-          </h2>
-          <span className="text-[11.5px] font-bold text-slate-500 bg-white/90 px-2.5 py-0.5 rounded-full border border-slate-200/70 shadow-2xs">
-            {filteredCourses.length}
-          </span>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-9 h-9 rounded-2xl bg-blue-500/10 border border-blue-400/25 text-[#007AFF] flex items-center justify-center shrink-0">
+            <BookMarked className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[18px] sm:text-[19px] font-bold text-[#1C1C1E] tracking-tight">
+                Registered Courses
+              </h2>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/80">
+                Enrolled
+              </span>
+            </div>
+            <p className="text-[11.5px] text-slate-500 font-medium truncate">
+              {deptDisplayName} • {activeLevel}L • {activeSemester}
+            </p>
+          </div>
+        </div>
+
+        {/* Load & Count Pill */}
+        <div className="flex items-center gap-1.5 bg-white/90 px-3 py-1 rounded-full border border-slate-200/80 text-[11px] font-bold text-slate-600 shadow-2xs shrink-0">
+          <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
+          <span>{totalUnits} Units</span>
+          <span className="text-slate-300">•</span>
+          <span>{filteredCourses.length}</span>
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-1 gap-3">
-        {filteredCourses.length === 0 ? (
+      {/* Quick Search Bar directly on the page */}
+      {filteredCourses.length > 2 && (
+        <motion.div variants={itemVariants} className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search registered courses (e.g. CHM 101)..."
+            className="w-full pl-9 pr-8 py-2.5 rounded-2xl bg-white/90 border border-slate-200/80 text-[12.5px] text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white shadow-2xs transition-all"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </motion.div>
+      )}
+
+      {/* Courses List directly on the app page */}
+      <div className="space-y-2.5">
+        {searchedCourses.length === 0 ? (
           <motion.div
             variants={itemVariants}
-            className="glass-container rounded-[26px] p-8 text-center space-y-2.5 border border-white/80 shadow-[0_4px_20px_rgba(0,0,0,0.02)]"
+            className="rounded-[24px] p-8 text-center space-y-2.5 bg-white/80 border border-slate-200/80 shadow-2xs"
           >
             <BookMarked className="w-10 h-10 text-slate-300 mx-auto" />
             <h4 className="text-[15px] font-bold text-slate-800">
-              No courses registered for {activeLevel}L {activeSemester}
+              {searchQuery ? `No courses matching "${searchQuery}"` : `No courses registered for ${activeLevel}L ${activeSemester}`}
             </h4>
             <p className="text-[12px] text-slate-500 max-w-xs mx-auto">
-              {effectiveCourseRep
-                ? `Click the "+ Add Course" button above to add official courses for ${activeSemester}.`
-                : `No modules have been posted yet for ${activeSemester}. Contact your course representative.`}
+              {searchQuery
+                ? 'Try searching with a different course code or keyword.'
+                : effectiveCourseRep
+                ? `Tap the "+" button at the bottom right of the screen to add courses for ${activeSemester}.`
+                : `No modules have been posted yet for ${activeSemester}. Contact your course rep.`}
             </p>
-            {effectiveCourseRep && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingCourse(null);
-                  setIsAddModalOpen(true);
-                }}
-                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-blue-600 text-white text-xs font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add First Course</span>
-              </button>
-            )}
           </motion.div>
         ) : (
-          filteredCourses.map((mod: any) => {
+          searchedCourses.map((mod: any) => {
             const courseId = mod.id || mod.courseCode || mod.code;
+            const hasPdfs = Array.isArray(mod.materials) && mod.materials.length > 0;
+            const hasVideos = Array.isArray(mod.video_lectures) && mod.video_lectures.length > 0;
 
             return (
               <motion.div
                 key={courseId}
                 variants={itemVariants}
-                whileHover={{ y: -2 }}
-                whileTap={{ scale: 0.98 }}
+                whileHover={{ y: -1.5 }}
+                whileTap={{ scale: 0.985 }}
                 onClick={() => setSelectedCourseDetail(mod)}
-                className="glass-container rounded-[22px] p-4 flex items-center justify-between shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 transition-all cursor-pointer group hover:border-blue-200 relative"
+                className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer group flex items-start sm:items-center justify-between gap-2.5 select-none"
               >
-                <div className="flex items-center gap-3.5 min-w-0 pr-2">
-                  <div className="w-11 h-11 rounded-[16px] bg-blue-500/10 border border-blue-300/30 flex items-center justify-center text-[#007AFF] font-bold text-[14px] shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                <div className="flex items-start gap-3 min-w-0 flex-1">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#007AFF] border border-blue-200/60 flex items-center justify-center font-bold text-[13px] shrink-0 mt-0.5 sm:mt-0 group-hover:bg-[#007AFF] group-hover:text-white transition-colors">
                     <BookMarked className="w-5 h-5" />
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-[13px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/50">
+                  
+                  <div className="min-w-0 flex-1 space-y-1">
+                    {/* Course Meta Pills */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono font-bold text-[12px] sm:text-[12.5px] text-[#007AFF] bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/60 shrink-0">
                         {mod.courseCode || mod.code}
                       </span>
-                      <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                      <span className="text-[10.5px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-md shrink-0">
                         {mod.units ? `${mod.units} Units` : '3 Units'}
                       </span>
-                      <span className="text-[10.5px] font-medium text-slate-400">
-                        {mod.semester || '1st Semester'}
+                      <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-md border border-slate-100 shrink-0">
+                        {mod.semester || activeSemester}
                       </span>
+
+                      {hasPdfs && (
+                        <span className="inline-flex items-center gap-1 text-[9.5px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60 shrink-0">
+                          <FileText className="w-2.5 h-2.5" />
+                          <span>Notes</span>
+                        </span>
+                      )}
+
+                      {hasVideos && (
+                        <span className="inline-flex items-center gap-1 text-[9.5px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-md border border-purple-200/60 shrink-0">
+                          <span>Video</span>
+                        </span>
+                      )}
                     </div>
-                    <h4 className="text-[14.5px] font-bold text-[#1C1C1E] truncate mt-1">
+
+                    {/* Course Title - Responsive wrapping for any screen */}
+                    <h4 className="text-[13.5px] sm:text-[14.5px] font-bold text-[#1C1C1E] group-hover:text-[#007AFF] transition-colors leading-snug line-clamp-2 break-words">
                       {mod.title || mod.name}
                     </h4>
-                    <p className="text-[11.5px] text-[#8E8E93] truncate mt-0.5">
-                      {mod.description || `${deptDisplayName} • ${activeLevel}L Module`}
+
+                    {/* Course Description */}
+                    <p className="text-[11px] sm:text-[11.5px] text-[#8E8E93] leading-relaxed line-clamp-1 sm:line-clamp-2 break-words">
+                      {mod.description || `${deptDisplayName} • ${activeLevel}L Curriculum`}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 shrink-0">
+                {/* Actions & Chevron */}
+                <div className="flex items-center gap-0.5 shrink-0 self-center">
                   {effectiveCourseRep && (
                     <button
                       type="button"
@@ -1155,7 +1222,7 @@ export const ModulesView: React.FC<OtherViewProps> = React.memo(({
                         e.stopPropagation();
                         setOpenMenuCourse(mod);
                       }}
-                      className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                       title="Course actions"
                       aria-label="Course options"
                     >
@@ -1163,7 +1230,9 @@ export const ModulesView: React.FC<OtherViewProps> = React.memo(({
                     </button>
                   )}
 
-                  <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 group-hover:text-blue-600 transition-colors" />
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-slate-300 group-hover:text-[#007AFF] group-hover:translate-x-0.5 transition-all">
+                      <ChevronRight className="w-4 h-4" />
+                    </div>
                 </div>
               </motion.div>
             );
@@ -1286,7 +1355,7 @@ export const ModulesView: React.FC<OtherViewProps> = React.memo(({
 
       {/* Floating Action Button (Hovering Plus Icon) for Course Rep */}
       {effectiveCourseRep && (
-        <div className="fixed bottom-[84px] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
+        <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] inset-x-0 max-w-lg mx-auto pointer-events-none z-40 flex justify-end px-5">
           <motion.button
             key="floating-module-fab-btn"
             initial={{ opacity: 0, scale: 0.75, y: 15 }}
@@ -1377,6 +1446,9 @@ export const ProfileView: React.FC<OtherViewProps> = React.memo(({
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
+  // Course Mates Page Navigation State
+  const [isCourseMatesOpen, setIsCourseMatesOpen] = useState(false);
+
   // Wallet Page Navigation State & Hidden Balance Sync
   const [isWalletPageOpen, setIsWalletPageOpen] = useState(false);
   const [isBalanceHidden, setIsBalanceHidden] = useState<boolean>(() => {
@@ -1460,6 +1532,21 @@ export const ProfileView: React.FC<OtherViewProps> = React.memo(({
         onOpenAdvisorModal={() => {
           setIsSupportPageOpen(false);
           setIsAdvisorPageOpen(true);
+        }}
+      />
+    );
+  }
+
+  if (isCourseMatesOpen) {
+    return (
+      <CourseMatesView
+        onBack={() => setIsCourseMatesOpen(false)}
+        userSession={userSession || null}
+        onUpdateUserSession={onUpdateUserSession}
+        onShowToast={(msg) => {
+          if (onAddNotification) {
+            onAddNotification('Course Mates', msg, 'profile', 'info');
+          }
         }}
       />
     );
@@ -1663,6 +1750,32 @@ export const ProfileView: React.FC<OtherViewProps> = React.memo(({
         </div>
       </motion.div>
 
+      {/* MY COURSE MATES LINK CARD */}
+      <motion.div
+        variants={itemVariants}
+        onClick={() => setIsCourseMatesOpen(true)}
+        className="glass-container rounded-[26px] p-4.5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-white/80 cursor-pointer hover:border-violet-300 hover:shadow-md transition-all group"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-violet-600 to-purple-600 text-white flex items-center justify-center shadow-md shadow-violet-500/20 group-hover:scale-105 transition-transform">
+              <Users className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">My Course Mates</h4>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11.5px] font-bold text-violet-700 bg-violet-50 border border-violet-200/80 px-2.5 py-1 rounded-full shadow-2xs">
+              Directory
+            </span>
+            <div className="w-7 h-7 rounded-full bg-slate-100 group-hover:bg-violet-50 group-hover:text-violet-600 flex items-center justify-center text-slate-400 transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
       {/* PAYMENTS LINK CARD */}
       <motion.div
         variants={itemVariants}
@@ -1676,7 +1789,6 @@ export const ProfileView: React.FC<OtherViewProps> = React.memo(({
             </div>
             <div>
               <h4 className="text-[15.5px] font-bold text-[#1C1C1E]">Payments</h4>
-              <p className="text-[11.5px] text-slate-500">Semester Access &amp; Receipts</p>
             </div>
           </div>
           <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mail,
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { UserSession } from '../types';
 import { auth, db } from '../lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -43,8 +44,11 @@ import {
   registerUserActiveSession,
   recordAppVisit,
   DepartmentRecord,
+  createDepartmentLevelDashboards,
+  ensureAllDepartmentLevelDashboards,
 } from '../lib/dbService';
-import { getStudentActiveLevel, getStudentActiveSemester } from '../lib/academicScope';
+import { getStudentActiveLevel, getStudentActiveSemester, isMatricMatching, normalizeMatricNumber } from '../lib/academicScope';
+import { StudentProfileRecord } from '@admin/types';
 import { ForgotPasswordPage } from './ForgotPasswordPage';
 
 interface LoginPageProps {
@@ -107,6 +111,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         if (!isCancelled) {
           if (depts && depts.length > 0) {
             setDepartments(depts);
+            ensureAllDepartmentLevelDashboards(depts).catch(() => {});
           }
           if (semDoc?.semester_code) {
             setActiveSemester(normalizeSemester(semDoc.semester_code));
@@ -132,7 +137,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     if (regMatric.trim().length >= 3 && departments.length > 0) {
       const detected = detectDepartmentFromMatric(regMatric, departments);
       if (detected && detected.department_id) {
-        setSelectedDeptId(detected.department_id);
+        setSelectedDeptId((prev) => (prev !== detected.department_id ? detected.department_id : prev));
       }
     }
   }, [regMatric, departments]);
@@ -195,19 +200,42 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         return;
       }
 
-      // 1. Fetch student profile from Firestore by email or matric number first
-      let studentProfile = await fetchStudentByEmailOrMatric(trimmedEmail) || await fetchStudentByEmailOrMatric(trimmedMatric);
+      // 1. Fetch student profile from Firestore by email first or by matric number
+      let studentProfile: StudentProfileRecord | null = null;
+      if (trimmedEmail) {
+        studentProfile = await fetchStudentByEmailOrMatric(trimmedEmail);
+      }
+      if (!studentProfile && trimmedMatric) {
+        studentProfile = await fetchStudentByEmailOrMatric(trimmedMatric);
+      }
 
-      // Fallback: Scan all students if not returned by direct index
+      // If studentProfile was found by email, but trimmedMatric was also provided:
+      // Verify if there is another record specifically registered with trimmedMatric
+      if (studentProfile && trimmedMatric) {
+        const dbMatric = studentProfile.matric_number || studentProfile.matricNumber || '';
+        if (dbMatric && !isMatricMatching(trimmedMatric, dbMatric)) {
+          const profileByMatric = await fetchStudentByEmailOrMatric(trimmedMatric);
+          if (profileByMatric) {
+            const pEmail = (profileByMatric.email || '').toLowerCase().trim();
+            if (pEmail === trimmedEmail) {
+              studentProfile = profileByMatric;
+            }
+          }
+        }
+      }
+
+      // Fallback: Scan all students in Firestore if not returned by direct index
       if (!studentProfile) {
         try {
           const allStudents = await fetchStudents();
           const cleanEmailMatch = trimmedEmail.toLowerCase();
-          const cleanMatricMatch = trimmedMatric.replace(/[\s\/-]/g, '').toUpperCase();
           const found = allStudents.find((s) => {
             const sEmail = (s.email || '').toLowerCase().trim();
-            const sMatric = (s.matric_number || s.matricNumber || '').replace(/[\s\/-]/g, '').toUpperCase();
-            return (sEmail && sEmail === cleanEmailMatch) || (cleanMatricMatch && sMatric === cleanMatricMatch);
+            const sMatric = s.matric_number || s.matricNumber || '';
+            return (
+              (cleanEmailMatch && sEmail === cleanEmailMatch) ||
+              (trimmedMatric && isMatricMatching(sMatric, trimmedMatric))
+            );
           });
           if (found) {
             studentProfile = found;
@@ -222,26 +250,52 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         return;
       }
 
-      // 2. Strict verification of Matriculation Number
-      const dbMatricClean = (studentProfile.matric_number || studentProfile.matricNumber || '').replace(/[\s\/-]/g, '').toUpperCase();
-      const enteredMatricClean = trimmedMatric.replace(/[\s\/-]/g, '').toUpperCase();
-      if (enteredMatricClean && dbMatricClean && enteredMatricClean !== dbMatricClean) {
-        setErrorMessage('Matriculation number does not match the registered student profile for this email.');
-        setIsLoading(false);
-        return;
-      }
+      // 2. Verification of Matriculation Number & Password Synchronization
+      const dbMatric = studentProfile.matric_number || studentProfile.matricNumber || '';
+      const dbEmail = (studentProfile.email || '').toLowerCase().trim();
+      const dbMatricClean = normalizeMatricNumber(dbMatric);
+      const inputMatricClean = normalizeMatricNumber(trimmedMatric);
 
-      // 3. Strict verification of password & Invalidation of default password
       let localCachedPwd: string | null = null;
       try {
         localCachedPwd =
           localStorage.getItem(`student_pwd_custom_${trimmedEmail}`) ||
-          (studentProfile.email ? localStorage.getItem(`student_pwd_custom_${studentProfile.email.toLowerCase()}`) : null) ||
-          (dbMatricClean ? localStorage.getItem(`student_pwd_custom_${dbMatricClean}`) : null);
+          (dbEmail ? localStorage.getItem(`student_pwd_custom_${dbEmail}`) : null) ||
+          (dbMatricClean ? localStorage.getItem(`student_pwd_custom_${dbMatricClean}`) : null) ||
+          (inputMatricClean ? localStorage.getItem(`student_pwd_custom_${inputMatricClean}`) : null);
       } catch {}
 
       const dbPassword = (studentProfile.password || studentProfile.portal_password || '').trim();
       const expectedPassword = localCachedPwd || dbPassword || '123456';
+
+      if (trimmedMatric && dbMatric) {
+        const matchesMatric = isMatricMatching(trimmedMatric, dbMatric);
+        if (!matchesMatric) {
+          // If the entered matric differs, check if the password matches this student account
+          // If password matches, accept login and synchronize with the canonical database record
+          if (trimmedPassword === expectedPassword) {
+            try {
+              if (studentProfile.id) {
+                await updateDoc(doc(db, 'users', studentProfile.id), {
+                  matric_number: trimmedMatric,
+                  matricNumber: trimmedMatric,
+                  updated_at: new Date().toISOString(),
+                });
+                studentProfile.matric_number = trimmedMatric;
+                studentProfile.matricNumber = trimmedMatric;
+              }
+            } catch (syncErr) {
+              console.warn('Could not sync matric number:', syncErr);
+            }
+          } else {
+            setErrorMessage(`Matriculation number "${trimmedMatric}" does not match the registered student profile (${dbMatric}). Please verify your matric number or enter your registered account password.`);
+            setIsLoading(false);
+            return;
+          }
+        }
+      }
+
+      // 3. Strict verification of password & Invalidation of default password
 
       const hasCustomPassword = Boolean(
         localCachedPwd ||
@@ -568,6 +622,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       await createStudentUser(newStudentPayload as any);
 
+      // Auto-ensure the department's level dashboard exists in database
+      try {
+        await createDepartmentLevelDashboards(selectedDept as any);
+      } catch (lvlErr) {
+        console.warn('Could not auto-ensure level dashboard on student signup:', lvlErr);
+      }
+
       // Cache custom password locally for instant synchronous check
       try {
         localStorage.setItem(`student_pwd_custom_${cleanEmail}`, trimmedPassword);
@@ -646,14 +707,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
-  // Helper level options
-  const LEVEL_OPTIONS = [
-    { level: 100, label: '100 Level', desc: 'First Year / Freshmen' },
-    { level: 200, label: '200 Level', desc: 'Second Year / Sophomore' },
-    { level: 300, label: '300 Level', desc: 'Third Year / Junior' },
-    { level: 400, label: '400 Level', desc: 'Fourth Year / Senior' },
-    { level: 500, label: '500 Level', desc: 'Fifth Year / Finalist' },
-  ];
+  // Dynamic level options based on selected department's configured years of study
+  const selectedDeptObj = departments.find((d) => d.id === selectedDeptId);
+  const deptYears = selectedDeptObj?.yearsOfStudy || selectedDeptObj?.duration_years || selectedDeptObj?.durationYears || (selectedDeptObj?.maxLevel ? Math.floor(selectedDeptObj.maxLevel / 100) : 4);
+  const dynamicLevelOptions = useMemo(() => {
+    return Array.from({ length: Math.max(1, deptYears) }, (_, idx) => {
+      const lvl = (idx + 1) * 100;
+      return {
+        level: lvl,
+        label: `${lvl} Level`,
+        desc: idx === 0 ? 'First Year / Freshmen' : idx === 1 ? 'Second Year / Sophomore' : idx === 2 ? 'Third Year / Junior' : idx === 3 ? 'Fourth Year / Senior' : `${idx + 1}th Year / Finalist`,
+      };
+    });
+  }, [deptYears]);
+
+  // If selectedLevel exceeds the department's max level, clamp it to 100
+  useEffect(() => {
+    if (selectedLevel > deptYears * 100) {
+      setSelectedLevel(100);
+    }
+  }, [selectedDeptId, deptYears, selectedLevel]);
 
   return (
     <div id="auth-screen" className="w-full max-w-lg min-h-screen flex flex-col justify-center px-4 sm:px-6 py-8 relative select-none">
@@ -1232,8 +1305,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       <span className="text-[11.5px] text-[#007AFF] font-semibold">{selectedLevel} Level</span>
                     </label>
 
-                    <div className="grid grid-cols-5 gap-1.5">
-                      {LEVEL_OPTIONS.map((item) => {
+                    <div className={`grid gap-1.5 ${
+                      dynamicLevelOptions.length <= 4 
+                        ? 'grid-cols-4' 
+                        : dynamicLevelOptions.length === 5 
+                        ? 'grid-cols-5' 
+                        : 'grid-cols-6'
+                    }`}>
+                      {dynamicLevelOptions.map((item) => {
                         const isSelected = selectedLevel === item.level;
                         return (
                           <button

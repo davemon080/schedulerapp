@@ -184,30 +184,30 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
   };
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-3">
       {/* Title & Subtitle Section */}
       <div className="flex flex-col sm:flex-row sm:items-baseline justify-between px-1 gap-1">
         <div>
-          <h2 className="text-[22px] font-bold text-[#1C1C1E] tracking-tight flex items-center gap-2">
+          <h2 className="text-[17px] sm:text-[19px] font-bold text-[#1C1C1E] tracking-tight flex items-center gap-1.5">
             <span>{isDayToday ? "Today's Activities" : `${selectedDayName} Activities`}</span>
             {isDayToday && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-full">
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.5 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 Today
               </span>
             )}
           </h2>
-          <p className="text-[14px] text-[#8E8E93] font-normal">
+          <p className="text-[12px] sm:text-[13px] text-[#8E8E93] font-normal">
             {sortedEvents.length} scheduled event{sortedEvents.length === 1 ? '' : 's'} {isDayToday ? 'today' : `for ${selectedDayName}`}
           </p>
         </div>
-        <span className="text-[12px] font-semibold text-[#007AFF] bg-blue-50/80 px-2.5 py-1 rounded-full border border-blue-200/50 self-start sm:self-auto backdrop-blur-xs">
+        <span className="text-[10.5px] sm:text-[11.5px] font-semibold text-[#007AFF] bg-blue-50/80 px-2 py-0.5 rounded-full border border-blue-200/50 self-start sm:self-auto backdrop-blur-xs">
           Academic Timetable
         </span>
       </div>
 
       {/* Activity Cards List with Entry & Exit Animations */}
-      <div className="space-y-3.5 min-h-[140px] relative">
+      <div className="space-y-2.5 min-h-[120px] relative">
         {isLoading && sortedEvents.length > 0 && (
           <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500/30 overflow-hidden rounded-full z-10">
             <div className="w-1/3 h-full bg-[#007AFF] animate-pulse rounded-full" />
@@ -221,21 +221,9 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="space-y-3.5"
+              className="space-y-2.5"
             >
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="glass-container rounded-[24px] sm:rounded-[26px] p-4.5 sm:p-5.5 space-y-3 animate-pulse">
-                  <div className="flex items-center justify-between">
-                    <div className="h-6 w-24 bg-slate-200/80 rounded-xl" />
-                    <div className="h-5 w-20 bg-slate-200/60 rounded-full" />
-                  </div>
-                  <div className="h-6 w-3/4 bg-slate-200/80 rounded-lg" />
-                  <div className="flex gap-4">
-                    <div className="h-4 w-28 bg-slate-200/60 rounded" />
-                    <div className="h-4 w-32 bg-slate-200/60 rounded" />
-                  </div>
-                </div>
-              ))}
+              <ActivitiesSkeleton />
             </motion.div>
           ) : sortedEvents.length === 0 ? (
             <motion.div
@@ -244,11 +232,11 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -12, scale: 0.98 }}
               transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1] }}
-              className="glass-container rounded-[26px] p-8 text-center"
+              className="glass-container rounded-[20px] p-6 text-center"
             >
-              <BookOpen className="w-10 h-10 text-slate-400 mx-auto mb-2 opacity-60" />
-              <p className="text-[15px] font-medium text-[#1C1C1E]">No scheduled activities</p>
-              <p className="text-[13px] text-[#8E8E93] mt-1">Enjoy your free time or add an activity.</p>
+              <BookOpen className="w-8 h-8 text-slate-400 mx-auto mb-1.5 opacity-60" />
+              <p className="text-[14px] font-medium text-[#1C1C1E]">No scheduled activities</p>
+              <p className="text-[12px] text-[#8E8E93] mt-0.5">Enjoy your free time or add an activity.</p>
             </motion.div>
           ) : (
             sortedEvents.map((event, index) => {
@@ -274,20 +262,20 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
                     ease: 'easeOut',
                   }}
                   onClick={() => onSelectCard?.(event)}
-                  className={`glass-container rounded-[24px] sm:rounded-[26px] p-4.5 sm:p-5.5 transition-colors hover:shadow-[0_12px_32px_rgba(0,0,0,0.06)] hover:border-white relative group cursor-pointer ${
+                  className={`glass-container rounded-[14px] sm:rounded-[16px] p-2.5 sm:p-3 transition-colors hover:shadow-[0_6px_20px_rgba(0,0,0,0.05)] hover:border-white relative group cursor-pointer ${
                     isLive
-                      ? 'ring-2 ring-rose-500/80 bg-rose-50/30 shadow-[0_8px_24px_rgba(244,63,94,0.12)]'
+                      ? 'ring-2 ring-rose-500/80 bg-rose-50/30 shadow-[0_4px_16px_rgba(244,63,94,0.1)]'
                       : isEnded
                       ? 'opacity-85 bg-slate-50/60'
                       : ''
                   }`}
                 >
                   {/* Top Row: Course Code + Badges + Three-Dot Action Menu */}
-                  <div className="flex items-start justify-between gap-2.5 mb-2.5">
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-start justify-between gap-1.5 mb-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       {/* Course Code Tag - only rendered if event has an academic course code */}
                       {event.course && event.course.trim() && event.course.trim().toUpperCase() !== 'OTHER' ? (
-                        <span className={`px-3 py-1 rounded-xl text-[13px] font-extrabold tracking-tight border shadow-2xs ${
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-extrabold tracking-tight border shadow-2xs ${
                           isEnded
                             ? 'bg-slate-100 text-slate-600 border-slate-200'
                             : 'bg-[#007AFF]/10 text-[#007AFF] border-blue-400/25'
@@ -298,26 +286,26 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
 
                       {/* Online vs Physical badge */}
                       {isOnline ? (
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-tight border shadow-2xs ${
+                        <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] sm:text-[9.5px] font-bold tracking-tight border shadow-2xs ${
                           isEnded
                             ? 'text-slate-600 bg-slate-100 border-slate-200'
                             : 'text-emerald-800 bg-emerald-50 border-emerald-300/80'
                         }`}>
-                          <Globe className={`w-3 h-3 ${isEnded ? 'text-slate-400' : 'text-emerald-600'}`} />
-                          Online Class
+                          <Globe className={`w-2 h-2 ${isEnded ? 'text-slate-400' : 'text-emerald-600'}`} />
+                          Online
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-tight text-slate-700 bg-slate-100/90 border border-black/5 shadow-2xs">
-                          Physical Class
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] sm:text-[9.5px] font-semibold tracking-tight text-slate-700 bg-slate-100/90 border border-black/5 shadow-2xs">
+                          Physical
                         </span>
                       )}
 
                       {/* "Live Now" Badge */}
                       {isLive && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11.5px] font-black tracking-tight text-white bg-rose-600 shadow-[0_2px_10px_rgba(225,29,72,0.4)] animate-pulse">
-                          <span className="relative flex h-2 w-2">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] sm:text-[9.5px] font-black tracking-tight text-white bg-rose-600 shadow-[0_2px_8px_rgba(225,29,72,0.35)] animate-pulse">
+                          <span className="relative flex h-1 w-1">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-80"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                            <span className="relative inline-flex rounded-full h-1 w-1 bg-white"></span>
                           </span>
                           Live Now
                         </span>
@@ -325,21 +313,21 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
 
                       {/* "Class Ended" Badge */}
                       {isEnded && !event.isPostponed && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-tight text-slate-600 bg-slate-200/80 border border-slate-300 shadow-2xs">
-                          Class Ended
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] sm:text-[9.5px] font-bold tracking-tight text-slate-600 bg-slate-200/80 border border-slate-300 shadow-2xs">
+                          Ended
                         </span>
                       )}
 
                       {/* "Postponed" Badge */}
                       {event.isPostponed && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-tight text-amber-800 bg-amber-50/90 border border-amber-400/80 shadow-2xs">
-                          <AlertCircle className="w-3 h-3 text-amber-600" />
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] sm:text-[9.5px] font-semibold tracking-tight text-amber-800 bg-amber-50/90 border border-amber-400/80 shadow-2xs">
+                          <AlertCircle className="w-2 h-2 text-amber-600" />
                           Postponed
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-0.5 shrink-0">
                       {/* Three-Dot Menu Button */}
                       <button
                         type="button"
@@ -348,44 +336,44 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
                           onOpenMenu(event);
                         }}
                         aria-label="Event options menu"
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[#8E8E93] hover:text-[#1C1C1E] hover:bg-black/5 active:scale-90 transition-all cursor-pointer"
+                        className="w-5.5 h-5.5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-[#8E8E93] hover:text-[#1C1C1E] hover:bg-black/5 active:scale-90 transition-all cursor-pointer"
                       >
-                        <MoreVertical className="w-[18px] h-[18px]" />
+                        <MoreVertical className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                       </button>
                     </div>
                   </div>
 
                   {/* Title */}
-                  <h3 className={`text-[17px] sm:text-[18px] font-bold tracking-tight leading-snug mb-2.5 ${
+                  <h3 className={`text-[12.5px] sm:text-[13.5px] font-bold tracking-tight leading-snug mb-1 ${
                     isEnded ? 'text-slate-600' : 'text-[#1C1C1E]'
                   }`}>
                     {event.title}
                   </h3>
 
                   {/* Time, Location & Lecturer Info */}
-                  <div className="flex flex-wrap items-center gap-y-1.5 gap-x-4 mb-3 text-[13px] text-[#8E8E93]">
-                    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
+                  <div className="flex flex-wrap items-center gap-y-0.5 gap-x-1.5 sm:gap-x-2.5 mb-1.5 text-[10.5px] sm:text-[11px] text-[#8E8E93]">
+                    <div className={`flex items-center gap-1 px-1.5 py-0.2 rounded-md border ${
                       isLive
                         ? 'bg-rose-100/70 border-rose-300 text-rose-900 font-bold'
                         : isEnded
                         ? 'bg-slate-100 border-slate-200 text-slate-500'
                         : 'bg-white/60 border-black/5 text-[#1C1C1E]'
                     }`}>
-                      <Clock className={`w-3.5 h-3.5 shrink-0 ${isLive ? 'text-rose-600' : isEnded ? 'text-slate-400' : 'text-[#007AFF]'}`} />
+                      <Clock className={`w-2.5 h-2.5 shrink-0 ${isLive ? 'text-rose-600' : isEnded ? 'text-slate-400' : 'text-[#007AFF]'}`} />
                       <span className="font-semibold">{event.time}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       {isOnline ? (
-                        <Video className={`w-3.5 h-3.5 shrink-0 ${isEnded ? 'text-slate-400' : 'text-emerald-600'}`} />
+                        <Video className={`w-2.5 h-2.5 shrink-0 ${isEnded ? 'text-slate-400' : 'text-emerald-600'}`} />
                       ) : (
-                        <MapPin className="w-3.5 h-3.5 text-[#8E8E93] shrink-0" />
+                        <MapPin className="w-2.5 h-2.5 text-[#8E8E93] shrink-0" />
                       )}
-                      <span className="font-medium text-[#1C1C1E]/80 truncate max-w-[200px] sm:max-w-none">
+                      <span className="font-medium text-[#1C1C1E]/80 truncate max-w-[130px] xs:max-w-[170px] sm:max-w-none">
                         {event.location}
                       </span>
                     </div>
                     {event.instructor && (
-                      <span className="text-[12.5px] text-[#8E8E93] truncate">
+                      <span className="text-[10px] sm:text-[10.5px] text-[#8E8E93] truncate">
                         • {event.instructor}
                       </span>
                     )}
@@ -393,7 +381,7 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
 
                   {/* Dedicated Online Class Join Button & Link Banner */}
                   {meetingUrl ? (
-                    <div className="mb-3">
+                    <div className="mb-2">
                       {isEnded ? (
                         /* Non-clickable Class Ended Button */
                         <button
@@ -403,13 +391,13 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
                             e.preventDefault();
                             e.stopPropagation();
                           }}
-                          className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl font-bold text-[13px] bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shadow-none select-none"
+                          className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg font-bold text-[11.5px] bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shadow-none select-none"
                         >
-                          <div className="flex items-center gap-2">
-                            <Video className="w-4 h-4 text-slate-400" />
+                          <div className="flex items-center gap-1.5">
+                            <Video className="w-3.5 h-3.5 text-slate-400" />
                             <span>Online Class Ended</span>
                           </div>
-                          <span className="text-[11px] bg-slate-200/80 text-slate-500 px-2.5 py-0.5 rounded-lg">
+                          <span className="text-[10px] bg-slate-200/80 text-slate-500 px-2 py-0.5 rounded-md">
                             Class Ended
                           </span>
                         </button>
@@ -417,24 +405,24 @@ export const ActivitiesSection: React.FC<ActivitiesSectionProps> = ({
                         <button
                           type="button"
                           onClick={(e) => handleJoinMeeting(e, meetingUrl)}
-                          className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl font-bold text-[13px] transition-all duration-150 shadow-xs cursor-pointer active:scale-[0.99] ${
+                          className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg font-bold text-[11.5px] transition-all duration-150 shadow-xs cursor-pointer active:scale-[0.99] ${
                             isLive
                               ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-[0_4px_16px_rgba(225,29,72,0.35)] ring-2 ring-rose-400'
                               : 'bg-[#007AFF] hover:bg-blue-600 text-white shadow-blue-500/20'
                           }`}
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             {isLive ? (
-                              <span className="relative flex h-2.5 w-2.5">
+                              <span className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-80"></span>
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
                               </span>
                             ) : (
-                              <Video className="w-4 h-4 text-white" />
+                              <Video className="w-3.5 h-3.5 text-white" />
                             )}
                             <span>{isLive ? '🔴 Live Now • Tap to Join' : 'Join Online Class'}</span>
                           </div>
-                          <div className="flex items-center gap-1 text-[11px] font-bold bg-white/20 hover:bg-white/30 px-2.5 py-0.5 rounded-lg transition-colors shrink-0">
+                          <div className="flex items-center gap-1 text-[10px] font-bold bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded-md transition-colors shrink-0">
                             <span>{isLive ? 'Live Now' : 'Join Now'}</span>
                             <ExternalLink className="w-3.5 h-3.5" />
                           </div>

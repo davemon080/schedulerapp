@@ -22,6 +22,7 @@ interface NotificationsViewProps {
   notifications: NotificationItem[];
   onBackToSchedule: () => void;
   onDeleteNotif: (id: string) => void;
+  onMarkAsRead?: (id: string) => void;
   isLoading?: boolean;
 }
 
@@ -31,6 +32,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = React.memo(({
   notifications,
   onBackToSchedule,
   onDeleteNotif,
+  onMarkAsRead,
   isLoading = false,
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
@@ -313,11 +315,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = React.memo(({
                   delay: Math.min(index * 0.02, 0.08),
                   ease: [0.16, 1, 0.3, 1],
                 }}
-                className={`p-4 rounded-[24px] transition-all flex items-start gap-3.5 border ${
+                className={`p-4 rounded-[24px] transition-all flex items-start gap-3.5 border cursor-pointer select-none ${
                   n.isUnread
                     ? 'glass-container-solid border-blue-200/80 shadow-[0_4px_20px_rgba(0,122,255,0.06)]'
                     : 'glass-container border-white/70 opacity-90'
                 }`}
+                onClick={() => {
+                  if (n.isUnread && onMarkAsRead) {
+                    onMarkAsRead(n.id);
+                  }
+                }}
               >
                 <div className="mt-0.5 shrink-0 p-2 rounded-2xl bg-white/90 shadow-2xs border border-white">
                   {getIcon(n)}
@@ -348,7 +355,11 @@ export const NotificationsView: React.FC<NotificationsViewProps> = React.memo(({
                         <span className="w-2.5 h-2.5 rounded-full bg-[#007AFF] shrink-0 ring-2 ring-white" />
                       )}
                       <button
-                        onClick={() => onDeleteNotif(n.id)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteNotif(n.id);
+                        }}
                         className="text-slate-300 hover:text-red-500 active:scale-90 transition-all p-1 rounded-full hover:bg-red-50/50 cursor-pointer"
                         title="Dismiss notification"
                       >
