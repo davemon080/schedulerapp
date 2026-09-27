@@ -27,6 +27,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { CourseRecord, DepartmentRecord, CourseMaterialPdf, CourseMaterialVideo } from './types';
+import { PdfViewerPage } from '../components/PdfViewerPage';
 import { 
   fetchCourses, 
   createCourse, 
@@ -38,7 +39,8 @@ import {
   addCourseVideoModule,
   deleteCourseVideoModule,
   purgeAllMockMaterials
-} from '../lib/dbService';
+} from '@src/lib/dbService';
+import { uploadCourseMaterialPdf, validatePdfFile, deleteStorageFile } from '@src/lib/storageService';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface AdminCoursesManagerProps {
@@ -61,6 +63,11 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
   const [editingCourse, setEditingCourse] = useState<CourseRecord | null>(null);
   const [deletingCourse, setDeletingCourse] = useState<CourseRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Bulk Delete State
+  const [selectedCourseIds, setSelectedCourseIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
   const [formData, setFormData] = useState({
     courseCode: '',
     title: '',
@@ -90,6 +97,8 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
     description: '',
   });
   const [isSubmittingPdf, setIsSubmittingPdf] = useState(false);
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const [pdfUploadProgress, setPdfUploadProgress] = useState<number>(0);
   const pdfFileInputRef = useRef<HTMLInputElement>(null);
 
   // Add Video Modal inside Material Manager
@@ -256,6 +265,63 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
     setIsDeleting(false);
   };
 
+  const handleToggleSelectCourse = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    if (filteredCourses.length === 0) return;
+    const allSelected = filteredCourses.every((c) => selectedCourseIds.has(c.id));
+    if (allSelected) {
+      setSelectedCourseIds((prev) => {
+        const next = new Set(prev);
+        filteredCourses.forEach((c) => next.delete(c.id));
+        return next;
+      });
+    } else {
+      setSelectedCourseIds((prev) => {
+        const next = new Set(prev);
+        filteredCourses.forEach((c) => next.add(c.id));
+        return next;
+      });
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedCourseIds(new Set());
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedCourseIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const idsToDelete = Array.from(selectedCourseIds);
+      await Promise.all(idsToDelete.map((id) => deleteCourse(id)));
+      showToast(`Deleted ${idsToDelete.length} course${idsToDelete.length > 1 ? 's' : ''} from catalog`);
+      if (selectedCourseForMaterials && selectedCourseIds.has(selectedCourseForMaterials.id)) {
+        setSelectedCourseForMaterials(null);
+      }
+      setSelectedCourseIds(new Set());
+      setIsBulkDeleteModalOpen(false);
+      await loadData();
+      onCourseChanged?.();
+    } catch (err) {
+      console.error('Failed to bulk delete courses:', err);
+      showToast('Error deleting selected courses');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   // Quick Purge Button
   const handlePurgeMockData = async () => {
     setIsLoading(true);
@@ -287,23 +353,26 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const validation = validatePdfFile(file, 50 * 1024 * 1024);
+    if (!validation.valid) {
+      showToast(validation.error || 'Please select a valid PDF file under 50MB.');
+      if (e.target) e.target.value = '';
+      return;
+    }
+
+    setSelectedPdfFile(file);
     const rawName = file.name;
     const cleanTitle = rawName.replace(/\.[^/.]+$/, '').replace(/[_.-]+/g, ' ').trim();
     const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
     const sizeStr = `${sizeInMb} MB`;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setPdfFormData((prev) => ({
-        ...prev,
-        title: prev.title.trim() ? prev.title : cleanTitle,
-        fileName: rawName,
-        fileSize: sizeStr,
-        pdfUrl: dataUrl,
-      }));
-    };
-    reader.readAsDataURL(file);
+    setPdfFormData((prev) => ({
+      ...prev,
+      title: prev.title.trim() ? prev.title : cleanTitle,
+      fileName: rawName,
+      fileSize: sizeStr,
+      pdfUrl: '',
+    }));
   };
 
   // Fetch YouTube Title & Info via oEmbed
@@ -340,19 +409,47 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
       showToast('Please enter a PDF title');
       return;
     }
-    if (!pdfFormData.pdfUrl.trim()) {
-      showToast('Please select a PDF file or enter a valid PDF link');
-      return;
+
+    let finalPdfUrl = pdfFormData.pdfUrl.trim();
+    let finalStoragePath: string | undefined = undefined;
+
+    if (pdfUploadMode === 'upload') {
+      if (!selectedPdfFile) {
+        showToast('Please select a PDF file from your computer');
+        return;
+      }
+
+      setIsSubmittingPdf(true);
+      try {
+        const uploadResult = await uploadCourseMaterialPdf(
+          selectedPdfFile,
+          selectedCourseForMaterials.courseCode,
+          (progress) => setPdfUploadProgress(progress)
+        );
+        finalPdfUrl = uploadResult.downloadUrl;
+        finalStoragePath = uploadResult.storagePath;
+      } catch (err: any) {
+        console.error('Failed to upload PDF material to Firebase Storage:', err);
+        showToast(err.message || 'Failed to upload PDF to Cloud Storage');
+        setIsSubmittingPdf(false);
+        return;
+      }
+    } else {
+      if (!finalPdfUrl) {
+        showToast('Please enter a valid PDF link');
+        return;
+      }
+      setIsSubmittingPdf(true);
     }
 
-    setIsSubmittingPdf(true);
     const newPdf: CourseMaterialPdf = {
       id: `pdf-${Date.now()}`,
       title: pdfFormData.title.trim(),
       topic: pdfFormData.topic.trim() || 'Course Handout',
-      pdfUrl: pdfFormData.pdfUrl.trim(),
-      fileName: pdfFormData.fileName.trim() || `${pdfFormData.title.trim()}.pdf`,
-      fileSize: pdfFormData.fileSize.trim() || 'PDF Document',
+      pdfUrl: finalPdfUrl,
+      storagePath: finalStoragePath,
+      fileName: selectedPdfFile?.name || pdfFormData.fileName.trim() || `${pdfFormData.title.trim()}.pdf`,
+      fileSize: selectedPdfFile ? `${(selectedPdfFile.size / (1024 * 1024)).toFixed(1)} MB` : (pdfFormData.fileSize.trim() || 'PDF Document'),
       uploadedAt: 'Just now',
       description: pdfFormData.description.trim() || 'Course lecture note & reading materials.',
     };
@@ -361,7 +458,7 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
     if (updated) {
       setSelectedCourseForMaterials(updated);
       setCourses((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-      showToast(`PDF handout "${newPdf.title}" added to ${selectedCourseForMaterials.courseCode}`);
+      showToast(`PDF handout "${newPdf.title}" saved to ${selectedCourseForMaterials.courseCode}`);
     } else {
       const localUpdated: CourseRecord = {
         ...selectedCourseForMaterials,
@@ -372,6 +469,8 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
       showToast(`PDF handout added locally`);
     }
 
+    setSelectedPdfFile(null);
+    setPdfUploadProgress(0);
     setPdfFormData({
       title: '',
       topic: '',
@@ -453,6 +552,10 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
 
     try {
       if (materialToDelete.type === 'pdf') {
+        const targetPdf = materialToDelete.item as CourseMaterialPdf;
+        if (targetPdf?.storagePath || (targetPdf?.pdfUrl && targetPdf.pdfUrl.includes('firebasestorage'))) {
+          deleteStorageFile(targetPdf.storagePath || targetPdf.pdfUrl).catch((e) => console.warn(e));
+        }
         const updated = await deleteCoursePdfModule(selectedCourseForMaterials.id, materialToDelete.item.id);
         if (updated) {
           setSelectedCourseForMaterials(updated);
@@ -611,8 +714,74 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
             <option value="1st Semester">1st Semester</option>
             <option value="2nd Semester">2nd Semester</option>
           </select>
+
+          {/* Quick Select All in filter bar */}
+          {filteredCourses.length > 0 && (
+            <button
+              type="button"
+              onClick={handleSelectAllFiltered}
+              className={`text-xs px-3 py-2 rounded-xl font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                filteredCourses.every((c) => selectedCourseIds.has(c.id))
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>
+                {filteredCourses.every((c) => selectedCourseIds.has(c.id))
+                  ? 'Deselect All'
+                  : 'Select All'}
+              </span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Bulk Action Bar when courses are selected */}
+      {selectedCourseIds.size > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-gradient-to-r from-blue-50 to-indigo-50/80 border border-blue-200/90 p-3.5 rounded-2xl shadow-xs animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+              {selectedCourseIds.size}
+            </span>
+            <div>
+              <p className="text-xs font-bold text-slate-900">
+                {selectedCourseIds.size} {selectedCourseIds.size === 1 ? 'course' : 'courses'} selected
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Ready for bulk delete or management across the catalog
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSelectAllFiltered}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+            >
+              {filteredCourses.every((c) => selectedCourseIds.has(c.id))
+                ? 'Deselect All'
+                : `Select All (${filteredCourses.length})`}
+            </button>
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs shadow-rose-600/20 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedCourseIds.size})</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Courses Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -642,15 +811,32 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
           filteredCourses.map((course) => {
             const pdfs = course.pdfModules || [];
             const videos = course.videoModules || [];
+            const isSelected = selectedCourseIds.has(course.id);
 
             return (
               <div
                 key={course.id}
-                className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
+                className={`bg-white p-5 rounded-2xl border transition-all flex flex-col justify-between group relative ${
+                  isSelected
+                    ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 shadow-sm'
+                    : 'border-slate-200 shadow-xs hover:shadow-md'
+                }`}
               >
                 <div>
                   <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleSelectCourse(course.id, e)}
+                        className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 border-blue-600 text-white'
+                            : 'bg-white border-slate-300 text-transparent hover:border-blue-400'
+                        }`}
+                        title={isSelected ? 'Deselect course' : 'Select for bulk delete'}
+                      >
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      </button>
                       <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-mono font-bold text-xs border border-blue-100">
                         {course.courseCode}
                       </span>
@@ -1383,47 +1569,16 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
         </div>
       )}
 
-      {/* ================= IN-APP PDF PREVIEW MODAL ================= */}
+      {/* ================= IN-APP PDF PREVIEW MODAL (STANDARD NATIVE VIEWER) ================= */}
       {previewingPdf && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl max-w-4xl w-full h-[85vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2 min-w-0 pr-4">
-                <FileText className="w-5 h-5 text-rose-400 shrink-0" />
-                <div className="min-w-0">
-                  <h4 className="text-xs font-bold truncate">{previewingPdf.title}</h4>
-                  <p className="text-[10px] text-slate-400 truncate">{previewingPdf.topic} &bull; {previewingPdf.fileSize}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <a
-                  href={previewingPdf.pdfUrl}
-                  download={previewingPdf.fileName || `${previewingPdf.title}.pdf`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download</span>
-                </a>
-                <button
-                  onClick={() => setPreviewingPdf(null)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 bg-slate-100">
-              <iframe
-                src={previewingPdf.pdfUrl}
-                title={previewingPdf.title}
-                className="w-full h-full border-none"
-              />
-            </div>
-          </div>
-        </div>
+        <PdfViewerPage
+          pdf={previewingPdf}
+          courseCode={selectedCourseForMaterials?.courseCode || 'Course'}
+          courseTitle={selectedCourseForMaterials?.title || ''}
+          allPdfs={selectedCourseForMaterials?.pdfModules || []}
+          onBack={() => setPreviewingPdf(null)}
+          onSelectPdf={(pdfItem) => setPreviewingPdf(pdfItem)}
+        />
       )}
 
       {/* ================= IN-APP VIDEO PLAYER MODAL ================= */}
@@ -1661,6 +1816,19 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
         description="Are you sure you want to delete this course from the university catalog? Students will no longer be able to view its syllabus or materials."
         confirmLabel="Yes, Delete Course"
         isDeleting={isDeleting}
+      />
+
+      {/* Confirm Bulk Delete Modal */}
+      <ConfirmDeleteModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleConfirmBulkDelete}
+        title={`Delete ${selectedCourseIds.size} Selected Courses?`}
+        itemType="courses"
+        itemName={`${selectedCourseIds.size} Courses Selected from Catalog`}
+        description={`Are you sure you want to delete ${selectedCourseIds.size} selected course(s) in bulk? This will permanently remove their records, syllabus modules, and course outlines.`}
+        confirmLabel={`Yes, Delete ${selectedCourseIds.size} Courses`}
+        isDeleting={isBulkDeleting}
       />
 
       {/* Toast */}

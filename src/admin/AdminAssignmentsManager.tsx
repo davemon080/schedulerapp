@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { AssignmentItem } from '../types';
+import { AssignmentItem } from '@src/types';
 import { DepartmentRecord } from './types';
 import { 
   FileText, 

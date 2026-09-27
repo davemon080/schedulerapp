@@ -172,7 +172,7 @@ export async function uploadProfilePicture(
 
   const metadata: UploadMetadata = {
     contentType: 'image/jpeg',
-    cacheControl: 'public, max-age=86400, must-revalidate',
+    cacheControl: 'no-cache, no-store, max-age=0, must-revalidate',
     customMetadata: {
       userId: cleanUserId,
       uploadedAt: new Date().toISOString(),

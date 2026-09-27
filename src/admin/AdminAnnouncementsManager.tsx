@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { NotificationItem } from '../types';
+import { NotificationItem } from '@src/types';
 import { DepartmentRecord } from './types';
 import { 
   Megaphone, 

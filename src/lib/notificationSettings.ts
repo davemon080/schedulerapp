@@ -3,7 +3,7 @@ export interface NotificationChannelSettings {
   deadlines: boolean;
   broadcast: boolean;
   modules: boolean;
-  wallet: boolean;
+  wallet?: boolean;
 }
 
 const STORAGE_KEY = 'university_notification_settings';
@@ -13,7 +13,6 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationChannelSettings = {
   deadlines: true,
   broadcast: true,
   modules: true,
-  wallet: true,
 };
 
 export function getNotificationSettings(): NotificationChannelSettings {
@@ -45,6 +44,6 @@ export function isChannelNotificationEnabled(category: keyof NotificationChannel
   if (category === 'deadline' || category === 'deadlines') return current.deadlines;
   if (category === 'broadcast' || category === 'broadcasts') return current.broadcast;
   if (category === 'module' || category === 'modules') return current.modules;
-  if (category === 'wallet') return current.wallet;
+  if (category === 'wallet') return Boolean(current.wallet);
   return true;
 }

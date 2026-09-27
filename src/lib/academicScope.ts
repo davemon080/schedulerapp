@@ -2,6 +2,44 @@ import { UserSession } from '../types';
 import { StudentProfileRecord } from '@admin/types';
 
 /**
+ * Universal normalization for matriculation numbers.
+ * Cleans all Unicode spaces, special dashes, slashes, and non-alphanumeric noise.
+ */
+export function normalizeMatricNumber(matric?: string | null): string {
+  if (!matric || typeof matric !== 'string') return '';
+  return matric
+    .replace(/[\u00A0\u1680\u2000-\u200B\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase()
+    .trim();
+}
+
+/**
+ * Robust matriculation number comparator.
+ * Matches across slashes, dashes, spaces, case, and leading zero variations in the serial number.
+ * e.g., '2025/PS/ICH/0062' matches '2025-PS-ICH-0062', '2025/PS/ICH/62', '2025PSICH0062', etc.
+ */
+export function isMatricMatching(m1?: string | null, m2?: string | null): boolean {
+  if (!m1 || !m2) return false;
+  const c1 = normalizeMatricNumber(m1);
+  const c2 = normalizeMatricNumber(m2);
+  if (!c1 || !c2) return false;
+  if (c1 === c2) return true;
+
+  // Compare with normalized trailing numeric sequence (e.g. 0062 vs 62 or 062)
+  const norm1 = c1.replace(/(.*?)0*(\d+)$/, '$1$2');
+  const norm2 = c2.replace(/(.*?)0*(\d+)$/, '$1$2');
+  if (norm1 === norm2) return true;
+
+  // Substring/suffix match for departmental shorthand (e.g. ICH0062 in 2025PSICH0062)
+  if (c1.length >= 6 && c2.length >= 6) {
+    if (c1.endsWith(c2) || c2.endsWith(c1)) return true;
+  }
+
+  return false;
+}
+
+/**
  * Universal normalization for academic semester string.
  * Ensures consistent format: '1st Semester' | '2nd Semester'
  */
@@ -212,13 +250,43 @@ export function resolveStudentDepartmentId(
   }
 
   const deptId = (session.department_id || (session as any).departmentId || '').trim();
+  const normalizedDeptId = deptId.replace(/^dept-ps-/, 'dept-');
   const deptName = (session.department || (session as any).department_name || (session as any).departmentName || '').trim();
   const matric = (session.matricNumber || (session as any).matric_number || '').trim().toUpperCase();
   const upperDept = deptName.toUpperCase();
 
-  // 1. Industrial Chemistry (ICH)
+  // 1. Direct match by exact department ID against available departments
+  if ((normalizedDeptId || deptId) && availableDepartments.length > 0) {
+    const directMatch = availableDepartments.find((d) => d.id === normalizedDeptId || d.id === deptId);
+    if (directMatch) {
+      return {
+        id: directMatch.id,
+        name: directMatch.name,
+        code: directMatch.code || 'DEPT',
+      };
+    }
+  }
+
+  // 2. Direct match by department code or name against all available departments
+  for (const d of availableDepartments) {
+    const dCode = (d.code || '').trim().toUpperCase();
+    const dName = (d.name || '').trim().toUpperCase();
+    if (dCode && dCode.length >= 2) {
+      if (matric.includes(`/${dCode}/`) || matric.includes(dCode) || upperDept === dCode || upperDept.includes(dName)) {
+        return {
+          id: d.id,
+          name: d.name,
+          code: d.code || 'DEPT',
+        };
+      }
+    }
+  }
+
+  // 3. Industrial Chemistry (ICH)
   if (
+    normalizedDeptId === 'dept-ich' ||
     deptId === 'dept-ich' ||
+    deptId.includes('ich') ||
     matric.includes('ICH') ||
     matric.includes('INDUSTRIAL') ||
     upperDept.includes('INDUSTRIAL') ||
@@ -234,9 +302,11 @@ export function resolveStudentDepartmentId(
     };
   }
 
-  // 2. Chemistry (CHM) - Pure/General Chemistry
+  // 4. Chemistry (CHM) - Pure/General Chemistry
   if (
+    normalizedDeptId === 'dept-chm' ||
     deptId === 'dept-chm' ||
+    deptId.includes('chm') ||
     ((matric.includes('CHM') || upperDept.includes('CHEMISTRY') || upperDept === 'CHM') && !upperDept.includes('INDUSTRIAL') && !matric.includes('ICH'))
   ) {
     const matched = availableDepartments.find(
@@ -250,9 +320,11 @@ export function resolveStudentDepartmentId(
     };
   }
 
-  // 3. Computer Science (CSC)
+  // 5. Computer Science (CSC)
   if (
+    normalizedDeptId === 'dept-csc' ||
     deptId === 'dept-csc' ||
+    deptId.includes('csc') ||
     matric.includes('CSC') ||
     matric.includes('COMPUTER') ||
     upperDept.includes('COMPUTER') ||
@@ -266,17 +338,6 @@ export function resolveStudentDepartmentId(
       name: matched?.name || 'Department of Computer Science',
       code: matched?.code || 'CSC',
     };
-  }
-
-  // 4. Match against any available departments
-  for (const d of availableDepartments) {
-    if (deptId && d.id === deptId) {
-      return { id: d.id, name: d.name, code: d.code || 'DEPT' };
-    }
-    const dCode = d.code?.trim().toUpperCase();
-    if (dCode && (matric.includes(dCode) || upperDept === dCode || upperDept.includes(d.name.toUpperCase()))) {
-      return { id: d.id, name: d.name, code: d.code || 'DEPT' };
-    }
   }
 
   if (deptId) {

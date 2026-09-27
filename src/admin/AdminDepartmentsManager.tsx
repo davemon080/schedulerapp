@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Building2, 
   Plus, 
@@ -11,10 +11,21 @@ import {
   Layers,
   Sparkles,
   BookOpen,
-  Filter
+  Filter,
+  CheckCircle2
 } from 'lucide-react';
-import { DepartmentRecord } from './types';
-import { fetchDepartments, createDepartment, updateDepartment, deleteDepartment } from '../lib/dbService';
+import { DepartmentRecord, DepartmentLevelRecord } from './types';
+import { 
+  fetchDepartments, 
+  createDepartment, 
+  updateDepartment, 
+  deleteDepartment,
+  ensureAllDepartmentLevelDashboards,
+  fetchDepartmentLevels,
+  syncAllDepartmentLevelsToFirestore
+} from '@src/lib/dbService';
+import { db } from '@src/lib/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface AdminDepartmentsManagerProps {
@@ -27,7 +38,9 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
   onDepartmentChanged,
 }) => {
   const [departments, setDepartments] = useState<DepartmentRecord[]>(propDepartments || []);
+  const [departmentLevels, setDepartmentLevels] = useState<DepartmentLevelRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(!propDepartments || propDepartments.length === 0);
+  const [isSyncingLevels, setIsSyncingLevels] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [levelFilter, setLevelFilter] = useState<string>('all');
 
@@ -36,33 +49,90 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
   const [editingDept, setEditingDept] = useState<DepartmentRecord | null>(null);
   const [deletingDept, setDeletingDept] = useState<DepartmentRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [formData, setFormData] = useState({
+
+  // Bulk Delete State
+  const [selectedDeptIds, setSelectedDeptIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState<boolean>(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
+  const [formData, setFormData] = useState<{
+    name: string;
+    code: string;
+    level: number;
+    yearsOfStudy: number;
+    supportedLevels: number[];
+  }>({
     name: '',
     code: '',
     level: 100,
     yearsOfStudy: 4,
+    supportedLevels: [100, 200, 300, 400],
   });
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   const loadData = async () => {
     setIsLoading(true);
-    const data = await fetchDepartments();
-    if (data && data.length > 0) {
-      setDepartments(data);
+    try {
+      const data = await fetchDepartments();
+      if (data && data.length > 0) {
+        setDepartments(data);
+        const levels = await ensureAllDepartmentLevelDashboards(data);
+        setDepartmentLevels(levels);
+      }
+    } catch (e) {
+      console.warn('loadData error:', e);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
+  };
+
+  // Realtime subscription to department level dashboards in Firestore
+  useEffect(() => {
+    try {
+      const unsub = onSnapshot(collection(db, 'department_levels'), (snap) => {
+        if (!snap.empty) {
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as DepartmentLevelRecord));
+          setDepartmentLevels(list);
+        }
+      }, (err) => console.warn('department_levels onSnapshot error:', err));
+      return () => unsub();
+    } catch {}
+  }, []);
+
+  const handleSyncAllLevels = async () => {
+    setIsSyncingLevels(true);
+    try {
+      const res = await syncAllDepartmentLevelsToFirestore();
+      if (res.success) {
+        showToast(res.message);
+        const levels = await fetchDepartmentLevels();
+        setDepartmentLevels(levels);
+      } else {
+        showToast(res.message || 'Failed to sync level dashboards');
+      }
+    } catch (e: any) {
+      showToast(e?.message || 'Error synchronizing level dashboards');
+    } finally {
+      setIsSyncingLevels(false);
+    }
   };
 
   useEffect(() => {
     if (propDepartments && propDepartments.length > 0) {
       setDepartments(propDepartments);
       setIsLoading(false);
+      fetchDepartmentLevels().then((lvls) => {
+        if (lvls && lvls.length > 0) {
+          setDepartmentLevels(lvls);
+        } else {
+          ensureAllDepartmentLevelDashboards(propDepartments).then(setDepartmentLevels).catch(() => {});
+        }
+      }).catch(() => {});
     } else {
       loadData();
     }
@@ -75,20 +145,34 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
       code: '',
       level: 100,
       yearsOfStudy: 4,
+      supportedLevels: [100, 200, 300, 400],
     });
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (dept: DepartmentRecord) => {
     setEditingDept(dept);
+    const startLvl = dept.level || 100;
     const duration = dept.yearsOfStudy || dept.duration_years || dept.durationYears || (dept.maxLevel ? Math.floor(dept.maxLevel / 100) : 4);
+    const existingLevels = Array.isArray(dept.levels) && dept.levels.length > 0
+      ? dept.levels
+      : Array.from({ length: duration }, (_, i) => startLvl + i * 100);
     setFormData({
       name: dept.name,
       code: dept.code,
-      level: dept.level || 100,
+      level: startLvl,
       yearsOfStudy: duration,
+      supportedLevels: existingLevels,
     });
     setIsModalOpen(true);
+  };
+
+  const toggleLevelInForm = (lvl: number) => {
+    setFormData((prev) => {
+      const exists = prev.supportedLevels.includes(lvl);
+      const next = exists ? prev.supportedLevels.filter((l) => l !== lvl) : [...prev.supportedLevels, lvl].sort((a, b) => a - b);
+      return { ...prev, supportedLevels: next.length > 0 ? next : [lvl] };
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -99,14 +183,16 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
     }
 
     const durationYears = formData.yearsOfStudy || 4;
-    const maxLevel = durationYears * 100;
+    const startLevel = formData.level || 100;
+    const maxLevel = Math.max(...formData.supportedLevels, (startLevel + (durationYears - 1) * 100));
 
     setIsSubmitting(true);
     if (editingDept) {
       const ok = await updateDepartment(editingDept.id, {
         name: formData.name.trim(),
         code: formData.code.trim().toUpperCase(),
-        level: formData.level,
+        level: startLevel,
+        levels: formData.supportedLevels,
         yearsOfStudy: durationYears,
         duration_years: durationYears,
         durationYears: durationYears,
@@ -120,7 +206,8 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
           ...d,
           name: formData.name.trim(),
           code: formData.code.trim().toUpperCase(),
-          level: formData.level,
+          level: startLevel,
+          levels: formData.supportedLevels,
           yearsOfStudy: durationYears,
           duration_years: durationYears,
           durationYears: durationYears,
@@ -136,7 +223,8 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
       const created = await createDepartment({
         name: formData.name.trim(),
         code: formData.code.trim().toUpperCase(),
-        level: formData.level,
+        level: startLevel,
+        levels: formData.supportedLevels,
         yearsOfStudy: durationYears,
         duration_years: durationYears,
         maxLevel: maxLevel,
@@ -170,13 +258,118 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
     setIsDeleting(false);
   };
 
-  const filteredDepts = departments.filter((d) => {
-    const matchesSearch = 
-      d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.code.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesLevel = levelFilter === 'all' || d.level?.toString() === levelFilter;
-    return matchesSearch && matchesLevel;
-  });
+  const handleToggleSelectDept = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedDeptIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    if (filteredDepts.length === 0) return;
+    const allSelected = filteredDepts.every((d) => selectedDeptIds.has(d.id));
+    if (allSelected) {
+      setSelectedDeptIds((prev) => {
+        const next = new Set(prev);
+        filteredDepts.forEach((d) => next.delete(d.id));
+        return next;
+      });
+    } else {
+      setSelectedDeptIds((prev) => {
+        const next = new Set(prev);
+        filteredDepts.forEach((d) => next.add(d.id));
+        return next;
+      });
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedDeptIds(new Set());
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedDeptIds.size === 0) return;
+    setIsBulkDeleting(true);
+    try {
+      const idsToDelete = Array.from(selectedDeptIds);
+      await Promise.all(idsToDelete.map((id) => deleteDepartment(id)));
+      showToast(`Deleted ${idsToDelete.length} department${idsToDelete.length > 1 ? 's' : ''}`);
+      setDepartments((prev) => prev.filter((d) => !idsToDelete.includes(d.id)));
+      setSelectedDeptIds(new Set());
+      setIsBulkDeleteModalOpen(false);
+      await loadData();
+      onDepartmentChanged?.();
+    } catch (err) {
+      console.error('Bulk delete departments error:', err);
+      showToast('Failed to delete selected departments');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  const levelCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: departments.length, '100': 0, '200': 0, '300': 0, '400': 0, '500': 0 };
+    [100, 200, 300, 400, 500].forEach((lvl) => {
+      counts[String(lvl)] = departments.filter((d) => {
+        const startLvl = d.level || 100;
+        const dur = d.yearsOfStudy || d.duration_years || d.durationYears || (d.maxLevel ? Math.floor(d.maxLevel / 100) : 4);
+        const maxLvl = d.maxLevel || d.max_level || (startLvl + (dur - 1) * 100) || (dur * 100);
+
+        const matchesExplicit = d.level === lvl;
+        const matchesLevelsArray = Array.isArray(d.levels) && d.levels.includes(lvl);
+        const hasLevelInRange = lvl >= startLvl && lvl <= maxLvl;
+        const hasLevelInDashboards = departmentLevels.some(
+          (dl) => (dl.department_id === d.id || dl.department_code?.toUpperCase() === d.code?.toUpperCase()) && dl.level === lvl
+        );
+
+        return matchesExplicit || matchesLevelsArray || hasLevelInRange || hasLevelInDashboards;
+      }).length;
+    });
+    return counts;
+  }, [departments, departmentLevels]);
+
+  const filteredDepts = useMemo(() => {
+    return departments.filter((d) => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = 
+        !q ||
+        d.name.toLowerCase().includes(q) ||
+        d.code.toLowerCase().includes(q) ||
+        (d.faculty && d.faculty.toLowerCase().includes(q));
+      
+      let matchesLevel = true;
+      if (levelFilter !== 'all') {
+        const targetLvl = parseInt(levelFilter, 10);
+        const startLvl = d.level || 100;
+        const dur = d.yearsOfStudy || d.duration_years || d.durationYears || (d.maxLevel ? Math.floor(d.maxLevel / 100) : 4);
+        const maxLvl = d.maxLevel || d.max_level || (startLvl + (dur - 1) * 100) || (dur * 100);
+
+        // 1. Explicit level assignment
+        const matchesExplicit = d.level === targetLvl;
+
+        // 2. Department has this level in its explicit levels array
+        const matchesLevelsArray = Array.isArray(d.levels) && d.levels.includes(targetLvl);
+
+        // 3. Department has this level within its academic duration (e.g. 100L up to 400L covers 200L)
+        const hasLevelInRange = targetLvl >= startLvl && targetLvl <= maxLvl;
+
+        // 4. Department has this level dashboard record created in department_levels collection
+        const hasLevelInDashboards = departmentLevels.some(
+          (dl) => (dl.department_id === d.id || dl.department_code?.toUpperCase() === d.code?.toUpperCase()) && dl.level === targetLvl
+        );
+
+        matchesLevel = matchesExplicit || matchesLevelsArray || hasLevelInRange || hasLevelInDashboards;
+      }
+
+      return matchesSearch && matchesLevel;
+    });
+  }, [departments, departmentLevels, searchQuery, levelFilter]);
 
   return (
     <div className="p-6 space-y-6">
@@ -195,7 +388,16 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <button
+            onClick={handleSyncAllLevels}
+            disabled={isSyncingLevels || isLoading}
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+            title="Auto-create and synchronize all level dashboards for every department in Firestore"
+          >
+            <Layers className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingLevels ? 'animate-spin' : ''}`} />
+            <span>{isSyncingLevels ? 'Syncing...' : 'Sync Level Dashboards'}</span>
+          </button>
           <button
             onClick={loadData}
             disabled={isLoading}
@@ -240,22 +442,146 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
           <Filter className="w-4 h-4 text-slate-400" />
           <select
             value={levelFilter}
             onChange={(e) => setLevelFilter(e.target.value)}
-            className="text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           >
-            <option value="all">All Academic Levels</option>
-            <option value="100">100 Level</option>
-            <option value="200">200 Level</option>
-            <option value="300">300 Level</option>
-            <option value="400">400 Level</option>
-            <option value="500">500 Level</option>
+            <option value="all">All Academic Levels ({departments.length})</option>
+            <option value="100">100 Level ({levelCounts['100']})</option>
+            <option value="200">200 Level ({levelCounts['200']})</option>
+            <option value="300">300 Level ({levelCounts['300']})</option>
+            <option value="400">400 Level ({levelCounts['400']})</option>
+            <option value="500">500 Level ({levelCounts['500']})</option>
           </select>
+
+          {/* Quick Select All in filter bar */}
+          {filteredDepts.length > 0 && (
+            <button
+              type="button"
+              onClick={handleSelectAllFiltered}
+              className={`text-xs px-3 py-2 rounded-xl font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                filteredDepts.every((d) => selectedDeptIds.has(d.id))
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>
+                {filteredDepts.every((d) => selectedDeptIds.has(d.id))
+                  ? 'Deselect All'
+                  : 'Select All'}
+              </span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Quick Level Filter Pills */}
+      <div className="flex items-center gap-1.5 flex-wrap bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-2xs text-xs">
+        <span className="text-slate-400 font-semibold flex items-center gap-1 mr-1 text-[11px]">
+          <Layers className="w-3.5 h-3.5 text-blue-600" />
+          <span>Filter by Level:</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => setLevelFilter('all')}
+          className={`px-2.5 py-1 rounded-lg font-bold text-[11px] border transition-all cursor-pointer flex items-center gap-1 ${
+            levelFilter === 'all'
+              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+          }`}
+        >
+          <span>All Levels</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${levelFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'}`}>
+            {departments.length}
+          </span>
+        </button>
+        {[
+          { lvl: '100', label: '100L', color: 'blue' },
+          { lvl: '200', label: '200L', color: 'indigo' },
+          { lvl: '300', label: '300L', color: 'purple' },
+          { lvl: '400', label: '400L', color: 'teal' },
+          { lvl: '500', label: '500L', color: 'emerald' },
+        ].map((item) => {
+          const isSelected = levelFilter === item.lvl;
+          const count = levelCounts[item.lvl] || 0;
+          return (
+            <button
+              key={item.lvl}
+              type="button"
+              onClick={() => setLevelFilter(item.lvl)}
+              className={`px-2.5 py-1 rounded-lg font-bold text-[11px] border transition-all cursor-pointer flex items-center gap-1 ${
+                isSelected
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <span>{item.label}</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700 font-bold'}`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+        {levelFilter !== 'all' && (
+          <button
+            type="button"
+            onClick={() => setLevelFilter('all')}
+            className="text-[11px] text-blue-600 hover:underline font-semibold ml-2 cursor-pointer"
+          >
+            Clear Filter
+          </button>
+        )}
+      </div>
+
+      {/* Bulk Action Bar when departments are selected */}
+      {selectedDeptIds.size > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-gradient-to-r from-blue-50 to-indigo-50/80 border border-blue-200/90 p-3.5 rounded-2xl shadow-xs animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+              {selectedDeptIds.size}
+            </span>
+            <div>
+              <p className="text-xs font-bold text-slate-900">
+                {selectedDeptIds.size} {selectedDeptIds.size === 1 ? 'department' : 'departments'} selected
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Ready for bulk delete across the institution
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSelectAllFiltered}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors cursor-pointer"
+            >
+              {filteredDepts.every((d) => selectedDeptIds.has(d.id))
+                ? 'Deselect All'
+                : `Select All (${filteredDepts.length})`}
+            </button>
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkDeleteModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs shadow-rose-600/20 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedDeptIds.size})</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Departments Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -285,15 +611,34 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
           filteredDepts.map((dept) => {
             const dur = dept.yearsOfStudy || dept.duration_years || dept.durationYears || (dept.maxLevel ? Math.floor(dept.maxLevel / 100) : 4);
             const maxLvl = dept.maxLevel || dept.max_level || dur * 100;
+            const isSelected = selectedDeptIds.has(dept.id);
             return (
               <div
                 key={dept.id}
-                className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
+                className={`bg-white p-5 rounded-2xl border transition-all flex flex-col justify-between group relative ${
+                  isSelected
+                    ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 shadow-sm'
+                    : 'border-slate-200 shadow-xs hover:shadow-md'
+                }`}
               >
                 <div>
                   <div className="flex items-start justify-between">
-                    <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm tracking-tight border border-blue-100">
-                      {dept.code}
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleSelectDept(dept.id, e)}
+                        className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 border-blue-600 text-white'
+                            : 'bg-white border-slate-300 text-transparent hover:border-blue-400'
+                        }`}
+                        title={isSelected ? 'Deselect department' : 'Select for bulk delete'}
+                      >
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      </button>
+                      <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm tracking-tight border border-blue-100">
+                        {dept.code}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                       <button
@@ -324,16 +669,40 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
                       </span>
                     </div>
 
-                    {/* Progress levels chips */}
-                    <div className="flex items-center gap-1 mt-2.5">
-                      {Array.from({ length: dur }).map((_, idx) => (
-                        <span
-                          key={idx}
-                          className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/60"
-                        >
-                          {(idx + 1) * 100}L
+                    {/* Level Dashboards Status & Pills */}
+                    <div className="mt-3 pt-2.5 border-t border-slate-100">
+                      <div className="flex items-center justify-between text-[11px] mb-1.5">
+                        <span className="font-semibold text-slate-700 flex items-center gap-1">
+                          <Layers className="w-3 h-3 text-blue-600" />
+                          <span>{dur} Level Dashboards</span>
                         </span>
-                      ))}
+                        <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
+                          <CheckCircle2 className="w-2.5 h-2.5" />
+                          <span>Firestore Synced</span>
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {(Array.isArray(dept.levels) && dept.levels.length > 0
+                          ? dept.levels
+                          : Array.from({ length: dur }, (_, idx) => (dept.level || 100) + idx * 100)
+                        ).map((lvl) => {
+                          const isLevelActive = levelFilter === String(lvl);
+                          return (
+                            <span
+                              key={lvl}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 transition-all ${
+                                isLevelActive
+                                  ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-500/20 shadow-xs'
+                                  : 'bg-slate-100 text-slate-800 border-slate-200/80'
+                              }`}
+                              title={`Dedicated ${lvl} Level Dashboard active for ${dept.name}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${isLevelActive ? 'bg-white' : 'bg-emerald-500'}`}></span>
+                              <span>{lvl}L</span>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -404,39 +773,81 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Years of Study *
+                    Base / Entry Level *
                   </label>
                   <select
-                    value={formData.yearsOfStudy}
-                    onChange={(e) => setFormData({ ...formData, yearsOfStudy: parseInt(e.target.value, 10) })}
+                    value={formData.level}
+                    onChange={(e) => {
+                      const lvl = parseInt(e.target.value, 10);
+                      const years = formData.yearsOfStudy || 4;
+                      const nextLevels = Array.from({ length: years }, (_, i) => lvl + i * 100);
+                      setFormData({ ...formData, level: lvl, supportedLevels: nextLevels });
+                    }}
                     className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold text-slate-800 cursor-pointer"
                   >
-                    <option value={3}>3 Years (Diploma / Direct Entry • 100L-300L)</option>
-                    <option value={4}>4 Years (Standard Degree • 100L-400L)</option>
-                    <option value={5}>5 Years (Engineering / Tech / Pharmacy • 100L-500L)</option>
-                    <option value={6}>6 Years (Medicine / Vet • 100L-600L)</option>
+                    <option value={100}>100 Level (Freshman Entry)</option>
+                    <option value={200}>200 Level (Direct Entry / 200L)</option>
+                    <option value={300}>300 Level (Special / Clinical)</option>
                   </select>
                 </div>
               </div>
 
-              {/* Dynamic Supported Level Preview */}
-              <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-200/70 space-y-1.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Years of Study *
+                </label>
+                <select
+                  value={formData.yearsOfStudy}
+                  onChange={(e) => {
+                    const years = parseInt(e.target.value, 10);
+                    const lvl = formData.level || 100;
+                    const nextLevels = Array.from({ length: years }, (_, i) => lvl + i * 100);
+                    setFormData({ ...formData, yearsOfStudy: years, supportedLevels: nextLevels });
+                  }}
+                  className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold text-slate-800 cursor-pointer"
+                >
+                  <option value={3}>3 Years (Diploma / Direct Entry • 3 Academic Years)</option>
+                  <option value={4}>4 Years (Standard Degree • 4 Academic Years)</option>
+                  <option value={5}>5 Years (Engineering / Tech / Pharmacy • 5 Academic Years)</option>
+                  <option value={6}>6 Years (Medicine / Surgery • 6 Academic Years)</option>
+                </select>
+              </div>
+
+              {/* Supported Academic Levels & Dashboards (Toggleable) */}
+              <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200/80 space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-blue-900">Curriculum Progression Preview:</span>
-                  <span className="font-extrabold text-blue-700">Up to {(formData.yearsOfStudy || 4) * 100} Level</span>
+                  <span className="font-bold text-blue-900 flex items-center gap-1">
+                    <Layers className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Created Level Dashboards:</span>
+                  </span>
+                  <span className="font-extrabold text-blue-700 font-mono text-[11px]">
+                    {formData.supportedLevels.join(', ')}L
+                  </span>
                 </div>
-                <div className="flex gap-1.5">
-                  {Array.from({ length: formData.yearsOfStudy || 4 }).map((_, idx) => (
-                    <span
-                      key={idx}
-                      className="flex-1 py-1 text-center font-bold text-[11px] rounded-lg bg-white text-blue-700 border border-blue-200/80 shadow-2xs"
-                    >
-                      {(idx + 1) * 100}L
-                    </span>
-                  ))}
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[100, 200, 300, 400, 500, 600].map((lvl) => {
+                    const isSelected = formData.supportedLevels.includes(lvl);
+                    return (
+                      <button
+                        key={lvl}
+                        type="button"
+                        onClick={() => toggleLevelInForm(lvl)}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-500/20'
+                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                        <span>{lvl}L</span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <p className="text-[10px] text-blue-600/90 leading-tight">
-                  Students enrolled in this department will automatically progress up to {(formData.yearsOfStudy || 4) * 100}L before graduating.
+
+                <p className="text-[10px] text-blue-700/80 leading-tight">
+                  Click levels to toggle which dashboards are created for this department. Filter by 200L in the admin panel will display this department if 200L is selected.
                 </p>
               </div>
 
@@ -477,6 +888,19 @@ export const AdminDepartmentsManager: React.FC<AdminDepartmentsManagerProps> = (
         description="Are you sure you want to delete this department? Linked course catalogs and timetable activities associated with this department may also be impacted."
         confirmLabel="Yes, Delete Department"
         isDeleting={isDeleting}
+      />
+
+      {/* Confirm Bulk Delete Modal */}
+      <ConfirmDeleteModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleConfirmBulkDelete}
+        title={`Delete ${selectedDeptIds.size} Selected Departments?`}
+        itemType="departments"
+        itemName={`${selectedDeptIds.size} Departments Selected`}
+        description={`Are you sure you want to delete ${selectedDeptIds.size} selected department(s) in bulk? Any linked courses or student records may be unlinked.`}
+        confirmLabel={`Yes, Delete ${selectedDeptIds.size} Departments`}
+        isDeleting={isBulkDeleting}
       />
 
       {/* Toast */}

@@ -1,4 +1,4 @@
-import { EventItem, AssignmentItem, NotificationItem } from '../types';
+import { EventItem, AssignmentItem, NotificationItem } from '@src/types';
 
 export interface AdminUser {
   id: string;
@@ -32,6 +32,7 @@ export interface DepartmentRecord {
   name: string;
   code: string;
   level?: number;
+  levels?: number[];
   yearsOfStudy?: number;
   duration_years?: number;
   durationYears?: number;
@@ -41,16 +42,29 @@ export interface DepartmentRecord {
   created_at?: string;
 }
 
+export interface DepartmentLevelRecord {
+  id: string;
+  department_id: string;
+  department_name: string;
+  department_code: string;
+  level: number;
+  level_name: string;
+  academic_year: string;
+  is_active: boolean;
+  created_at: string;
+  description: string;
+}
+
 export interface CourseMaterialPdf {
   id: string;
   title: string;
   topic?: string;
   pdfUrl: string;
+  storagePath?: string;
   fileSize?: string;
   fileName?: string;
   uploadedAt?: string;
   description?: string;
-  storagePath?: string;
 }
 
 export type CoursePdfModule = CourseMaterialPdf;
@@ -162,6 +176,8 @@ export interface StudentProfileRecord {
   name?: string;
   department?: string;
   department_id?: string;
+  department_code?: string;
+  departmentCode?: string;
   year_level?: string;
   yearLevel?: string;
   level?: number;
@@ -169,6 +185,8 @@ export interface StudentProfileRecord {
   is_payed?: boolean;
   is_paid?: boolean;
   hasFreeAccess?: boolean;
+  has_free_access?: boolean;
+  freeSemesterGranted?: boolean;
   wallet_balance?: number;
   walletBalance?: number;
   paid_semester?: string | null;
@@ -183,12 +201,15 @@ export interface StudentProfileRecord {
   profile_picture?: string;
   profilePicture?: string;
   profileImage?: string;
-  profile_pic_storage_path?: string;
   photo_url?: string;
   photoURL?: string;
+  profile_pic_storage_path?: string;
   phone?: string;
   phone_number?: string;
   phoneNumber?: string;
+  address?: string;
+  privacy_settings?: any;
+  privacySettings?: any;
   activesessionid?: string;
   active_session_token?: string;
   password_changed?: boolean;

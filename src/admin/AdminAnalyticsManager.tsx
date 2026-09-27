@@ -22,7 +22,7 @@ import {
   BarChart3,
   Globe,
 } from 'lucide-react';
-import { fetchAppUsageAnalytics, AppAnalyticsSummary, invalidateStudentSession } from '../lib/dbService';
+import { fetchAppUsageAnalytics, AppAnalyticsSummary, invalidateStudentSession } from '@src/lib/dbService';
 
 export const AdminAnalyticsManager: React.FC = () => {
   const [analytics, setAnalytics] = useState<AppAnalyticsSummary | null>(null);

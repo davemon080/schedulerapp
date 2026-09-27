@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth } from '@src/lib/firebase';
 import { AdminUser } from './types';
-import { verifyAdminCredentialsFromDb } from '../lib/dbService';
+import { verifyAdminCredentialsFromDb } from '@src/lib/dbService';
 import { 
   Shield, 
   Lock, 

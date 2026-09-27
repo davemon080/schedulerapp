@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { EventItem } from '../types';
+import { EventItem } from '@src/types';
 import { DepartmentRecord } from './types';
 import { 
   Calendar, 

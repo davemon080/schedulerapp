@@ -18,25 +18,93 @@ import {
   AlertCircle,
   RefreshCw,
   Sparkles,
-  Users
+  Users,
+  Camera,
+  ImageOff
 } from 'lucide-react';
 import { AdminUser } from './types';
 import { 
   fetchRegistryAccounts, 
   createRegistryAccount, 
   deleteRegistryAccount, 
-  AdminAccountRecord 
-} from '../lib/dbService';
+  AdminAccountRecord,
+  updateAdminProfile
+} from '@src/lib/dbService';
+import { uploadProfilePicture } from '@src/lib/storageService';
 
 interface AdminSettingsProps {
   adminUser: AdminUser;
   onLogout: () => void;
+  onUpdateAdminUser?: (updated: AdminUser) => void;
 }
 
 export const AdminSettings: React.FC<AdminSettingsProps> = ({
   adminUser,
   onLogout,
+  onUpdateAdminUser,
 }) => {
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState<string | null>(null);
+
+  const handleAdminPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingPhoto(true);
+    setPhotoMessage(null);
+    try {
+      const uploadRes = await uploadProfilePicture(file, adminUser.id || 'admin_davemon080');
+      const url = uploadRes.downloadUrl;
+      await updateAdminProfile(adminUser.id || 'admin_davemon080', {
+        profile_pic_url: url,
+        profileImage: url,
+        photoURL: url,
+      });
+      const updated: AdminUser = {
+        ...adminUser,
+        profile_pic_url: url,
+        profileImage: url,
+      };
+      onUpdateAdminUser?.(updated);
+      try {
+        localStorage.setItem('university_admin_session', JSON.stringify(updated));
+      } catch {}
+      setPhotoMessage('Profile photo updated in database!');
+      setTimeout(() => setPhotoMessage(null), 3000);
+    } catch (err: any) {
+      setPhotoMessage(err?.message || 'Failed to upload photo');
+      setTimeout(() => setPhotoMessage(null), 4000);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setIsUploadingPhoto(true);
+    setPhotoMessage(null);
+    try {
+      await updateAdminProfile(adminUser.id || 'admin_davemon080', {
+        profile_pic_url: '',
+        profileImage: '',
+        photoURL: '',
+      });
+      const updated: AdminUser = {
+        ...adminUser,
+        profile_pic_url: '',
+        profileImage: '',
+      };
+      onUpdateAdminUser?.(updated);
+      try {
+        localStorage.setItem('university_admin_session', JSON.stringify(updated));
+      } catch {}
+      setPhotoMessage('Profile photo removed');
+      setTimeout(() => setPhotoMessage(null), 3000);
+    } catch (err: any) {
+      setPhotoMessage('Failed to remove photo');
+      setTimeout(() => setPhotoMessage(null), 3000);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
   // Registerer Accounts State
   const [registryAccounts, setRegistryAccounts] = useState<AdminAccountRecord[]>([]);
   const [isLoadingRegistry, setIsLoadingRegistry] = useState(false);
@@ -150,23 +218,82 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
     <div className="p-6 space-y-6 max-w-4xl">
       {/* Admin Profile Card */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-blue-500/20">
-            {adminUser.fullName?.charAt(0) || 'A'}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-xl font-bold text-slate-900">{adminUser.fullName}</h3>
-              <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-bold">
-                {adminUser.role}
-              </span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="relative group shrink-0">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-blue-500/20 overflow-hidden border-2 border-white">
+                {adminUser.profile_pic_url || adminUser.profileImage ? (
+                  <img
+                    key={adminUser.profile_pic_url || adminUser.profileImage}
+                    src={adminUser.profile_pic_url || adminUser.profileImage}
+                    alt={adminUser.fullName}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span>{adminUser.fullName?.charAt(0) || 'A'}</span>
+                )}
+              </div>
+              <label 
+                className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-md cursor-pointer transition-transform active:scale-95" 
+                title="Upload Profile Photo to Database"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAdminPhotoUpload}
+                  disabled={isUploadingPhoto}
+                  className="hidden"
+                />
+              </label>
             </div>
-            <p className="text-[13px] text-slate-500 font-medium">{adminUser.email}</p>
-            <p className="text-[11.5px] text-slate-400 mt-1 font-mono">
-              Session ID: {adminUser.id} &bull; Route: /adminschedulerapp
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold text-slate-900">{adminUser.fullName}</h3>
+                <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-bold">
+                  {adminUser.role}
+                </span>
+              </div>
+              <p className="text-[13px] text-slate-500 font-medium">{adminUser.email}</p>
+              <p className="text-[11.5px] text-slate-400 mt-1 font-mono">
+                Session ID: {adminUser.id} &bull; Route: /adminschedulerapp
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 sm:self-center">
+            {(adminUser.profile_pic_url || adminUser.profileImage) && (
+              <button
+                type="button"
+                onClick={handleRemovePhoto}
+                disabled={isUploadingPhoto}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                <ImageOff className="w-3.5 h-3.5 text-slate-400" />
+                <span>Remove Photo</span>
+              </button>
+            )}
+            <label className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs cursor-pointer active:scale-95 transition-all">
+              <Camera className="w-3.5 h-3.5" />
+              <span>{isUploadingPhoto ? 'Uploading...' : 'Change Photo'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleAdminPhotoUpload}
+                disabled={isUploadingPhoto}
+                className="hidden"
+              />
+            </label>
           </div>
         </div>
+
+        {photoMessage && (
+          <div className="mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-medium flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{photoMessage}</span>
+          </div>
+        )}
 
         <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
           <span className="text-[13px] text-slate-600 font-medium">

@@ -18,7 +18,10 @@ import {
   FastForward,
   ChevronRight,
   Check,
-  Plus
+  Plus,
+  CreditCard,
+  Lock,
+  DollarSign
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -31,14 +34,15 @@ import {
   demoteStudentsToPreviousAcademicLevel,
   correctAllStudentsTo100LFirstSemester,
   correctAllStudentsTo100LSecondSemester,
+  resetAllStudentsToUnpaidInDatabase,
   subscribeToRealtimeDatabase,
-} from '../lib/dbService';
+} from '@src/lib/dbService';
 import { 
   generateAcademicSessions, 
   getNextAcademicSession, 
   getPreviousAcademicSession,
   parseSessionYears,
-} from '../lib/academicScope';
+} from '@src/lib/academicScope';
 import { StudentProfileRecord } from './types';
 
 interface AdminSemesterManagerProps {
@@ -60,6 +64,8 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
   const [transitionActionType, setTransitionActionType] = useState<'advance' | 'rewind' | 'custom'>('advance');
   const [autoPromoteStudents, setAutoPromoteStudents] = useState<boolean>(true);
   const [autoDemoteStudents, setAutoDemoteStudents] = useState<boolean>(false);
+  const [resetStudentPayments, setResetStudentPayments] = useState<boolean>(true);
+  const [showManualResetModal, setShowManualResetModal] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -139,6 +145,10 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
   const students500L = students.filter(s => (s.level === 500 || s.year_level?.includes('500')) && s.status !== 'graduated');
   const graduatedStudents = students.filter(s => s.status === 'graduated' || s.year_level?.toLowerCase().includes('graduated'));
 
+  // Compute student payment metrics
+  const paidStudentsCount = students.filter(s => Boolean(s.is_paid || s.is_payed || s.hasFreeAccess)).length;
+  const unpaidStudentsCount = Math.max(0, students.length - paidStudentsCount);
+
   const isFirstSemester = currentSemester === '1st Semester';
 
   // Rewind backwards 1 semester (2nd -> 1st)
@@ -148,6 +158,7 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
     setTransitionActionType('rewind');
     setAutoPromoteStudents(false);
     setAutoDemoteStudents(false);
+    setResetStudentPayments(true);
     setShowConfirmModal(true);
   };
 
@@ -158,6 +169,7 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
     setTransitionActionType('advance');
     setAutoPromoteStudents(false);
     setAutoDemoteStudents(false);
+    setResetStudentPayments(true);
     setShowConfirmModal(true);
   };
 
@@ -170,6 +182,7 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
     setTransitionActionType('advance');
     setAutoPromoteStudents(true);
     setAutoDemoteStudents(false);
+    setResetStudentPayments(true);
     setShowConfirmModal(true);
   };
 
@@ -182,6 +195,7 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
     setTransitionActionType('rewind');
     setAutoPromoteStudents(false);
     setAutoDemoteStudents(false);
+    setResetStudentPayments(true);
     setShowConfirmModal(true);
   };
 
@@ -197,6 +211,7 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
     setTransitionActionType('custom');
     setAutoPromoteStudents(false);
     setAutoDemoteStudents(false);
+    setResetStudentPayments(true);
     setShowConfirmModal(true);
   };
 
@@ -208,6 +223,7 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
       const res = await transitionAcademicSemester(newSemesterCode, {
         promoteStudents: autoPromoteStudents,
         demoteStudents: autoDemoteStudents,
+        resetStudentPayments: resetStudentPayments,
       });
 
       if (res.success) {
@@ -221,6 +237,9 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
         } else if (autoDemoteStudents && (res.demotedCount || 0) > 0) {
           successMsg += ` Rewound ${res.demotedCount} student(s) level.`;
         }
+        if (res.resetPaymentsCount !== undefined && res.resetPaymentsCount > 0) {
+          successMsg += ` Reset payment status for ${res.resetPaymentsCount} student(s) so they can pay for ${targetSemesterToSwitch} access!`;
+        }
 
         showToast(successMsg);
         await loadData();
@@ -233,6 +252,26 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
     } finally {
       setIsUpdating(false);
       setShowConfirmModal(false);
+    }
+  };
+
+  // Manual Trigger: Reset all student payments for current active semester
+  const handleManualResetPayments = async () => {
+    setIsUpdating(true);
+    try {
+      const res = await resetAllStudentsToUnpaidInDatabase();
+      if (res.success) {
+        showToast(`Payment access reset for ${res.count} student(s)! All students must now pay for ${currentSemester} access.`);
+        await loadData();
+      } else {
+        showToast(res.error || 'Failed to reset student payments in database.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error executing student payment reset.');
+    } finally {
+      setIsUpdating(false);
+      setShowManualResetModal(false);
     }
   };
 
@@ -553,6 +592,79 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
         </div>
       </div>
 
+      {/* SEMESTER PAYMENT & ACCESS CONTROL CARD */}
+      <div className="bg-gradient-to-br from-amber-50/90 via-orange-50/50 to-white rounded-3xl p-6 border border-amber-200/90 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-700 border border-amber-200/80">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Semester Payment & Access Control</h3>
+              <p className="text-xs text-slate-500">
+                Manage ₦2,000 semester access verification status for students across semesters
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowManualResetModal(true)}
+            disabled={isUpdating}
+            className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-sm shadow-amber-600/30 flex items-center justify-center gap-2 cursor-pointer self-start sm:self-auto active:scale-95"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Student Payments Now</span>
+          </button>
+        </div>
+
+        {/* Payment Metrics Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          <div className="p-4 rounded-2xl bg-white border border-amber-200/60 shadow-2xs">
+            <span className="text-[11px] font-semibold text-slate-500 block uppercase tracking-wider">
+              Total Enrolled Students
+            </span>
+            <div className="text-2xl font-black text-slate-900 mt-1">
+              {students.length}
+            </div>
+            <span className="text-[11px] text-slate-400 mt-0.5 block">
+              Across all levels & departments
+            </span>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-white border border-emerald-200/60 shadow-2xs">
+            <span className="text-[11px] font-semibold text-emerald-700 block uppercase tracking-wider">
+              Paid / Active Access
+            </span>
+            <div className="text-2xl font-black text-emerald-600 mt-1">
+              {paidStudentsCount}
+            </div>
+            <span className="text-[11px] text-emerald-600/80 mt-0.5 block">
+              {students.length > 0 ? Math.round((paidStudentsCount / students.length) * 100) : 0}% unlocked
+            </span>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-white border border-amber-300/80 shadow-2xs">
+            <span className="text-[11px] font-semibold text-amber-800 block uppercase tracking-wider">
+              Unpaid / Awaiting Access Fee
+            </span>
+            <div className="text-2xl font-black text-amber-700 mt-1">
+              {unpaidStudentsCount}
+            </div>
+            <span className="text-[11px] text-amber-700/80 mt-0.5 block">
+              Will be prompted for ₦2,000 fee
+            </span>
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-white/80 border border-amber-200/70 text-xs text-amber-900 flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <p className="leading-relaxed">
+            <strong>Automatic Transition Policy:</strong> When you advance or transfer students to the next semester (e.g. 1st Semester ➔ 2nd Semester), student payments are automatically reset so every student must pay the ₦2,000 semester access fee for 2nd semester access.
+          </p>
+        </div>
+      </div>
+
       {/* DIRECT ACADEMIC SESSION & SEMESTER SELECTOR TIMELINE */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
         <div className="flex items-center gap-3">
@@ -714,6 +826,27 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
                 </label>
               </div>
 
+              {/* Semester Payment Reset Option */}
+              <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/80 space-y-2">
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={resetStudentPayments}
+                    onChange={(e) => setResetStudentPayments(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-bold text-amber-900 block flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-amber-600" />
+                      Reset Student Payments for Next Semester (Recommended)
+                    </span>
+                    <span className="text-[11px] text-amber-800/90 block leading-tight">
+                      Transfers students to unpaid status so they must pay ₦2,000 for {targetSemesterToSwitch} access to unlock schedules, notes, and alerts.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
               {/* Semester Reset Policy Notice */}
               <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200/70 text-[11px] text-amber-900 leading-relaxed">
                 <strong>Semester Transition Policy:</strong> Schedules, deadlines, broadcasts, and dashboard notifications will be reset for the new semester term. <em>Courses on modules page, PDFs, outlines, and lecture videos will never be reset and will remain permanently for incoming students.</em>
@@ -741,6 +874,69 @@ export const AdminSemesterManager: React.FC<AdminSemesterManagerProps> = ({
                     </>
                   ) : (
                     <span>Confirm Transition</span>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MANUAL PAYMENT RESET CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {showManualResetModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-5"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <CreditCard className="w-6 h-6" />
+              </div>
+
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">
+                  Reset Student Payments?
+                </h3>
+                <p className="text-[13px] text-slate-500 mt-1.5 leading-relaxed">
+                  This will reset payment status for all students in <strong>{currentSemester} ({academicSession})</strong>. Enrolled students will immediately be prompted to pay ₦2,000 for semester access.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  <span>Immediate Access Lock</span>
+                </div>
+                <p className="text-[11.5px] leading-relaxed">
+                  Active student accounts will see the Semester Access Lock screen until they pay the semester fee. Admin accounts are unaffected.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isUpdating}
+                  onClick={() => setShowManualResetModal(false)}
+                  className="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[13px] font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isUpdating}
+                  onClick={handleManualResetPayments}
+                  className="flex-1 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[13px] font-bold transition-colors cursor-pointer shadow-md shadow-amber-600/25 flex items-center justify-center gap-2"
+                >
+                  {isUpdating ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Resetting...</span>
+                    </>
+                  ) : (
+                    <span>Confirm Payment Reset</span>
                   )}
                 </button>
               </div>

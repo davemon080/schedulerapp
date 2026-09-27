@@ -32,20 +32,17 @@ import {
   History,
   Coins,
   ChevronDown,
-  ChevronUp,
-  Lock,
-  Unlock
+  ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StudentProfileRecord, DepartmentRecord } from './types';
-import { WalletTransaction } from '../types';
+import { WalletTransaction } from '@src/types';
 import { 
   getStudentDepartmentInfo, 
   fetchUserWalletData, 
-  adminAdjustUserWalletBalance,
-  revokeStudentSemesterAccess,
-  grantStudentSemesterAccess
-} from '../lib/dbService';
+  adminAdjustUserWalletBalance 
+} from '@src/lib/dbService';
+import { uploadProfilePicture, validateImageFile } from '@src/lib/storageService';
 
 interface StudentDetailsModalProps {
   student: StudentProfileRecord | null;
@@ -57,15 +54,7 @@ interface StudentDetailsModalProps {
   isRegistry?: boolean;
 }
 
-const StudentDetailsModalContent: React.FC<{
-  student: StudentProfileRecord;
-  isOpen: boolean;
-  onClose: () => void;
-  departments: DepartmentRecord[];
-  onUpdateStudent?: (updatedStudent: StudentProfileRecord) => Promise<boolean>;
-  onDeleteStudent?: (identifier: string) => Promise<void>;
-  isRegistry?: boolean;
-}> = ({
+export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
   student,
   isOpen,
   onClose,
@@ -74,6 +63,8 @@ const StudentDetailsModalContent: React.FC<{
   onDeleteStudent,
   isRegistry = false,
 }) => {
+  if (!isOpen || !student) return null;
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const identifier = student.id || student.uid || student.email || student.matric_number || student.matricNumber || '';
 
@@ -87,10 +78,15 @@ const StudentDetailsModalContent: React.FC<{
   const [levelNum, setLevelNum] = useState<number>(student.level || 100);
   const [isCourseRep, setIsCourseRep] = useState<boolean>(Boolean(student.iscourserep || student.isCourseRep));
   const [isAdmin, setIsAdmin] = useState<boolean>(Boolean(student.isadmin || student.isAdmin));
-  const [isPayed, setIsPayed] = useState<boolean>(Boolean(student.is_payed ?? student.is_paid ?? true));
-  const [paidSemester, setPaidSemester] = useState<string>(student.paid_semester || student.paidSemester || '1st Semester 2025/2026');
-  const [isUpdatingAccess, setIsUpdatingAccess] = useState<boolean>(false);
-  const [accessSuccessMessage, setAccessSuccessMessage] = useState<string | null>(null);
+  const initialFreeAccess = Boolean(
+    student.hasFreeAccess ||
+    (student as any).has_free_access ||
+    (student as any).free_access ||
+    (student as any).freeSemesterGranted ||
+    student.is_payed ||
+    student.is_paid
+  );
+  const [isPayed, setIsPayed] = useState<boolean>(initialFreeAccess);
   const [profilePicUrl, setProfilePicUrl] = useState<string>(
     student.profile_pic_url || (student as any).profileImage || student.profile_picture || student.profilePicture || student.photo_url || student.photoURL || ''
   );
@@ -135,6 +131,38 @@ const StudentDetailsModalContent: React.FC<{
       });
   }, [identifier, initialWalletBal, isRegistry]);
 
+  // Synchronize internal form fields whenever a student is selected or opened
+  useEffect(() => {
+    if (student && isOpen) {
+      setFullName(student.full_name || student.fullName || student.name || '');
+      setEmail(student.email || '');
+      setPassword(student.password || student.portal_password || '123456');
+      setMatricNumber(student.matric_number || student.matricNumber || '');
+      setDepartmentId(student.department_id || 'dept-ich');
+      const lvlN = typeof student.level === 'number' ? student.level : parseInt((student.year_level || student.yearLevel || '').replace(/\D/g, ''), 10) || 100;
+      setLevelNum(lvlN);
+      setYearLevel(student.year_level || student.yearLevel || `${lvlN} Level`);
+      setIsCourseRep(Boolean(student.iscourserep || student.isCourseRep));
+      setIsAdmin(Boolean(student.isadmin || student.isAdmin));
+      const hasFree = Boolean(
+        student.hasFreeAccess ||
+        (student as any).has_free_access ||
+        (student as any).free_access ||
+        (student as any).freeSemesterGranted ||
+        student.is_payed ||
+        student.is_paid
+      );
+      setIsPayed(hasFree);
+      setProfilePicUrl(
+        student.profile_pic_url || (student as any).profileImage || student.profile_picture || student.profilePicture || student.photo_url || student.photoURL || ''
+      );
+      const bal = typeof student.wallet_balance === 'number' ? student.wallet_balance : (typeof student.walletBalance === 'number' ? student.walletBalance : 0);
+      setWalletBalance(bal);
+      setErrorMessage(null);
+      setSaveSuccess(false);
+    }
+  }, [student, isOpen]);
+
   // Department info
   const currentDeptInfo = getStudentDepartmentInfo(
     { ...student, department_id: departmentId },
@@ -147,16 +175,29 @@ const StudentDetailsModalContent: React.FC<{
     setLevelNum(parsed);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setProfilePicUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    const validation = validateImageFile(file, 6 * 1024 * 1024);
+    if (!validation.valid) {
+      alert(validation.error || 'Please select a valid image file under 6MB');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    try {
+      const userKey = student?.id || student?.email || student?.matric_number || 'student';
+      const result = await uploadProfilePicture(file, userKey);
+      setProfilePicUrl(result.downloadUrl);
+    } catch (err: any) {
+      console.error('Failed to upload student photo to Firebase Storage:', err);
+      alert(err.message || 'Failed to upload photo. Please try again.');
+    } finally {
+      setIsUploadingPhoto(false);
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -229,73 +270,6 @@ const StudentDetailsModalContent: React.FC<{
     }
   };
 
-  // Direct Semester Access Revocation
-  const handleDirectRevokeAccess = async () => {
-    if (!identifier) return;
-    setIsUpdatingAccess(true);
-    setErrorMessage(null);
-    try {
-      const ok = await revokeStudentSemesterAccess(identifier);
-      if (ok) {
-        setIsPayed(false);
-        setAccessSuccessMessage('Semester access revoked & updated in database.');
-        if (onUpdateStudent) {
-          await onUpdateStudent({
-            ...student,
-            is_paid: false,
-            is_payed: false,
-            hasFreeAccess: false,
-            paid_semester: null as any,
-            paidSemester: null as any,
-            paid_at: null as any,
-            paidAt: null as any,
-          });
-        }
-      } else {
-        setErrorMessage('Failed to revoke student semester access in database.');
-      }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Error revoking semester access.');
-    } finally {
-      setIsUpdatingAccess(false);
-      setTimeout(() => setAccessSuccessMessage(null), 3500);
-    }
-  };
-
-  // Direct Semester Access Grant
-  const handleDirectGrantAccess = async () => {
-    if (!identifier) return;
-    setIsUpdatingAccess(true);
-    setErrorMessage(null);
-    try {
-      const targetSem = paidSemester || '1st Semester 2025/2026';
-      const ok = await grantStudentSemesterAccess(identifier, targetSem);
-      if (ok) {
-        setIsPayed(true);
-        setAccessSuccessMessage(`Semester access granted for ${targetSem} & updated in database.`);
-        if (onUpdateStudent) {
-          await onUpdateStudent({
-            ...student,
-            is_paid: true,
-            is_payed: true,
-            hasFreeAccess: true,
-            paid_semester: targetSem,
-            paidSemester: targetSem,
-            paid_at: new Date().toISOString(),
-            paidAt: new Date().toISOString(),
-          });
-        }
-      } else {
-        setErrorMessage('Failed to grant student semester access in database.');
-      }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Error granting semester access.');
-    } finally {
-      setIsUpdatingAccess(false);
-      setTimeout(() => setAccessSuccessMessage(null), 3500);
-    }
-  };
-
   const handleSave = async () => {
     setErrorMessage(null);
     if (!email.trim() || !matricNumber.trim() || !fullName.trim()) {
@@ -305,7 +279,13 @@ const StudentDetailsModalContent: React.FC<{
 
     setIsSaving(true);
     try {
-      const targetDept = departments.find(d => d.id === departmentId);
+      const targetDept = departments.find(
+        (d) => d.id === departmentId || d.code?.toUpperCase() === departmentId.toUpperCase() || d.name?.toLowerCase() === departmentId.toLowerCase()
+      );
+      const targetDeptName = targetDept ? targetDept.name : (currentDeptInfo.name || departmentId);
+      const targetDeptId = targetDept ? targetDept.id : (currentDeptInfo.id || departmentId);
+      const targetDeptCode = targetDept ? targetDept.code : (currentDeptInfo.code || 'ICH');
+
       const updatedRecord: StudentProfileRecord = {
         ...student,
         id: student.id || student.uid,
@@ -321,8 +301,9 @@ const StudentDetailsModalContent: React.FC<{
         is_default_password: password.trim() === '123456',
         matric_number: matricNumber.trim().toUpperCase(),
         matricNumber: matricNumber.trim().toUpperCase(),
-        department_id: departmentId,
-        department: targetDept ? targetDept.name : currentDeptInfo.name,
+        department_id: targetDeptId,
+        department: targetDeptName,
+        department_code: targetDeptCode,
         year_level: yearLevel,
         yearLevel: yearLevel,
         level: levelNum,
@@ -330,29 +311,26 @@ const StudentDetailsModalContent: React.FC<{
         isCourseRep: isRegistry ? Boolean(student.iscourserep || student.isCourseRep) : isCourseRep,
         isadmin: isRegistry ? Boolean(student.isadmin || student.isAdmin) : isAdmin,
         isAdmin: isRegistry ? Boolean(student.isadmin || student.isAdmin) : isAdmin,
-        is_payed: isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed,
-        is_paid: isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed,
-        hasFreeAccess: isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed,
-        paid_semester: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
-          ? (paidSemester || student.paid_semester || student.paidSemester || '1st Semester 2025/2026')
-          : null,
-        paidSemester: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
-          ? (paidSemester || student.paid_semester || student.paidSemester || '1st Semester 2025/2026')
-          : null,
-        paid_at: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
-          ? (student.paid_at || student.paidAt || new Date().toISOString())
-          : null,
-        paidAt: (isRegistry ? Boolean(student.is_payed ?? student.is_paid ?? true) : isPayed)
-          ? (student.paid_at || student.paidAt || new Date().toISOString())
-          : null,
+        is_payed: isRegistry ? Boolean(student.is_payed ?? student.is_paid) : isPayed,
+        is_paid: isRegistry ? Boolean(student.is_payed ?? student.is_paid) : isPayed,
+        hasFreeAccess: isRegistry ? Boolean(student.hasFreeAccess ?? student.is_paid) : isPayed,
+        has_free_access: isRegistry ? Boolean((student as any).has_free_access ?? student.is_paid) : isPayed,
+        freeSemesterGranted: isRegistry ? Boolean((student as any).freeSemesterGranted ?? student.is_paid) : isPayed,
+        paid_semester: isPayed ? (student.paid_semester || '1st Semester') : (isRegistry ? student.paid_semester : undefined),
         wallet_balance: isRegistry ? (typeof student.wallet_balance === 'number' ? student.wallet_balance : student.walletBalance || 0) : walletBalance,
         walletBalance: isRegistry ? (typeof student.wallet_balance === 'number' ? student.wallet_balance : student.walletBalance || 0) : walletBalance,
         profile_pic_url: profilePicUrl,
         profile_picture: profilePicUrl,
         profilePicture: profilePicUrl,
+        profileImage: profilePicUrl,
         photo_url: profilePicUrl,
         photoURL: profilePicUrl,
       };
+
+      // Pass tracking of original keys so database service can update document even if email, matric, or ID was changed
+      (updatedRecord as any)._originalId = student.id || student.uid;
+      (updatedRecord as any)._originalEmail = student.email;
+      (updatedRecord as any)._originalMatric = student.matric_number || student.matricNumber;
 
       if (onUpdateStudent) {
         const ok = await onUpdateStudent(updatedRecord);
@@ -936,100 +914,35 @@ const StudentDetailsModalContent: React.FC<{
                   </div>
                 </div>
 
-                {/* Semester Access & Entitlement Panel */}
-                <div className={`p-4 rounded-2xl border transition-all sm:col-span-2 ${
-                  isPayed 
-                    ? 'bg-emerald-50/80 border-emerald-200 shadow-xs' 
-                    : 'bg-rose-50/70 border-rose-200 hover:border-rose-300'
-                }`}>
-                  <div className="flex items-start justify-between flex-wrap gap-3">
-                    <div className="flex items-start gap-3">
-                      <div className={`p-2.5 rounded-xl mt-0.5 shrink-0 ${isPayed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
-                        {isPayed ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-900">Semester Portal Access</span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10.5px] font-bold ${
-                            isPayed ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-rose-100 text-rose-800 border border-rose-300'
-                          }`}>
-                            {isPayed ? 'ACCESS UNLOCKED' : 'ACCESS REVOKED / LOCKED'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                          {isPayed
-                            ? `Authorized access for ${paidSemester}. The student can view lecture schedules, materials, and deadlines.`
-                            : 'Access is suspended. The student will see the lock screen requiring semester clearance or fee payment.'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
+                {/* Free Semester Access Toggle */}
+                <div 
+                  onClick={() => setIsPayed(!isPayed)}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                    isPayed 
+                      ? 'bg-emerald-50/80 border-emerald-200 shadow-xs' 
+                      : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className={`p-2 rounded-xl mt-0.5 ${isPayed ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900">Free Semester Access</span>
                       <input
                         type="checkbox"
                         checked={isPayed}
                         onChange={(e) => setIsPayed(e.target.checked)}
+                        onClick={(e) => e.stopPropagation()}
                         className="w-4 h-4 text-emerald-600 rounded-sm border-slate-300 cursor-pointer"
-                        title="Toggle semester access"
                       />
                     </div>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      {isPayed
+                        ? 'Free 100% unlocked access granted for this semester without fee requirement.'
+                        : 'Revoke semester pass (locks portal modules until authorized).'}
+                    </p>
                   </div>
-
-                  {/* Active semester picker & One-Click DB Action Buttons */}
-                  <div className="mt-3 pt-3 border-t border-slate-200/70 flex items-center justify-between flex-wrap gap-2.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <label className="text-[11px] font-semibold text-slate-600">Active Term:</label>
-                      <select
-                        value={paidSemester}
-                        onChange={(e) => setPaidSemester(e.target.value)}
-                        className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      >
-                        <option value="1st Semester 2025/2026">1st Semester 2025/2026</option>
-                        <option value="2nd Semester 2025/2026">2nd Semester 2025/2026</option>
-                        <option value="1st Semester 2024/2025">1st Semester 2024/2025</option>
-                        <option value="2nd Semester 2024/2025">2nd Semester 2024/2025</option>
-                      </select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {isPayed ? (
-                        <button
-                          type="button"
-                          onClick={handleDirectRevokeAccess}
-                          disabled={isUpdatingAccess}
-                          className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          {isUpdatingAccess ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Lock className="w-3.5 h-3.5" />
-                          )}
-                          <span>Revoke Access Now</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleDirectGrantAccess}
-                          disabled={isUpdatingAccess}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          {isUpdatingAccess ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Unlock className="w-3.5 h-3.5" />
-                          )}
-                          <span>Grant Semester Access</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {accessSuccessMessage && (
-                    <div className="mt-2.5 p-2 rounded-lg bg-emerald-100/90 text-emerald-800 text-[11px] font-semibold flex items-center gap-1.5 border border-emerald-300">
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-                      <span>{accessSuccessMessage}</span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Administrator Role Toggle */}
@@ -1101,9 +1014,4 @@ const StudentDetailsModalContent: React.FC<{
       </motion.div>
     </div>
   );
-};
-
-export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = (props) => {
-  if (!props.isOpen || !props.student) return null;
-  return <StudentDetailsModalContent {...props} student={props.student} />;
 };

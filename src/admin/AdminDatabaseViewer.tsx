@@ -11,10 +11,10 @@ import {
   Shield,
   Layers
 } from 'lucide-react';
-import { EventItem, AssignmentItem, NotificationItem } from '../types';
+import { EventItem, AssignmentItem, NotificationItem } from '@src/types';
 import { StudentProfileRecord } from './types';
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db } from '@src/lib/firebase';
 
 interface AdminDatabaseViewerProps {
   events: EventItem[];

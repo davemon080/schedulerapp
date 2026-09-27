@@ -25,8 +25,8 @@ import {
   fetchAllSupportTickets, 
   updateSupportTicketStatus,
   deleteSupportTicket 
-} from '../lib/dbService';
-import { SupportTicket } from '../types';
+} from '@src/lib/dbService';
+import { SupportTicket } from '@src/types';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 export const AdminFeedbackManager: React.FC = () => {

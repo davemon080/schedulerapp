@@ -17,9 +17,11 @@ import {
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { db, auth } from './firebase';
 import { EventItem, AssignmentItem, NotificationItem, LevelAdvisorInfo, SupportTicket, AppVisitRecord } from '../types';
+import { dispatchCourseRepActivityPushNotification } from './pushNotificationClient';
 import { 
   StudentProfileRecord, 
   DepartmentRecord, 
+  DepartmentLevelRecord,
   CourseRecord, 
   CourseMaterialPdf,
   CourseMaterialVideo,
@@ -29,9 +31,11 @@ import {
   FeedbackRecord, 
   CurrentSemesterRecord 
 } from '@admin/types';
+import { isMatricMatching, normalizeMatricNumber } from './academicScope';
 
 export type { 
   DepartmentRecord, 
+  DepartmentLevelRecord,
   CourseRecord, 
   CourseMaterialPdf, 
   CourseMaterialVideo, 
@@ -155,39 +159,84 @@ export function invalidateDbCache(keyPrefix?: string): void {
 // Day conversion utilities
 export function mapDbDayToDayKey(dbDay: number | string | undefined): string {
   if (typeof dbDay === 'string') {
-    const upper = dbDay.toUpperCase();
-    if (upper.includes('MON') || upper.includes('17')) return 'MON 17';
-    if (upper.includes('TUE') || upper.includes('18')) return 'TUE 18';
-    if (upper.includes('WED') || upper.includes('19')) return 'WED 19';
-    if (upper.includes('THU') || upper.includes('20')) return 'THU 20';
-    if (upper.includes('FRI') || upper.includes('21')) return 'FRI 21';
-    if (upper.includes('SAT') || upper.includes('22')) return 'SAT 22';
-    if (upper.includes('SUN') || upper.includes('23')) return 'SUN 23';
+    const trimmed = dbDay.trim();
+    // If it's already a full dayKey format like "SAT 26" or "MON 28", return it directly
+    if (/^(MON|TUE|WED|THU|FRI|SAT|SUN)\s+\d+$/i.test(trimmed)) {
+      return trimmed.toUpperCase();
+    }
+    const upper = trimmed.toUpperCase();
+    if (upper.includes('MON')) return 'MON';
+    if (upper.includes('TUE')) return 'TUE';
+    if (upper.includes('WED')) return 'WED';
+    if (upper.includes('THU')) return 'THU';
+    if (upper.includes('FRI')) return 'FRI';
+    if (upper.includes('SAT')) return 'SAT';
+    if (upper.includes('SUN')) return 'SUN';
+    return trimmed;
   }
   const num = Number(dbDay);
   switch (num) {
-    case 1: return 'MON 17';
-    case 2: return 'TUE 18';
-    case 3: return 'WED 19';
-    case 4: return 'THU 20';
-    case 5: return 'FRI 21';
-    case 6: return 'SAT 22';
-    case 7: return 'SUN 23';
-    default: return 'WED 19';
+    case 1: return 'MON';
+    case 2: return 'TUE';
+    case 3: return 'WED';
+    case 4: return 'THU';
+    case 5: return 'FRI';
+    case 6: return 'SAT';
+    case 7:
+    case 0: return 'SUN';
+    default: return 'MON';
   }
+}
+
+export function isEventMatchingDay(eventDayKey: string | undefined, dayId: string, eventDayNum?: number): boolean {
+  if (!dayId) return false;
+  if (!eventDayKey && eventDayNum === undefined) return false;
+
+  const dayIdUpper = dayId.toUpperCase().trim();
+  const evtKeyUpper = (eventDayKey || '').toUpperCase().trim();
+
+  if (evtKeyUpper === dayIdUpper) return true;
+
+  // Extract day of week abbreviation: "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"
+  const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const dayNameInId = dayNames.find((d) => dayIdUpper.startsWith(d));
+
+  if (dayNameInId) {
+    if (evtKeyUpper.startsWith(dayNameInId) || evtKeyUpper.includes(dayNameInId)) {
+      return true;
+    }
+    const fullMap: Record<string, string> = {
+      MONDAY: 'MON',
+      TUESDAY: 'TUE',
+      WEDNESDAY: 'WED',
+      THURSDAY: 'THU',
+      FRIDAY: 'FRI',
+      SATURDAY: 'SAT',
+      SUNDAY: 'SUN',
+    };
+    for (const [full, abbr] of Object.entries(fullMap)) {
+      if (evtKeyUpper.includes(full) && abbr === dayNameInId) return true;
+    }
+    if (eventDayNum !== undefined) {
+      const idx = dayNames.indexOf(dayNameInId);
+      if (eventDayNum === idx || (eventDayNum === 7 && idx === 0)) return true;
+    }
+  }
+
+  return false;
 }
 
 export function mapDayKeyToDbDay(dayKey: string | number | undefined): number {
   if (typeof dayKey === 'number') return dayKey;
   if (!dayKey) return 1;
   const upper = dayKey.toUpperCase();
-  if (upper.includes('MON') || upper.includes('17')) return 1;
-  if (upper.includes('TUE') || upper.includes('18')) return 2;
-  if (upper.includes('WED') || upper.includes('19')) return 3;
-  if (upper.includes('THU') || upper.includes('20')) return 4;
-  if (upper.includes('FRI') || upper.includes('21')) return 5;
-  if (upper.includes('SAT') || upper.includes('22')) return 6;
-  if (upper.includes('SUN') || upper.includes('23')) return 7;
+  if (upper.includes('MON')) return 1;
+  if (upper.includes('TUE')) return 2;
+  if (upper.includes('WED')) return 3;
+  if (upper.includes('THU')) return 4;
+  if (upper.includes('FRI')) return 5;
+  if (upper.includes('SAT')) return 6;
+  if (upper.includes('SUN')) return 7;
   return 1;
 }
 
@@ -226,7 +275,8 @@ export function parseTimeRange(timeStr?: string): { startTime: string; endTime: 
     const isAM = clean.includes('AM');
     const timeOnly = clean.replace(/AM|PM/g, '').trim();
     const [rawH, rawM = '00'] = timeOnly.split(':');
-    let h = parseInt(rawH, 10) || 8;
+    const parsedH = parseInt(rawH, 10);
+    let h = isNaN(parsedH) ? 8 : parsedH;
     const m = (parseInt(rawM, 10) || 0).toString().padStart(2, '0');
     if (isPM && h < 12) h += 12;
     if (isAM && h === 12) h = 0;
@@ -540,7 +590,8 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
           id: docSnap.id,
           name: d.name || 'Department of Industrial Chemistry',
           code: d.code || 'ICH',
-          level: d.level || 100,
+          level: d.level !== undefined ? d.level : 100,
+          levels: d.levels || Array.from({ length: durationYears }, (_, i) => (d.level !== undefined ? d.level : 100) + i * 100),
           yearsOfStudy: durationYears,
           duration_years: durationYears,
           durationYears: durationYears,
@@ -551,6 +602,7 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
         } as DepartmentRecord;
       });
       updateCachedDepartments(depts);
+      ensureAllDepartmentLevelDashboards(depts).catch(() => {});
       return depts;
     }
 
@@ -624,6 +676,7 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
     ];
 
     updateCachedDepartments(initialDepts);
+    ensureAllDepartmentLevelDashboards(initialDepts).catch(() => {});
     return initialDepts;
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'departments');
@@ -631,10 +684,118 @@ export async function fetchDepartments(): Promise<DepartmentRecord[]> {
   }
 }
 
+export async function createDepartmentLevelDashboards(dept: DepartmentRecord): Promise<DepartmentLevelRecord[]> {
+  try {
+    const years = dept.yearsOfStudy || dept.duration_years || dept.durationYears || (dept.maxLevel ? Math.floor(dept.maxLevel / 100) : 4);
+    const startLevel = dept.level || 100;
+    const levelsToCreate: number[] = Array.isArray((dept as any).levels) && (dept as any).levels.length > 0
+      ? (dept as any).levels
+      : Array.from({ length: Math.max(1, years) }, (_, idx) => startLevel + idx * 100);
+
+    const createdLevels: DepartmentLevelRecord[] = [];
+
+    for (let yr = 0; yr < levelsToCreate.length; yr++) {
+      const lvl = levelsToCreate[yr];
+      const levelId = `${dept.id}-${lvl}`;
+      const payload: DepartmentLevelRecord = {
+        id: levelId,
+        department_id: dept.id,
+        department_name: dept.name,
+        department_code: dept.code,
+        level: lvl,
+        level_name: `${lvl} Level`,
+        academic_year: `Year ${yr + 1}`,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        description: `Dedicated ${lvl} Level timetable, lecture schedules, courses, and assignments dashboard for ${dept.name}.`,
+      };
+
+      try {
+        await setDoc(doc(db, 'department_levels', levelId), payload, { merge: true });
+        // Also persist in nested collection
+        await setDoc(doc(db, 'departments', dept.id, 'levels', `${lvl}`), payload, { merge: true });
+      } catch (err) {
+        console.warn(`Could not persist level dashboard ${levelId}:`, err);
+      }
+      createdLevels.push(payload);
+    }
+    console.log(`[Department Levels] Created ${createdLevels.length} level dashboards for ${dept.name} (${dept.code})`);
+    return createdLevels;
+  } catch (error) {
+    console.error('Error creating department level dashboards:', error);
+    return [];
+  }
+}
+
+export async function fetchDepartmentLevels(departmentId?: string): Promise<DepartmentLevelRecord[]> {
+  try {
+    const colRef = collection(db, 'department_levels');
+    const q = departmentId 
+      ? query(colRef, where('department_id', '==', departmentId))
+      : query(colRef);
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as DepartmentLevelRecord));
+      list.sort((a, b) => {
+        if (a.department_name !== b.department_name) {
+          return (a.department_name || '').localeCompare(b.department_name || '');
+        }
+        return a.level - b.level;
+      });
+      return list;
+    }
+  } catch (e) {
+    console.warn('Could not fetch department levels from Firestore:', e);
+  }
+  return [];
+}
+
+export async function ensureAllDepartmentLevelDashboards(departments?: DepartmentRecord[]): Promise<DepartmentLevelRecord[]> {
+  try {
+    const depts = departments && departments.length > 0 ? departments : await fetchDepartments();
+    const allLevels: DepartmentLevelRecord[] = [];
+    for (const dept of depts) {
+      const levels = await createDepartmentLevelDashboards(dept);
+      allLevels.push(...levels);
+    }
+    return allLevels;
+  } catch (e) {
+    console.warn('Error in ensureAllDepartmentLevelDashboards:', e);
+    return [];
+  }
+}
+
+export async function syncAllDepartmentLevelsToFirestore(): Promise<{
+  success: boolean;
+  departmentsCount: number;
+  levelsCount: number;
+  message: string;
+}> {
+  try {
+    const depts = await fetchDepartments();
+    const allCreated = await ensureAllDepartmentLevelDashboards(depts);
+    return {
+      success: true,
+      departmentsCount: depts.length,
+      levelsCount: allCreated.length,
+      message: `Successfully synchronized ${allCreated.length} level dashboards across all ${depts.length} departments.`,
+    };
+  } catch (err: any) {
+    console.error('Error syncing all department levels:', err);
+    return {
+      success: false,
+      departmentsCount: 0,
+      levelsCount: 0,
+      message: err?.message || 'Failed to sync department levels',
+    };
+  }
+}
+
 export async function createDepartment(data: {
   name: string;
   code: string;
   level?: number;
+  levels?: number[];
   yearsOfStudy?: number;
   duration_years?: number;
   maxLevel?: number;
@@ -642,11 +803,17 @@ export async function createDepartment(data: {
 }): Promise<DepartmentRecord | null> {
   try {
     const years = data.yearsOfStudy || data.duration_years || 4;
-    const maxLvl = data.maxLevel || (years * 100);
+    const startLvl = data.level || 100;
+    const maxLvl = data.maxLevel || (startLvl + (years - 1) * 100) || (years * 100);
+    const levels = data.levels && data.levels.length > 0
+      ? data.levels
+      : Array.from({ length: years }, (_, i) => startLvl + i * 100);
+
     const payload = {
       name: data.name.trim(),
       code: data.code.trim().toUpperCase(),
-      level: data.level || 100,
+      level: startLvl,
+      levels: levels,
       yearsOfStudy: years,
       duration_years: years,
       durationYears: years,
@@ -658,6 +825,14 @@ export async function createDepartment(data: {
     const docRef = await addDoc(collection(db, 'departments'), payload);
     const newDept: DepartmentRecord = { id: docRef.id, ...payload };
     updateCachedDepartments([...cachedDepartmentsList.filter(d => d.id !== newDept.id), newDept]);
+
+    // Automatically generate and persist all level dashboards for this new department!
+    try {
+      await createDepartmentLevelDashboards(newDept);
+    } catch (lvlErr) {
+      console.warn('Could not auto-create level dashboards for new department:', lvlErr);
+    }
+
     return newDept;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, 'departments');
@@ -665,11 +840,17 @@ export async function createDepartment(data: {
   }
 }
 
-export async function updateDepartment(id: string, updates: Partial<DepartmentRecord>): Promise<boolean> {
+export async function updateDepartment(id: string, updates: Partial<DepartmentRecord> & { levels?: number[] }): Promise<boolean> {
   try {
     await updateDoc(doc(db, 'departments', id), updates);
     const updated = cachedDepartmentsList.map(d => d.id === id ? { ...d, ...updates } : d);
     updateCachedDepartments(updated);
+
+    const targetDept = updated.find(d => d.id === id);
+    if (targetDept) {
+      createDepartmentLevelDashboards(targetDept).catch(console.warn);
+    }
+
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `departments/${id}`);
@@ -680,6 +861,15 @@ export async function updateDepartment(id: string, updates: Partial<DepartmentRe
 export async function deleteDepartment(id: string): Promise<boolean> {
   try {
     await deleteDoc(doc(db, 'departments', id));
+    // Clean up level dashboard records for this department
+    try {
+      const q = query(collection(db, 'department_levels'), where('department_id', '==', id));
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        await deleteDoc(d.ref);
+      }
+    } catch (e) {}
+
     const filtered = cachedDepartmentsList.filter(d => d.id !== id);
     updateCachedDepartments(filtered);
     return true;
@@ -1068,20 +1258,11 @@ export async function fetchCourses(forceRefresh = false): Promise<CourseRecord[]
         setCachedItem(cacheKey, courses);
         return courses;
       }
-      const seeded = COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
-        ...crs,
-        pdfModules: [],
-        videoModules: [],
-      }));
-      setCachedItem(cacheKey, seeded);
-      return seeded;
+      setCachedItem(cacheKey, []);
+      return [];
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'courses');
-      return COMPREHENSIVE_SEEDED_COURSES.map((crs) => ({
-        ...crs,
-        pdfModules: [],
-        videoModules: [],
-      }));
+      return [];
     } finally {
       IN_FLIGHT_PROMISES.delete(cacheKey);
     }
@@ -1372,9 +1553,9 @@ export async function fetchScheduleActivities(forceRefresh = false): Promise<Eve
               id: dSnap.id,
               course: finalCourse,
               title: row.title || (isOther ? 'General Activity' : 'Lecture'),
-              time: formatTimeRange(startTime, endTime),
-              startTime,
-              endTime,
+              time: row.time || formatTimeRange(startTime, endTime),
+              startTime: row.startTime || startTime,
+              endTime: row.endTime || endTime,
               location: row.venue || (deliveryMode === 'online' ? 'Online Class' : 'Lecture Hall'),
               deliveryMode,
               meetingLink,
@@ -1427,6 +1608,7 @@ export async function createScheduleActivity(event: Omit<EventItem, 'id'> & { de
       tags: event.tags || [isOther ? 'Other' : 'Lecture', deliveryMode === 'online' ? 'Online Class' : 'Physical Class'],
       day,
       dayKey: event.dayKey || mapDbDayToDayKey(day),
+      time: event.time || formatTimeRange(event.startTime || startTime, event.endTime || endTime),
       startTime: event.startTime || startTime,
       endTime: event.endTime || endTime,
       venue: event.location.trim(),
@@ -1442,6 +1624,20 @@ export async function createScheduleActivity(event: Omit<EventItem, 'id'> & { de
     };
 
     const docRef = await addDoc(collection(db, 'activities'), payload);
+
+    // Automatically notify students and dispatch background push notification
+    recordActivityNotification({
+      title: `New Class Added: ${payload.courseCode || payload.title}`,
+      message: `${payload.courseCode ? payload.courseCode + ' - ' : ''}${payload.title} scheduled for ${payload.dayKey || mapDbDayToDayKey(payload.day)} at ${payload.time}. Venue: ${payload.venue}.`,
+      category: 'schedule',
+      type: 'activity',
+      department_id: payload.department_id,
+      level: payload.level,
+      semester: payload.semester,
+      author: payload.lecturer || 'Course Rep',
+      target_id: docRef.id,
+      dispatchPush: true,
+    }).catch((e) => console.warn('[Push] Schedule create notification notice:', e));
 
     return {
       id: docRef.id,
@@ -1487,6 +1683,7 @@ export async function updateScheduleActivity(id: string, fields: Partial<EventIt
     if (fields.startTime) payload.startTime = fields.startTime;
     if (fields.endTime) payload.endTime = fields.endTime;
     if (fields.time) {
+      payload.time = fields.time;
       const { startTime, endTime } = parseTimeRange(fields.time);
       if (!payload.startTime) payload.startTime = startTime;
       if (!payload.endTime) payload.endTime = endTime;
@@ -1504,6 +1701,30 @@ export async function updateScheduleActivity(id: string, fields: Partial<EventIt
 
     await updateDoc(doc(db, 'activities', id), payload);
     invalidateDbCache('activities');
+
+    // Automatically notify students and dispatch background push notification
+    if (fields.isPostponed !== undefined || fields.startTime || fields.endTime || fields.location) {
+      const isPostponed = fields.isPostponed === true || payload.status === 'postponed';
+      const courseLabel = fields.course || payload.courseCode || 'Class';
+      const notifTitle = isPostponed ? `Class Postponed: ${courseLabel}` : `Class Updated: ${courseLabel}`;
+      const notifMsg = isPostponed
+        ? `${courseLabel} has been postponed until further notice by the Course Rep.`
+        : `Timetable updated for ${courseLabel}${fields.time ? ` at ${fields.time}` : ''}${fields.location ? `, Venue: ${fields.location}` : ''}.`;
+
+      recordActivityNotification({
+        title: notifTitle,
+        message: notifMsg,
+        category: 'schedule',
+        type: isPostponed ? 'alert' : 'info',
+        department_id: fields.department_id,
+        level: fields.level,
+        semester: fields.semester,
+        author: fields.instructor || 'Course Rep',
+        target_id: id,
+        dispatchPush: true,
+      }).catch((e) => console.warn('[Push] Schedule update notification notice:', e));
+    }
+
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `activities/${id}`);
@@ -1511,10 +1732,26 @@ export async function updateScheduleActivity(id: string, fields: Partial<EventIt
   }
 }
 
-export async function deleteScheduleActivity(id: string): Promise<boolean> {
+export async function deleteScheduleActivity(id: string, eventInfo?: Partial<EventItem>): Promise<boolean> {
   try {
     await deleteDoc(doc(db, 'activities', id));
     invalidateDbCache('activities');
+
+    // Automatically notify students of cancelled class
+    const courseLabel = eventInfo?.course || 'Class';
+    recordActivityNotification({
+      title: `Class Cancelled: ${courseLabel}`,
+      message: `${courseLabel} session has been cancelled or removed from the timetable by the Course Rep.`,
+      category: 'schedule',
+      type: 'alert',
+      department_id: eventInfo?.department_id,
+      level: eventInfo?.level,
+      semester: eventInfo?.semester,
+      author: eventInfo?.instructor || 'Course Rep',
+      target_id: id,
+      dispatchPush: true,
+    }).catch((e) => console.warn('[Push] Schedule delete notification notice:', e));
+
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `activities/${id}`);
@@ -1601,6 +1838,20 @@ export async function createAssignment(assignment: Omit<AssignmentItem, 'id'> & 
 
     const docRef = await addDoc(collection(db, 'deadlines'), payload);
 
+    // Automatically notify students and dispatch background push notification
+    recordActivityNotification({
+      title: `📝 New Assignment: ${payload.courseCode}`,
+      message: `"${payload.title}" is due on ${payload.dueDate} at ${payload.dueTime}. Check Deadlines for instructions.`,
+      category: 'deadline',
+      type: 'alert',
+      department_id: payload.department_id,
+      level: payload.level,
+      semester: payload.semester,
+      author: 'Course Rep',
+      target_id: docRef.id,
+      dispatchPush: true,
+    }).catch((e) => console.warn('[Push] Assignment create notification notice:', e));
+
     return {
       id: docRef.id,
       course: payload.courseCode,
@@ -1638,6 +1889,24 @@ export async function updateAssignment(id: string, fields: Partial<AssignmentIte
 
     await updateDoc(doc(db, 'deadlines', id), payload);
     invalidateDbCache('assignments');
+
+    // Automatically notify students of deadline update
+    if (fields.dueDate || fields.dueTime || fields.title) {
+      const courseLabel = fields.course || payload.courseCode || 'Assignment';
+      recordActivityNotification({
+        title: `Deadline Updated: ${courseLabel}`,
+        message: `${fields.title ? `"${fields.title}"` : 'Assignment'} details updated${fields.dueDate ? `. New due date: ${fields.dueDate}` : ''}${fields.dueTime ? ` at ${fields.dueTime}` : ''}.`,
+        category: 'deadline',
+        type: 'info',
+        department_id: fields.department_id,
+        level: fields.level,
+        semester: fields.semester,
+        author: 'Course Rep',
+        target_id: id,
+        dispatchPush: true,
+      }).catch((e) => console.warn('[Push] Assignment update notification notice:', e));
+    }
+
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `deadlines/${id}`);
@@ -1645,10 +1914,26 @@ export async function updateAssignment(id: string, fields: Partial<AssignmentIte
   }
 }
 
-export async function deleteAssignment(id: string): Promise<boolean> {
+export async function deleteAssignment(id: string, assignmentInfo?: Partial<AssignmentItem>): Promise<boolean> {
   try {
     await deleteDoc(doc(db, 'deadlines', id));
     invalidateDbCache('assignments');
+
+    // Automatically notify students of deleted deadline
+    const courseLabel = assignmentInfo?.course || 'Assignment';
+    recordActivityNotification({
+      title: `Deadline Deleted: ${courseLabel}`,
+      message: `The deadline for ${courseLabel}${assignmentInfo?.title ? ` (${assignmentInfo.title})` : ''} has been removed by the Course Rep.`,
+      category: 'deadline',
+      type: 'alert',
+      department_id: assignmentInfo?.department_id,
+      level: assignmentInfo?.level,
+      semester: assignmentInfo?.semester,
+      author: 'Course Rep',
+      target_id: id,
+      dispatchPush: true,
+    }).catch((e) => console.warn('[Push] Assignment delete notification notice:', e));
+
     return true;
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `deadlines/${id}`);
@@ -1708,81 +1993,100 @@ export function formatBroadcastTimestamp(item: { timestamp?: number; created_at?
  * Fetches broadcasts strictly from the 'announcements' collection.
  * Completely separate from general notifications.
  */
-export async function fetchAnnouncements(): Promise<NotificationItem[]> {
-  try {
-    const annSnap = await getDocs(collection(db, 'announcements'));
-    const items: NotificationItem[] = [];
+export async function fetchAnnouncements(forceRefresh = false): Promise<NotificationItem[]> {
+  const cacheKey = 'announcements';
+  if (!forceRefresh) {
+    const cached = getCachedItem<NotificationItem[]>(cacheKey);
+    if (cached) return cached;
+  }
+  if (IN_FLIGHT_PROMISES.has(cacheKey)) {
+    return IN_FLIGHT_PROMISES.get(cacheKey)!;
+  }
 
-    const resolveTs = (d: any): number => {
-      if (typeof d.timestamp === 'number' && !isNaN(d.timestamp) && d.timestamp > 0) return d.timestamp;
-      if (d.updated_at) {
-        const t = new Date(d.updated_at).getTime();
-        if (!isNaN(t) && t > 0) return t;
-      }
-      if (d.createdat) {
-        const t = new Date(d.createdat).getTime();
-        if (!isNaN(t) && t > 0) return t;
-      }
-      if (d.created_at) {
-        const t = new Date(d.created_at).getTime();
-        if (!isNaN(t) && t > 0) return t;
-      }
-      return Date.now();
-    };
+  const fetchPromise = (async () => {
+    try {
+      const annSnap = await getDocs(collection(db, 'announcements'));
+      const items: NotificationItem[] = [];
 
-    if (!annSnap.empty) {
-      annSnap.forEach((dSnap) => {
-        if (isMockNotification(dSnap.id)) return;
-        const d = dSnap.data();
-        const imagesList: string[] = Array.isArray(d.images) ? d.images : (d.attachmentUrl ? [d.attachmentUrl] : []);
-        const ts = resolveTs(d);
-        const isDeleted = Boolean(d.is_deleted || d.isDeleted || d.status === 'deleted');
-        if (isDeleted) return; // Do not display deleted announcements in the live broadcast feed
-        const cleanTitle = (d.title || 'Official Announcement').trim();
+      const resolveTs = (d: any): number => {
+        if (typeof d.timestamp === 'number' && !isNaN(d.timestamp) && d.timestamp > 0) return d.timestamp;
+        if (d.updated_at) {
+          const t = new Date(d.updated_at).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (d.createdat) {
+          const t = new Date(d.createdat).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (d.created_at) {
+          const t = new Date(d.created_at).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        return Date.now();
+      };
 
-        items.push({
-          id: dSnap.id,
-          title: cleanTitle,
-          message: d.body || d.message || '',
-          time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
-          isUnread: true,
-          type: d.priority === 'urgent' ? 'alert' : 'info',
-          category: 'broadcast',
-          department_id: d.department_id || 'dept-ich',
-          level: d.level !== undefined ? d.level : 100,
-          semester: d.semester || '1st Semester',
-          author: d.author || 'Department Rep',
-          sender: d.author || d.sender || 'Department Rep',
-          priority: d.priority || 'normal',
-          images: imagesList,
-          isDeleted: false,
-          status: d.status,
-          timestamp: ts,
-          createdat: d.createdat,
-          created_at: d.created_at,
+      if (!annSnap.empty) {
+        annSnap.forEach((dSnap) => {
+          if (isMockNotification(dSnap.id)) return;
+          const d = dSnap.data();
+          const imagesList: string[] = Array.isArray(d.images) ? d.images : (d.attachmentUrl ? [d.attachmentUrl] : []);
+          const ts = resolveTs(d);
+          const isDeleted = Boolean(d.is_deleted || d.isDeleted || d.status === 'deleted');
+          if (isDeleted) return; // Do not display deleted announcements in the live broadcast feed
+          const cleanTitle = (d.title || 'Official Announcement').trim();
+
+          items.push({
+            id: dSnap.id,
+            title: cleanTitle,
+            message: d.body || d.message || '',
+            time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+            isUnread: true,
+            type: d.priority === 'urgent' ? 'alert' : 'info',
+            category: 'broadcast',
+            department_id: d.department_id || 'dept-ich',
+            level: d.level !== undefined ? d.level : 100,
+            semester: d.semester || '1st Semester',
+            author: d.author || 'Department Rep',
+            sender: d.author || d.sender || 'Department Rep',
+            priority: d.priority || 'normal',
+            images: imagesList,
+            isDeleted: false,
+            status: d.status,
+            timestamp: ts,
+            createdat: d.createdat,
+            created_at: d.created_at,
+          });
         });
-      });
+      }
+
+      items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      // Deduplicate
+      const seen = new Set<string>();
+      const seenContent = new Set<string>();
+      const deduped: NotificationItem[] = [];
+      for (const it of items) {
+        if (!it.id || seen.has(it.id)) continue;
+        const key = `${(it.title || '').trim().toLowerCase()}::${(it.message || '').trim().toLowerCase()}`;
+        if (seenContent.has(key)) continue;
+        seen.add(it.id);
+        seenContent.add(key);
+        deduped.push(it);
+      }
+
+      setCachedItem(cacheKey, deduped);
+      return deduped;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'announcements');
+      return [];
     }
+  })();
 
-    items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-    // Deduplicate
-    const seen = new Set<string>();
-    const seenContent = new Set<string>();
-    const deduped: NotificationItem[] = [];
-    for (const it of items) {
-      if (!it.id || seen.has(it.id)) continue;
-      const key = `${(it.title || '').trim().toLowerCase()}::${(it.message || '').trim().toLowerCase()}`;
-      if (seenContent.has(key)) continue;
-      seen.add(it.id);
-      seenContent.add(key);
-      deduped.push(it);
-    }
-
-    return deduped;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, 'announcements');
-    return [];
+  IN_FLIGHT_PROMISES.set(cacheKey, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    IN_FLIGHT_PROMISES.delete(cacheKey);
   }
 }
 
@@ -1790,79 +2094,169 @@ export async function fetchAnnouncements(): Promise<NotificationItem[]> {
  * Fetches notifications strictly from the 'notifications' collection.
  * (e.g. Class Cancelled notices, Deadline Deleted notices, System reminders)
  */
-export async function fetchNotifications(): Promise<NotificationItem[]> {
-  try {
-    const notifSnap = await getDocs(collection(db, 'notifications'));
-    const items: NotificationItem[] = [];
-
-    const resolveTs = (d: any): number => {
-      if (typeof d.timestamp === 'number' && !isNaN(d.timestamp) && d.timestamp > 0) return d.timestamp;
-      if (d.updated_at) {
-        const t = new Date(d.updated_at).getTime();
-        if (!isNaN(t) && t > 0) return t;
-      }
-      if (d.createdat) {
-        const t = new Date(d.createdat).getTime();
-        if (!isNaN(t) && t > 0) return t;
-      }
-      if (d.created_at) {
-        const t = new Date(d.created_at).getTime();
-        if (!isNaN(t) && t > 0) return t;
-      }
-      return Date.now();
-    };
-
-    if (!notifSnap.empty) {
-      notifSnap.forEach((dSnap) => {
-        if (isMockNotification(dSnap.id)) return;
-        const d = dSnap.data();
-        const ts = resolveTs(d);
-        const isCancelled = Boolean(d.isCancelled || d.status === 'cancelled');
-        const isDeleted = Boolean(d.isDeleted || d.is_deleted || d.isDeletedDeadline || d.status === 'deleted');
-        items.push({
-          id: dSnap.id,
-          title: d.title || 'Notice',
-          message: d.body || d.message || '',
-          time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
-          isUnread: d.isRead !== true,
-          type: (isCancelled || isDeleted || d.priority === 'urgent') ? 'alert' : (d.type || 'info'),
-          category: d.category || 'system',
-          department_id: d.department_id || 'dept-ich',
-          level: d.level !== undefined ? d.level : 100,
-          semester: d.semester || '1st Semester',
-          author: d.author || 'Faculty',
-          sender: d.sender || d.author || 'Faculty',
-          priority: d.priority || 'normal',
-          isCancelled: isCancelled,
-          isDeleted: isDeleted,
-          status: d.status,
-          target_id: d.target_id,
-          timestamp: ts,
-        });
-      });
-    }
-
-    items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-
-    const seen = new Set<string>();
-    const seenContent = new Set<string>();
-    const deduped: NotificationItem[] = [];
-    for (const it of items) {
-      if (!it.id || seen.has(it.id)) continue;
-      if (it.target_id && seen.has(it.target_id)) continue;
-      const key = `${(it.title || '').trim().toLowerCase()}::${(it.message || '').trim().toLowerCase()}`;
-      if (seenContent.has(key)) continue;
-      seen.add(it.id);
-      if (it.target_id) seen.add(it.target_id);
-      seenContent.add(key);
-      deduped.push(it);
-    }
-
-    return deduped;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, 'notifications');
-    return [];
+export async function fetchNotifications(forceRefresh = false): Promise<NotificationItem[]> {
+  const cacheKey = 'notifications';
+  if (!forceRefresh) {
+    const cached = getCachedItem<NotificationItem[]>(cacheKey);
+    if (cached) return cached;
   }
+  if (IN_FLIGHT_PROMISES.has(cacheKey)) {
+    return IN_FLIGHT_PROMISES.get(cacheKey)!;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const notifSnap = await getDocs(collection(db, 'notifications'));
+      const items: NotificationItem[] = [];
+
+      const resolveTs = (d: any): number => {
+        if (typeof d.timestamp === 'number' && !isNaN(d.timestamp) && d.timestamp > 0) return d.timestamp;
+        if (d.updated_at) {
+          const t = new Date(d.updated_at).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (d.createdat) {
+          const t = new Date(d.createdat).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (d.created_at) {
+          const t = new Date(d.created_at).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        return Date.now();
+      };
+
+      if (!notifSnap.empty) {
+        notifSnap.forEach((dSnap) => {
+          if (isMockNotification(dSnap.id)) return;
+          const d = dSnap.data();
+          const ts = resolveTs(d);
+          const isCancelled = Boolean(d.isCancelled || d.status === 'cancelled');
+          const isDeleted = Boolean(d.isDeleted || d.is_deleted || d.isDeletedDeadline || d.status === 'deleted');
+          items.push({
+            id: dSnap.id,
+            title: d.title || 'Notice',
+            message: d.body || d.message || '',
+            time: d.createdat ? new Date(d.createdat).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+            isUnread: d.isRead !== true,
+            type: (isCancelled || isDeleted || d.priority === 'urgent') ? 'alert' : (d.type || 'info'),
+            category: d.category || 'system',
+            department_id: d.department_id || 'dept-ich',
+            level: d.level !== undefined ? d.level : 100,
+            semester: d.semester || '1st Semester',
+            author: d.author || 'Faculty',
+            sender: d.sender || d.author || 'Faculty',
+            priority: d.priority || 'normal',
+            isCancelled: isCancelled,
+            isDeleted: isDeleted,
+            status: d.status,
+            target_id: d.target_id,
+            timestamp: ts,
+          });
+        });
+      }
+
+      items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      const seen = new Set<string>();
+      const seenContent = new Set<string>();
+      const deduped: NotificationItem[] = [];
+      for (const it of items) {
+        if (!it.id || seen.has(it.id)) continue;
+        if (it.target_id && seen.has(it.target_id)) continue;
+        const key = `${(it.title || '').trim().toLowerCase()}::${(it.message || '').trim().toLowerCase()}`;
+        if (seenContent.has(key)) continue;
+        seen.add(it.id);
+        if (it.target_id) seen.add(it.target_id);
+        seenContent.add(key);
+        deduped.push(it);
+      }
+
+      setCachedItem(cacheKey, deduped);
+      return deduped;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'notifications');
+      return [];
+    }
+  })();
+
+  IN_FLIGHT_PROMISES.set(cacheKey, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    IN_FLIGHT_PROMISES.delete(cacheKey);
+  }
+}
+
+export interface StartupPreloadResult {
+  events: EventItem[];
+  assignments: AssignmentItem[];
+  broadcasts: NotificationItem[];
+  notifications: NotificationItem[];
+  courses: CourseRecord[];
+  departments: DepartmentRecord[];
+  currentSemester: CurrentSemesterRecord | null;
+  verifiedStudent: StudentProfileRecord | null;
+  sessionCheck: { isValid: boolean; reason?: 'CONCURRENT_LOGIN_DETECTED' | 'NOT_FOUND' };
+}
+
+/**
+ * Ultra-fast parallelized pre-loader that runs on the Splash Screen.
+ * Fires all 8-9 essential queries simultaneously in parallel across Firestore.
+ * Caches results in memory and localStorage so all app tabs open instantly with 0ms delay.
+ */
+export async function preloadStudentPortalStartupData(
+  userIdentifier?: string,
+  localToken?: string
+): Promise<StartupPreloadResult> {
+  const [
+    events,
+    assignments,
+    broadcasts,
+    notifications,
+    courses,
+    departments,
+    currentSemester,
+    sessionCheck,
+    verifiedStudent,
+  ] = await Promise.all([
+    fetchScheduleActivities(false),
+    fetchAssignments(false),
+    fetchAnnouncements(false),
+    fetchNotifications(false),
+    fetchCourses(false),
+    fetchDepartments(),
+    fetchCurrentSemester(),
+    localToken && userIdentifier
+      ? verifyUserActiveSession(userIdentifier, localToken)
+      : Promise.resolve({ isValid: true } as { isValid: boolean; reason?: 'CONCURRENT_LOGIN_DETECTED' | 'NOT_FOUND' }),
+    userIdentifier
+      ? fetchStudentByEmailOrMatric(userIdentifier)
+      : Promise.resolve(null),
+  ]);
+
+  // Persist snapshot to localStorage caches for instant 0ms retrieval on future reloads
+  try {
+    localStorage.setItem('app_cache_events', JSON.stringify(events || []));
+    localStorage.setItem('app_cache_assignments', JSON.stringify(assignments || []));
+    localStorage.setItem('app_cache_broadcasts', JSON.stringify(broadcasts || []));
+    localStorage.setItem('app_cache_notifications', JSON.stringify(notifications || []));
+    localStorage.setItem('app_cache_courses', JSON.stringify(courses || []));
+    if (departments && departments.length > 0) localStorage.setItem('app_cache_departments', JSON.stringify(departments));
+    if (currentSemester?.semester_code) localStorage.setItem('app_cache_current_semester', currentSemester.semester_code);
+  } catch {}
+
+  return {
+    events: events || [],
+    assignments: assignments || [],
+    broadcasts: broadcasts || [],
+    notifications: notifications || [],
+    courses: courses || [],
+    departments: departments || [],
+    currentSemester,
+    verifiedStudent,
+    sessionCheck,
+  };
 }
 
 export async function fetchAnnouncementsAndNotifications(): Promise<NotificationItem[]> {
@@ -1914,6 +2308,15 @@ export async function createAnnouncement(data: {
 
     const docRef = await addDoc(collection(db, 'announcements'), payload);
 
+    // Trigger background Web Push to department students even when app is closed!
+    dispatchCourseRepActivityPushNotification({
+      title: `📢 ${payload.priority === 'urgent' ? 'URGENT: ' : ''}${payload.title}`,
+      message: payload.body,
+      department: payload.department_id,
+      level: payload.level,
+      category: 'broadcast',
+    }).catch((e) => console.warn('[Push] Announcement dispatch note:', e));
+
     return {
       id: docRef.id,
       title: payload.title,
@@ -1936,6 +2339,89 @@ export async function createAnnouncement(data: {
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, 'announcements');
+    return null;
+  }
+}
+
+/**
+ * Universal helper to record any new activity / notification directly to Firestore,
+ * enabling real-time synchronization across all devices and dispatching native Android push notifications!
+ */
+export async function recordActivityNotification(options: {
+  id?: string;
+  title: string;
+  message: string;
+  category?: 'schedule' | 'deadline' | 'broadcast' | 'modules' | 'wallet' | 'system' | 'profile';
+  type?: 'activity' | 'alert' | 'info' | 'success';
+  department_id?: string;
+  department?: string;
+  level?: number | string;
+  semester?: string;
+  author?: string;
+  target_id?: string;
+  dispatchPush?: boolean;
+}): Promise<NotificationItem | null> {
+  try {
+    const notifId = options.id || `notif_act_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const author = options.author || 'Course Rep';
+    const deptId = options.department_id || options.department || 'dept-ich';
+    const lvlNum = options.level ? Number(String(options.level).replace(/\D/g, '')) || 100 : 100;
+
+    const notifPayload = {
+      title: options.title.trim(),
+      body: options.message.trim(),
+      message: options.message.trim(),
+      category: options.category || 'schedule',
+      type: options.type || 'activity',
+      priority: options.type === 'alert' ? 'urgent' : 'normal',
+      isRead: false,
+      isUnread: true,
+      department_id: deptId,
+      department: options.department || deptId,
+      level: lvlNum,
+      semester: options.semester || '1st Semester',
+      author: author,
+      sender: author,
+      target_id: options.target_id || null,
+      createdat: nowIso,
+      created_at: nowIso,
+      timestamp: nowMs,
+    };
+
+    // 1. Save directly to Firestore notifications collection so all student devices sync instantly
+    await setDoc(doc(db, 'notifications', notifId), notifPayload, { merge: true });
+
+    // 2. Dispatch native Web Push to student devices in background
+    if (options.dispatchPush !== false) {
+      dispatchCourseRepActivityPushNotification({
+        title: options.title,
+        message: options.message,
+        department: options.department || deptId,
+        level: lvlNum,
+        category: options.category as any,
+      }).catch((e) => console.warn('[Push] Background push dispatch note:', e));
+    }
+
+    return {
+      id: notifId,
+      title: notifPayload.title,
+      message: notifPayload.body,
+      time: 'Just now',
+      timeAgo: 'Just now',
+      isUnread: true,
+      type: notifPayload.type as any,
+      category: notifPayload.category as any,
+      department_id: deptId,
+      level: lvlNum,
+      semester: notifPayload.semester,
+      author: author,
+      sender: author,
+      timestamp: nowMs,
+    };
+  } catch (err) {
+    console.warn('Error recording activity notification:', err);
     return null;
   }
 }
@@ -2023,6 +2509,15 @@ export async function recordOrUpdateClassCancelledNotification(
     // Save to Firestore notifications collection so all students receive it in real-time
     await setDoc(doc(db, 'notifications', notifId), notifPayload, { merge: true });
 
+    // Send push notification to department students
+    dispatchCourseRepActivityPushNotification({
+      title: notifPayload.title,
+      message: notifPayload.body,
+      department: notifPayload.department_id,
+      level: notifPayload.level,
+      category: 'schedule',
+    }).catch(() => {});
+
     return {
       id: notifId,
       title: notifPayload.title,
@@ -2095,6 +2590,15 @@ export async function recordOrUpdateDeadlineDeletedNotification(
     };
 
     await setDoc(doc(db, 'notifications', notifId), notifPayload, { merge: true });
+
+    // Send push notification to department students
+    dispatchCourseRepActivityPushNotification({
+      title: notifPayload.title,
+      message: notifPayload.body,
+      department: notifPayload.department_id,
+      level: notifPayload.level,
+      category: 'deadline',
+    }).catch(() => {});
 
     return {
       id: notifId,
@@ -2339,6 +2843,11 @@ export async function fetchStudents(): Promise<StudentProfileRecord[]> {
             profile_pic_url: picUrl,
             profileImage: picUrl,
             photoURL: picUrl,
+            phone: d.phone || d.phoneNumber || d.phone_number || '',
+            phoneNumber: d.phone || d.phoneNumber || d.phone_number || '',
+            address: d.address || '',
+            privacy_settings: d.privacy_settings || d.privacySettings || null,
+            privacySettings: d.privacy_settings || d.privacySettings || null,
             created_at: d.created_at || d.createdAt,
           } as StudentProfileRecord;
         });
@@ -2423,299 +2932,149 @@ export async function fetchStudentByAuthUid(uid: string): Promise<StudentProfile
   }
 }
 
-export async function fetchStudentByEmailOrMatric(identifier: string): Promise<StudentProfileRecord | null> {
-  try {
-    const cleanId = identifier.trim().toLowerCase();
-    const cleanMatric = identifier.trim().toUpperCase();
+function mapDocToStudentProfile(dSnap: any): StudentProfileRecord {
+  const d = dSnap.data() || {};
+  const rawMatric = (d.matric_number || d.matricNumber || '').trim().toUpperCase();
+  const detected = detectDepartmentFromMatric(rawMatric);
+  const resolvedDept = (d.department || '').trim() || detected.department || 'Department of Industrial Chemistry';
+  const resolvedDeptId = d.department_id || detected.department_id || 'dept-ich';
+  const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
+  const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
+  const hasFreeAccess = Boolean(
+    d.hasFreeAccess ??
+    d.has_free_access ??
+    d.free_access ??
+    d.freeSemesterGranted ??
+    false
+  );
+  const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
+  const pwdVal = d.password || d.portal_password;
+  const isCustomPwd = Boolean(
+    (pwdVal && pwdVal !== '123456') ||
+    d.password_changed ||
+    d.has_custom_password ||
+    d.is_default_password === false
+  );
 
-    // 1. Direct doc lookup by UID
+  return {
+    id: dSnap.id,
+    uid: dSnap.id,
+    email: (d.email || d.student_email || d.userEmail || '').trim().toLowerCase(),
+    matric_number: rawMatric,
+    matricNumber: rawMatric,
+    password: pwdVal,
+    portal_password: pwdVal,
+    password_changed: isCustomPwd,
+    has_custom_password: isCustomPwd,
+    is_default_password: !isCustomPwd,
+    password_updated_at: d.password_updated_at || null,
+    full_name: d.full_name || d.fullName || d.name || 'Student',
+    name: d.full_name || d.fullName || d.name || 'Student',
+    department: resolvedDept,
+    department_id: resolvedDeptId,
+    year_level: d.year_level || d.yearLevel || `${d.level || 100} Level`,
+    level: d.level || 100,
+    isadmin: Boolean(d.isadmin || d.isAdmin),
+    isAdmin: Boolean(d.isadmin || d.isAdmin),
+    iscourserep: Boolean(d.iscourserep || d.isCourseRep),
+    isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
+    is_payed: isPaid,
+    is_paid: isPaid,
+    hasFreeAccess: isPaid,
+    wallet_balance: wBal,
+    walletBalance: wBal,
+    paid_semester: d.paid_semester || d.paidSemester,
+    paid_at: d.paid_at || d.paidAt,
+    profile_pic_url: picUrl,
+    profileImage: picUrl,
+    photoURL: picUrl,
+    phone: d.phone || d.phoneNumber || d.phone_number || '',
+    phoneNumber: d.phone || d.phoneNumber || d.phone_number || '',
+    address: d.address || '',
+    privacy_settings: d.privacy_settings || d.privacySettings || null,
+    privacySettings: d.privacy_settings || d.privacySettings || null,
+    created_at: d.created_at || d.createdAt,
+  } as StudentProfileRecord;
+}
+
+export async function fetchStudentByEmailOrMatric(identifier: string): Promise<StudentProfileRecord | null> {
+  if (!identifier || typeof identifier !== 'string') return null;
+  const rawClean = identifier.trim();
+  const cleanId = rawClean.toLowerCase();
+  const cleanMatric = rawClean.toUpperCase();
+
+  try {
+    // 1. Direct doc lookup by UID or document ID
     try {
       const directDoc = await getDoc(doc(db, 'users', identifier));
       if (directDoc.exists()) {
-        const d = directDoc.data();
-        const rawMatric = d.matric_number || d.matricNumber || cleanMatric;
-        const detected = detectDepartmentFromMatric(rawMatric);
-        const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
-          ? d.department
-          : detected.department;
-        const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
-        const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-        const hasFreeAccess = Boolean(
-          d.hasFreeAccess ??
-          d.has_free_access ??
-          d.free_access ??
-          d.freeSemesterGranted ??
-          false
-        );
-        const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
-
-        const pwdVal = d.password || d.portal_password;
-        const isCustomPwd = Boolean(
-          (pwdVal && pwdVal !== '123456') ||
-          d.password_changed ||
-          d.has_custom_password ||
-          d.is_default_password === false
-        );
-
-        return {
-          id: directDoc.id,
-          uid: directDoc.id,
-          email: d.email || '',
-          matric_number: rawMatric,
-          matricNumber: rawMatric,
-          password: pwdVal,
-          portal_password: pwdVal,
-          password_changed: isCustomPwd,
-          has_custom_password: isCustomPwd,
-          is_default_password: !isCustomPwd,
-          password_updated_at: d.password_updated_at || null,
-          full_name: d.full_name || d.fullName || d.name || 'Student',
-          name: d.full_name || d.fullName || d.name || 'Student',
-          department: resolvedDept,
-          department_id: d.department_id || detected.department_id,
-          year_level: d.year_level || d.yearLevel || '100 Level',
-          level: d.level || 100,
-          isadmin: Boolean(d.isadmin || d.isAdmin),
-          isAdmin: Boolean(d.isadmin || d.isAdmin),
-          iscourserep: Boolean(d.iscourserep || d.isCourseRep),
-          isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
-          is_payed: isPaid,
-          is_paid: isPaid,
-          hasFreeAccess: isPaid,
-          wallet_balance: wBal,
-          walletBalance: wBal,
-          paid_semester: d.paid_semester || d.paidSemester,
-          paid_at: d.paid_at || d.paidAt,
-          profile_pic_url: picUrl,
-          profileImage: picUrl,
-          photoURL: picUrl,
-        } as StudentProfileRecord;
+        return mapDocToStudentProfile(directDoc);
       }
     } catch {}
 
-    // 2. Query by email
-    const emailQuery = query(collection(db, 'users'), where('email', '==', cleanId));
-    const emailSnap = await getDocs(emailQuery);
-    if (!emailSnap.empty) {
-      const dSnap = emailSnap.docs[0];
-      const d = dSnap.data();
-      const rawMatric = d.matric_number || d.matricNumber || cleanMatric;
-      const detected = detectDepartmentFromMatric(rawMatric);
-      const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
-        ? d.department
-        : detected.department;
-      const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
-      const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-      const hasFreeAccess = Boolean(
-        d.hasFreeAccess ??
-        d.has_free_access ??
-        d.free_access ??
-        d.freeSemesterGranted ??
-        false
-      );
-      const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
-      const pwdVal = d.password || d.portal_password;
-      const isCustomPwd = Boolean(
-        (pwdVal && pwdVal !== '123456') ||
-        d.password_changed ||
-        d.has_custom_password ||
-        d.is_default_password === false
-      );
+    // 2. Query by email fields if identifier resembles an email
+    if (cleanId.includes('@')) {
+      try {
+        const snap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanId)));
+        if (!snap.empty) return mapDocToStudentProfile(snap.docs[0]);
+      } catch {}
 
-      return {
-        id: dSnap.id,
-        uid: dSnap.id,
-        email: d.email || '',
-        matric_number: rawMatric,
-        matricNumber: rawMatric,
-        password: pwdVal,
-        portal_password: pwdVal,
-        password_changed: isCustomPwd,
-        has_custom_password: isCustomPwd,
-        is_default_password: !isCustomPwd,
-        password_updated_at: d.password_updated_at || null,
-        full_name: d.full_name || d.fullName || d.name || 'Student',
-        name: d.full_name || d.fullName || d.name || 'Student',
-        department: resolvedDept,
-        department_id: d.department_id || detected.department_id,
-        year_level: d.year_level || d.yearLevel || '100 Level',
-        level: d.level || 100,
-        isadmin: Boolean(d.isadmin || d.isAdmin),
-        isAdmin: Boolean(d.isadmin || d.isAdmin),
-        iscourserep: Boolean(d.iscourserep || d.isCourseRep),
-        isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
-        is_payed: isPaid,
-        is_paid: isPaid,
-        hasFreeAccess: isPaid,
-        wallet_balance: wBal,
-        walletBalance: wBal,
-        paid_semester: d.paid_semester || d.paidSemester,
-        paid_at: d.paid_at || d.paidAt,
-        profile_pic_url: picUrl,
-        profileImage: picUrl,
-        photoURL: picUrl,
-      } as StudentProfileRecord;
+      if (rawClean !== cleanId) {
+        try {
+          const snap = await getDocs(query(collection(db, 'users'), where('email', '==', rawClean)));
+          if (!snap.empty) return mapDocToStudentProfile(snap.docs[0]);
+        } catch {}
+      }
+
+      try {
+        const snap = await getDocs(query(collection(db, 'users'), where('student_email', '==', cleanId)));
+        if (!snap.empty) return mapDocToStudentProfile(snap.docs[0]);
+      } catch {}
     }
 
-    // 3. Query by matricNumber
-    const matricQuery = query(collection(db, 'users'), where('matric_number', '==', cleanMatric));
-    const matricSnap = await getDocs(matricQuery);
-    if (!matricSnap.empty) {
-      const dSnap = matricSnap.docs[0];
-      const d = dSnap.data();
-      const rawMatric = d.matric_number || d.matricNumber || cleanMatric;
-      const detected = detectDepartmentFromMatric(rawMatric);
-      const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
-        ? d.department
-        : detected.department;
-      const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
-      const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-      const hasFreeAccess = Boolean(
-        d.hasFreeAccess ??
-        d.has_free_access ??
-        d.free_access ??
-        d.freeSemesterGranted ??
-        false
-      );
-      const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
-      const pwdVal = d.password || d.portal_password;
-      const isCustomPwd = Boolean(
-        (pwdVal && pwdVal !== '123456') ||
-        d.password_changed ||
-        d.has_custom_password ||
-        d.is_default_password === false
-      );
-
-      return {
-        id: dSnap.id,
-        uid: dSnap.id,
-        email: d.email || '',
-        matric_number: rawMatric,
-        matricNumber: rawMatric,
-        password: pwdVal,
-        portal_password: pwdVal,
-        password_changed: isCustomPwd,
-        has_custom_password: isCustomPwd,
-        is_default_password: !isCustomPwd,
-        password_updated_at: d.password_updated_at || null,
-        full_name: d.full_name || d.fullName || d.name || 'Student',
-        name: d.full_name || d.fullName || d.name || 'Student',
-        department: resolvedDept,
-        department_id: d.department_id || detected.department_id,
-        year_level: d.year_level || d.yearLevel || '100 Level',
-        level: d.level || 100,
-        isadmin: Boolean(d.isadmin || d.isAdmin),
-        isAdmin: Boolean(d.isadmin || d.isAdmin),
-        iscourserep: Boolean(d.iscourserep || d.isCourseRep),
-        isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
-        is_payed: isPaid,
-        is_paid: isPaid,
-        hasFreeAccess: isPaid,
-        wallet_balance: wBal,
-        walletBalance: wBal,
-        paid_semester: d.paid_semester || d.paidSemester,
-        paid_at: d.paid_at || d.paidAt,
-        profile_pic_url: picUrl,
-        profileImage: picUrl,
-        photoURL: picUrl,
-      } as StudentProfileRecord;
+    // 3. Query by matric number (both matric_number and matricNumber fields)
+    const matricVariants = Array.from(new Set([cleanMatric, rawClean]));
+    for (const mVar of matricVariants) {
+      try {
+        const snap1 = await getDocs(query(collection(db, 'users'), where('matric_number', '==', mVar)));
+        if (!snap1.empty) return mapDocToStudentProfile(snap1.docs[0]);
+      } catch {}
+      try {
+        const snap2 = await getDocs(query(collection(db, 'users'), where('matricNumber', '==', mVar)));
+        if (!snap2.empty) return mapDocToStudentProfile(snap2.docs[0]);
+      } catch {}
     }
 
-    // 4. Try scanning all users in Firestore for case-insensitive match
+    // 4. Also check 'students' collection if separate records exist
+    try {
+      if (cleanId.includes('@')) {
+        const sSnap = await getDocs(query(collection(db, 'students'), where('email', '==', cleanId)));
+        if (!sSnap.empty) return mapDocToStudentProfile(sSnap.docs[0]);
+      }
+      const sMatricSnap = await getDocs(query(collection(db, 'students'), where('matric_number', '==', cleanMatric)));
+      if (!sMatricSnap.empty) return mapDocToStudentProfile(sMatricSnap.docs[0]);
+    } catch {}
+
+    // 5. Broad scan fallback: inspect all users in Firestore with case-insensitivity and normalized matric comparator
     try {
       const allUsersSnap = await getDocs(collection(db, 'users'));
       for (const dSnap of allUsersSnap.docs) {
         const d = dSnap.data();
-        const docEmail = (d.email || d.student_email || '').toLowerCase().trim();
+        const docEmail = (d.email || d.student_email || d.userEmail || '').toLowerCase().trim();
         const docMatric = (d.matric_number || d.matricNumber || '').toUpperCase().trim();
-        if ((cleanId && docEmail === cleanId) || (cleanMatric && docMatric === cleanMatric)) {
-          const rawMatric = d.matric_number || d.matricNumber || cleanMatric;
-          const detected = detectDepartmentFromMatric(rawMatric);
-          const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
-            ? d.department
-            : detected.department;
-          const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
-          const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
-          const hasFreeAccess = Boolean(
-            d.hasFreeAccess ??
-            d.has_free_access ??
-            d.free_access ??
-            d.freeSemesterGranted ??
-            false
-          );
-          const isPaid = Boolean(hasFreeAccess || d.is_payed || d.is_paid || false);
-          const pwdVal = d.password || d.portal_password;
-          const isCustomPwd = Boolean(
-            (pwdVal && pwdVal !== '123456') ||
-            d.password_changed ||
-            d.has_custom_password ||
-            d.is_default_password === false
-          );
+        const docId = dSnap.id;
 
-          return {
-            id: dSnap.id,
-            uid: dSnap.id,
-            email: d.email || cleanId,
-            matric_number: rawMatric,
-            matricNumber: rawMatric,
-            password: pwdVal,
-            portal_password: pwdVal,
-            password_changed: isCustomPwd,
-            has_custom_password: isCustomPwd,
-            is_default_password: !isCustomPwd,
-            password_updated_at: d.password_updated_at || null,
-            full_name: d.full_name || d.fullName || d.name || 'Student',
-            name: d.full_name || d.fullName || d.name || 'Student',
-            department: resolvedDept,
-            department_id: d.department_id || detected.department_id,
-            year_level: d.year_level || d.yearLevel || '100 Level',
-            level: d.level || 100,
-            isadmin: Boolean(d.isadmin || d.isAdmin),
-            isAdmin: Boolean(d.isadmin || d.isAdmin),
-            iscourserep: Boolean(d.iscourserep || d.isCourseRep),
-            isCourseRep: Boolean(d.iscourserep || d.isCourseRep),
-            is_payed: isPaid,
-            is_paid: isPaid,
-            hasFreeAccess: isPaid,
-            wallet_balance: wBal,
-            walletBalance: wBal,
-            paid_semester: d.paid_semester || d.paidSemester,
-            paid_at: d.paid_at || d.paidAt,
-            profile_pic_url: picUrl,
-            profileImage: picUrl,
-            photoURL: picUrl,
-          } as StudentProfileRecord;
+        const emailMatches = Boolean(cleanId && cleanId.includes('@') && docEmail === cleanId);
+        const matricMatches = Boolean(cleanMatric && (docMatric === cleanMatric || isMatricMatching(docMatric, cleanMatric)));
+        const idMatches = docId === identifier || docId === cleanId;
+
+        if (emailMatches || matricMatches || idMatches) {
+          return mapDocToStudentProfile(dSnap);
         }
       }
     } catch {}
 
-    // 5. If valid email format, return an account record so reset PIN and password creation always functions
-    if (cleanId.includes('@') && cleanId.includes('.')) {
-      const detected = detectDepartmentFromMatric('2025/PS/ICH/0001');
-      return {
-        id: cleanId.replace(/[^a-zA-Z0-9]/g, '_'),
-        uid: cleanId.replace(/[^a-zA-Z0-9]/g, '_'),
-        email: cleanId,
-        matric_number: '2025/PS/ICH/0001',
-        matricNumber: '2025/PS/ICH/0001',
-        full_name: cleanId.split('@')[0].replace(/[._]/g, ' '),
-        name: cleanId.split('@')[0].replace(/[._]/g, ' '),
-        department: detected.department,
-        department_id: detected.department_id,
-        year_level: '100 Level',
-        level: 100,
-        isadmin: false,
-        isAdmin: false,
-        iscourserep: false,
-        isCourseRep: false,
-        is_payed: false,
-        is_paid: false,
-        hasFreeAccess: false,
-        wallet_balance: 0,
-        walletBalance: 0,
-      } as StudentProfileRecord;
-    }
-
+    // Account not found in database - return null (never fabricate fake student records)
     return null;
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, `users/search/${identifier}`);
@@ -2728,10 +3087,8 @@ export async function createStudentUser(student: StudentProfileRecord): Promise<
     const docId = student.id || student.uid || doc(collection(db, 'users')).id;
     const rawMatric = student.matric_number?.toUpperCase().trim() || student.matricNumber?.toUpperCase().trim() || '2025/PS/ICH/0001';
     const detected = detectDepartmentFromMatric(rawMatric);
-    const resolvedDept = (student.department && !student.department.toLowerCase().includes('computer'))
-      ? student.department
-      : detected.department;
-    const resolvedDeptId = student.department_id || detected.department_id;
+    const resolvedDept = student.department || detected.department || 'Department of Industrial Chemistry';
+    const resolvedDeptId = student.department_id || detected.department_id || 'dept-ich';
     const isPaid = Boolean(student.is_payed ?? student.is_paid ?? false);
     const initialBal = typeof student.wallet_balance === 'number' ? student.wallet_balance : (typeof student.walletBalance === 'number' ? student.walletBalance : 0);
 
@@ -2780,15 +3137,60 @@ export async function createStudentUser(student: StudentProfileRecord): Promise<
 
 export const updateStudentProfileInDb = updateStudentUser;
 
-export async function updateStudentUser(identifier: string, updates: Partial<StudentProfileRecord>): Promise<boolean> {
+export async function updateStudentUser(identifier: string, updates: Partial<StudentProfileRecord> & {
+  _originalId?: string;
+  _originalEmail?: string;
+  _originalMatric?: string;
+}): Promise<boolean> {
   try {
-    if (!identifier) return false;
-    const cleanId = identifier.trim();
+    if (!identifier && !updates._originalId && !updates._originalEmail && !updates._originalMatric) return false;
+    const cleanId = (identifier || updates._originalId || '').trim();
     const cleanEmail = cleanId.toLowerCase();
     const cleanMatric = cleanId.toUpperCase();
 
+    const origId = (updates._originalId || '').trim();
+    const origEmail = (updates._originalEmail || '').toLowerCase().trim();
+    const origMatric = (updates._originalMatric || '').toUpperCase().trim();
+
     // Prepare synchronized updates
     const syncUpdates: Partial<StudentProfileRecord> & Record<string, any> = { ...updates };
+    delete syncUpdates._originalId;
+    delete syncUpdates._originalEmail;
+    delete syncUpdates._originalMatric;
+
+    // Harmonize matric number
+    if (syncUpdates.matric_number || syncUpdates.matricNumber) {
+      const cleanM = (syncUpdates.matric_number || syncUpdates.matricNumber || '').trim().toUpperCase();
+      syncUpdates.matric_number = cleanM;
+      syncUpdates.matricNumber = cleanM;
+    }
+
+    // Harmonize email
+    if (syncUpdates.email) {
+      syncUpdates.email = syncUpdates.email.trim().toLowerCase();
+    }
+
+    // Harmonize names
+    if (syncUpdates.full_name || syncUpdates.fullName || syncUpdates.name) {
+      const nameVal = (syncUpdates.full_name || syncUpdates.fullName || syncUpdates.name || '').trim();
+      syncUpdates.full_name = nameVal;
+      syncUpdates.fullName = nameVal;
+      syncUpdates.name = nameVal;
+    }
+
+    // Harmonize department & level
+    if (syncUpdates.level !== undefined) {
+      const numLevel = typeof syncUpdates.level === 'number' ? syncUpdates.level : parseInt(String(syncUpdates.level).replace(/\D/g, ''), 10) || 100;
+      syncUpdates.level = numLevel;
+      syncUpdates.year_level = syncUpdates.year_level || `${numLevel} Level`;
+      syncUpdates.yearLevel = syncUpdates.yearLevel || `${numLevel} Level`;
+    } else if (syncUpdates.year_level || syncUpdates.yearLevel) {
+      const lvlStr = syncUpdates.year_level || syncUpdates.yearLevel || '100 Level';
+      const numLevel = parseInt(lvlStr.replace(/\D/g, ''), 10) || 100;
+      syncUpdates.level = numLevel;
+      syncUpdates.year_level = lvlStr;
+      syncUpdates.yearLevel = lvlStr;
+    }
     
     // Auto-harmonize password flags if password is provided
     if (syncUpdates.password || syncUpdates.portal_password) {
@@ -2809,11 +3211,13 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
 
       // Cache custom password locally for instant synchronous check
       try {
-        if (cleanEmail && cleanEmail.includes('@')) {
-          localStorage.setItem(`student_pwd_custom_${cleanEmail}`, pwd);
+        const targetEmail = syncUpdates.email || cleanEmail || origEmail;
+        const targetMatric = syncUpdates.matric_number || cleanMatric || origMatric;
+        if (targetEmail && targetEmail.includes('@')) {
+          localStorage.setItem(`student_pwd_custom_${targetEmail}`, pwd);
         }
-        if (cleanMatric && cleanMatric.length >= 4) {
-          localStorage.setItem(`student_pwd_custom_${cleanMatric.replace(/[\s\/-]/g, '')}`, pwd);
+        if (targetMatric && targetMatric.length >= 4) {
+          localStorage.setItem(`student_pwd_custom_${targetMatric.replace(/[\s\/-]/g, '')}`, pwd);
         }
       } catch {}
     }
@@ -2825,6 +3229,22 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
       syncUpdates.photoURL = pic;
       syncUpdates.profile_picture = pic;
       syncUpdates.profileImage = pic;
+    }
+
+    // Auto-harmonize phone, address, and privacy settings
+    if (syncUpdates.phone !== undefined || syncUpdates.phoneNumber !== undefined || syncUpdates.phone_number !== undefined) {
+      const p = (syncUpdates.phone || syncUpdates.phoneNumber || syncUpdates.phone_number || '').trim();
+      syncUpdates.phone = p;
+      syncUpdates.phoneNumber = p;
+      syncUpdates.phone_number = p;
+    }
+    if (syncUpdates.address !== undefined) {
+      syncUpdates.address = (syncUpdates.address || '').trim();
+    }
+    if (syncUpdates.privacy_settings !== undefined || syncUpdates.privacySettings !== undefined) {
+      const priv = syncUpdates.privacy_settings || syncUpdates.privacySettings;
+      syncUpdates.privacy_settings = priv;
+      syncUpdates.privacySettings = priv;
     }
 
     // Auto-harmonize semester access flags (explicitly null out instead of undefined)
@@ -2859,44 +3279,119 @@ export async function updateStudentUser(identifier: string, updates: Partial<Stu
     const cleanSyncUpdates = sanitizeFirestorePayload(syncUpdates);
 
     let updatedAny = false;
+    const matchedDocIds = new Set<string>();
 
-    // 1. Try by docId / UID
-    try {
-      const docRef = doc(db, 'users', cleanId);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        await updateDoc(docRef, cleanSyncUpdates);
-        updatedAny = true;
-      }
-    } catch {}
-
-    // 2. Try by email query
-    if (cleanEmail.includes('@')) {
+    // 1. Try by original docId / UID
+    const candidateIds = [origId, cleanId, syncUpdates.id, syncUpdates.uid].filter(Boolean) as string[];
+    for (const cid of candidateIds) {
       try {
-        const qEmail = query(collection(db, 'users'), where('email', '==', cleanEmail));
-        const snapEmail = await getDocs(qEmail);
-        for (const d of snapEmail.docs) {
-          await updateDoc(doc(db, 'users', d.id), cleanSyncUpdates);
+        const docRef = doc(db, 'users', cid);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          await setDoc(docRef, cleanSyncUpdates, { merge: true });
+          matchedDocIds.add(cid);
           updatedAny = true;
         }
       } catch {}
     }
 
-    // 3. Try by matric query
-    try {
-      const qMatric = query(collection(db, 'users'), where('matric_number', '==', cleanMatric));
-      const snapMatric = await getDocs(qMatric);
-      for (const d of snapMatric.docs) {
-        await updateDoc(doc(db, 'users', d.id), cleanSyncUpdates);
-        updatedAny = true;
-      }
-    } catch {}
+    // 2. Try by original email and updated email queries
+    const emailsToTry = [origEmail, cleanEmail, syncUpdates.email].filter((e) => Boolean(e && e.includes('@'))) as string[];
+    for (const em of emailsToTry) {
+      try {
+        const qEmail = query(collection(db, 'users'), where('email', '==', em));
+        const snapEmail = await getDocs(qEmail);
+        for (const d of snapEmail.docs) {
+          await setDoc(doc(db, 'users', d.id), cleanSyncUpdates, { merge: true });
+          matchedDocIds.add(d.id);
+          updatedAny = true;
+        }
+      } catch {}
+    }
 
-    // 4. If doc doesn't exist yet, create with setDoc
+    // 3. Try by original matric and updated matric queries
+    const matricsToTry = [origMatric, cleanMatric, syncUpdates.matric_number, syncUpdates.matricNumber].filter((m) => Boolean(m && m.length >= 3)) as string[];
+    for (const mat of matricsToTry) {
+      try {
+        const qMatric = query(collection(db, 'users'), where('matric_number', '==', mat));
+        const snapMatric = await getDocs(qMatric);
+        for (const d of snapMatric.docs) {
+          await setDoc(doc(db, 'users', d.id), cleanSyncUpdates, { merge: true });
+          matchedDocIds.add(d.id);
+          updatedAny = true;
+        }
+      } catch {}
+      try {
+        const qMatric2 = query(collection(db, 'users'), where('matricNumber', '==', mat));
+        const snapMatric2 = await getDocs(qMatric2);
+        for (const d of snapMatric2.docs) {
+          await setDoc(doc(db, 'users', d.id), cleanSyncUpdates, { merge: true });
+          matchedDocIds.add(d.id);
+          updatedAny = true;
+        }
+      } catch {}
+    }
+
+    // 4. If doc was not matched anywhere, create with setDoc under target identifier
     if (!updatedAny) {
-      const docRef = doc(db, 'users', cleanId);
-      await setDoc(docRef, sanitizeFirestorePayload({ ...cleanSyncUpdates, id: cleanId, uid: cleanId, email: cleanEmail, updated_at: new Date().toISOString() }), { merge: true });
-      return true;
+      const primaryKey = syncUpdates.email || cleanId || syncUpdates.matric_number || doc(collection(db, 'users')).id;
+      const docRef = doc(db, 'users', primaryKey);
+      await setDoc(docRef, sanitizeFirestorePayload({
+        ...cleanSyncUpdates,
+        id: primaryKey,
+        uid: primaryKey,
+        email: syncUpdates.email || cleanEmail,
+        matric_number: syncUpdates.matric_number || cleanMatric,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }), { merge: true });
+      matchedDocIds.add(primaryKey);
+    }
+
+    // 5. Update local student session if currently signed in user matches any identifier
+    try {
+      const localUserStr = localStorage.getItem('university_schedule_user');
+      if (localUserStr) {
+        const localUser = JSON.parse(localUserStr);
+        const lEmail = (localUser.email || '').toLowerCase().trim();
+        const lMatric = (localUser.matricNumber || localUser.matric_number || '').toUpperCase().trim();
+        const lId = localUser.id || localUser.uid;
+
+        const isCurrentLocalStudent = 
+          (origEmail && lEmail === origEmail) ||
+          (cleanEmail && lEmail === cleanEmail) ||
+          (syncUpdates.email && lEmail === syncUpdates.email.toLowerCase().trim()) ||
+          (origMatric && lMatric === origMatric) ||
+          (cleanMatric && lMatric === cleanMatric) ||
+          (syncUpdates.matric_number && lMatric === syncUpdates.matric_number) ||
+          (origId && (lId === origId || matchedDocIds.has(lId))) ||
+          (cleanId && (lId === cleanId || matchedDocIds.has(lId)));
+
+        if (isCurrentLocalStudent) {
+          const updatedLocalUser = {
+            ...localUser,
+            ...cleanSyncUpdates,
+            matricNumber: syncUpdates.matric_number || syncUpdates.matricNumber || localUser.matricNumber,
+            matric_number: syncUpdates.matric_number || syncUpdates.matricNumber || localUser.matric_number,
+            email: syncUpdates.email || localUser.email,
+            department: syncUpdates.department || localUser.department,
+            department_id: syncUpdates.department_id || localUser.department_id,
+            department_code: syncUpdates.department_code || localUser.department_code,
+            level: syncUpdates.level || localUser.level,
+            year_level: syncUpdates.year_level || localUser.year_level,
+            yearLevel: syncUpdates.yearLevel || localUser.yearLevel,
+            fullName: syncUpdates.full_name || syncUpdates.fullName || localUser.fullName,
+            full_name: syncUpdates.full_name || syncUpdates.fullName || localUser.full_name,
+            name: syncUpdates.name || localUser.name,
+          };
+          localStorage.setItem('university_schedule_user', JSON.stringify(updatedLocalUser));
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('university_user_updated', { detail: updatedLocalUser }));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not sync local user storage:', err);
     }
 
     return true;
@@ -3157,6 +3652,9 @@ export async function resetAllStudentsToUnpaidInDatabase(): Promise<{ success: b
         is_paid: false,
         is_payed: false,
         hasFreeAccess: false,
+        has_free_access: false,
+        free_access: false,
+        freeSemesterGranted: false,
         paid_semester: null,
         paidSemester: null,
         paid_at: null,
@@ -3175,6 +3673,33 @@ export async function resetAllStudentsToUnpaidInDatabase(): Promise<{ success: b
     } catch (e) {
       console.warn('Notice while clearing semester_access collection in Firestore:', e);
     }
+
+    // Invalidate local storage session if currently logged in user is a student
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const rawUser = localStorage.getItem('university_schedule_user');
+        if (rawUser) {
+          const parsed = JSON.parse(rawUser);
+          if (!parsed.isAdmin && parsed.role !== 'super_admin') {
+            const updated = {
+              ...parsed,
+              is_paid: false,
+              is_payed: false,
+              hasFreeAccess: false,
+              has_free_access: false,
+              free_access: false,
+              freeSemesterGranted: false,
+              paid_semester: null,
+              paidSemester: null,
+              paid_at: null,
+              paidAt: null,
+            };
+            localStorage.setItem('university_schedule_user', JSON.stringify(updated));
+            window.dispatchEvent(new Event('storage'));
+          }
+        }
+      }
+    } catch {}
 
     return { success: true, count: updatedCount };
   } catch (error: any) {
@@ -3196,6 +3721,9 @@ export interface AdminAccountRecord {
   isAdmin: boolean;
   isSuperAdmin: boolean;
   isRegistry?: boolean;
+  profile_pic_url?: string;
+  profileImage?: string;
+  photoURL?: string;
   permissions: string[];
   created_at: string;
   updated_at: string;
@@ -3386,6 +3914,43 @@ export async function verifyAdminCredentialsFromDb(email: string, password: stri
   }
 
   return null;
+}
+
+export async function fetchAdminProfile(adminId: string = 'admin_davemon080'): Promise<AdminAccountRecord | null> {
+  try {
+    const targetId = adminId || 'admin_davemon080';
+    const docSnap = await getDoc(doc(db, 'admins', targetId));
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() } as AdminAccountRecord;
+    }
+    // Fallback: search by email
+    const q = query(collection(db, 'admins'), where('email', '==', 'davemon080@gmail.com'));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      return { id: snap.docs[0].id, ...snap.docs[0].data() } as AdminAccountRecord;
+    }
+  } catch (err) {
+    console.warn('fetchAdminProfile error:', err);
+  }
+  return null;
+}
+
+export async function updateAdminProfile(
+  adminId: string,
+  updates: Partial<AdminAccountRecord & { profile_pic_url: string; profileImage: string; photoURL: string }>
+): Promise<boolean> {
+  try {
+    const targetId = adminId || 'admin_davemon080';
+    const docRef = doc(db, 'admins', targetId);
+    await setDoc(docRef, {
+      ...updates,
+      updated_at: new Date().toISOString(),
+    }, { merge: true });
+    return true;
+  } catch (err) {
+    console.warn('updateAdminProfile error:', err);
+    return false;
+  }
 }
 
 // Auto-run ensureDefaultAdminAccount when module is imported
@@ -3987,8 +4552,10 @@ export async function transitionAcademicSemester(
   options?: {
     promoteStudents?: boolean;
     demoteStudents?: boolean;
+    resetStudentPayments?: boolean;
+    resetPayments?: boolean;
   }
-): Promise<{ success: boolean; promotedCount?: number; demotedCount?: number }> {
+): Promise<{ success: boolean; promotedCount?: number; demotedCount?: number; resetPaymentsCount?: number }> {
   try {
     const semUpdated = await updateCurrentSemester(targetSemesterCode);
     if (!semUpdated) return { success: false };
@@ -3999,6 +4566,7 @@ export async function transitionAcademicSemester(
 
     let promotedCount = 0;
     let demotedCount = 0;
+    let resetPaymentsCount = 0;
 
     if (options?.promoteStudents) {
       const promoRes = await promoteStudentsToNextAcademicLevel();
@@ -4029,6 +4597,20 @@ export async function transitionAcademicSemester(
       console.warn('Student sync during semester transition:', uErr);
     }
 
+    // When students are transferred to the next semester, their payment should be reset so they can pay for second semester access and so on
+    const shouldResetPayments = options?.resetStudentPayments !== false && options?.resetPayments !== false;
+    if (shouldResetPayments) {
+      try {
+        const resetRes = await resetAllStudentsToUnpaidInDatabase();
+        if (resetRes.success) {
+          resetPaymentsCount = resetRes.count;
+          console.log(`[Semester Transition] Successfully reset payment records for ${resetPaymentsCount} students for ${targetSemesterCode}`);
+        }
+      } catch (payResetErr) {
+        console.warn('Error resetting student payments during semester transition:', payResetErr);
+      }
+    }
+
     // When students move to the next semester:
     // Reset all schedules, deadlines, broadcasts, and notifications from the dashboard
     // CRITICAL: Courses on modules page, PDFs, and videos are NEVER reset and remain permanently intact!
@@ -4038,7 +4620,7 @@ export async function transitionAcademicSemester(
       console.warn('Error resetting schedules and deadlines during semester transition:', resetErr);
     }
 
-    return { success: true, promotedCount, demotedCount };
+    return { success: true, promotedCount, demotedCount, resetPaymentsCount };
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, 'current_semester/transition');
     return { success: false };
@@ -4092,9 +4674,9 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
                   id: dSnap.id,
                   course: finalCourse,
                   title: row.title || (isOther ? 'General Activity' : 'Lecture'),
-                  time: formatTimeRange(startTime, endTime),
-                  startTime,
-                  endTime,
+                  time: row.time || formatTimeRange(startTime, endTime),
+                  startTime: row.startTime || startTime,
+                  endTime: row.endTime || endTime,
                   location: row.venue || (deliveryMode === 'online' ? 'Online Class' : 'Lecture Hall'),
                   deliveryMode,
                   meetingLink,
@@ -4316,13 +4898,15 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
           (snap) => {
             const students: StudentProfileRecord[] = snap.docs.map((dSnap) => {
               const d = dSnap.data();
-              const rawMatric = d.matric_number || d.matricNumber || '2025/PS/ICH/0001';
+              const rawMatric = (d.matric_number || d.matricNumber || '2025/PS/ICH/0001').trim().toUpperCase();
               const detected = detectDepartmentFromMatric(rawMatric);
-              const resolvedDept = (d.department && !d.department.toLowerCase().includes('computer'))
-                ? d.department
-                : detected.department;
-              const resolvedDeptId = d.department_id || detected.department_id;
+              const resolvedDept = d.department || detected.department || 'Department of Industrial Chemistry';
+              const resolvedDeptId = d.department_id || detected.department_id || 'dept-ich';
+              const resolvedDeptCode = d.department_code || d.departmentCode || detected.code || 'ICH';
               const picUrl = d.profile_pic_url || d.profileImage || d.photoURL || d.profile_picture || '';
+
+              const numLevel = typeof d.level === 'number' ? d.level : (d.year_level ? parseInt(String(d.year_level).replace(/\D/g, ''), 10) : 100) || 100;
+              const yrLevel = d.year_level || d.yearLevel || `${numLevel} Level`;
 
               const wBal = typeof d.wallet_balance === 'number' ? d.wallet_balance : (typeof d.walletBalance === 'number' ? d.walletBalance : 0);
               const isPaid = Boolean(d.is_payed ?? d.is_paid ?? false);
@@ -4330,16 +4914,17 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
               return {
                 id: dSnap.id,
                 uid: dSnap.id,
-                email: d.email || '',
+                email: (d.email || '').trim().toLowerCase(),
                 matric_number: rawMatric,
                 matricNumber: rawMatric,
                 full_name: d.full_name || d.fullName || d.name || 'Student',
                 name: d.full_name || d.fullName || d.name || 'Student',
                 department_id: resolvedDeptId,
                 department: resolvedDept,
-                level: d.level || 100,
-                year_level: d.year_level || d.yearLevel || `${d.level || 100} Level`,
-                yearLevel: d.year_level || d.yearLevel || `${d.level || 100} Level`,
+                department_code: resolvedDeptCode,
+                level: numLevel,
+                year_level: yrLevel,
+                yearLevel: yrLevel,
                 isadmin: Boolean(d.isadmin || d.isAdmin),
                 isAdmin: Boolean(d.isadmin || d.isAdmin),
                 iscourserep: Boolean(d.iscourserep || d.isCourseRep),
@@ -4354,6 +4939,11 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
                 profile_pic_url: picUrl,
                 profileImage: picUrl,
                 photoURL: picUrl,
+                phone: d.phone || d.phoneNumber || d.phone_number || '',
+                phoneNumber: d.phone || d.phoneNumber || d.phone_number || '',
+                address: d.address || '',
+                privacy_settings: d.privacy_settings || d.privacySettings || null,
+                privacySettings: d.privacy_settings || d.privacySettings || null,
                 created_at: d.created_at || d.createdAt,
               };
             });
@@ -4374,11 +4964,20 @@ export function subscribeToRealtimeDatabase(callbacks: RealtimeSubscriptionCallb
           (snap) => {
             const depts: DepartmentRecord[] = snap.docs.map((dSnap) => {
               const d = dSnap.data();
+              const durationYears = d.yearsOfStudy || d.duration_years || d.durationYears || (d.maxLevel ? Math.floor(d.maxLevel / 100) : 4);
+              const maxLvl = d.maxLevel || d.max_level || (durationYears * 100);
               return {
                 id: dSnap.id,
                 name: d.name || 'Department of Industrial Chemistry',
                 code: d.code || 'ICH',
-                level: d.level || 100,
+                level: d.level !== undefined ? d.level : 100,
+                levels: d.levels || Array.from({ length: durationYears }, (_, i) => 100 + i * 100),
+                yearsOfStudy: durationYears,
+                duration_years: durationYears,
+                durationYears: durationYears,
+                maxLevel: maxLvl,
+                max_level: maxLvl,
+                faculty: d.faculty || 'Faculty of Physical Sciences',
                 created_at: d.created_at || new Date().toISOString(),
               };
             });

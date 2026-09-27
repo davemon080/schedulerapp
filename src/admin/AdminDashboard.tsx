@@ -14,12 +14,11 @@ import { AdminSemesterManager } from './AdminSemesterManager';
 import { AdminAnalyticsManager } from './AdminAnalyticsManager';
 import { AdminDatabaseViewer } from './AdminDatabaseViewer';
 import { AdminSettings } from './AdminSettings';
-import { DesktopOnlyNotice } from './DesktopOnlyNotice';
 import { AdminTab, AdminUser, StudentProfileRecord, DepartmentRecord } from './types';
-import { EventItem, AssignmentItem, NotificationItem } from '../types';
+import { EventItem, AssignmentItem, NotificationItem } from '@src/types';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2 } from 'lucide-react';
-import { ErrorBoundary } from '../components/ErrorBoundary';
+import { ErrorBoundary } from '@src/components/ErrorBoundary';
 import {
   fetchScheduleActivities,
   createScheduleActivity,
@@ -37,8 +36,6 @@ import {
   createStudentUser,
   updateStudentUser,
   deleteStudentUser,
-  revokeStudentSemesterAccess,
-  grantStudentSemesterAccess,
   fetchDepartments,
   fetchCourses,
   fetchFeedbackList,
@@ -52,7 +49,9 @@ import {
   recordOrUpdateClassCancelledNotification,
   recordOrUpdateDeadlineDeletedNotification,
   recordOrUpdateBroadcastDeletedNotification,
-} from '../lib/dbService';
+  fetchAdminProfile,
+  ensureAllDepartmentLevelDashboards,
+} from '@src/lib/dbService';
 
 const VALID_TABS: AdminTab[] = [
   'overview',
@@ -152,6 +151,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return null;
   });
 
+  // Load actual admin profile picture directly from database (No stale cache)
+  useEffect(() => {
+    // Ensure all level dashboards are automatically created and synchronized in Firestore
+    ensureAllDepartmentLevelDashboards().catch((e) => console.warn('Admin level dashboards ensure notice:', e));
+
+    if (!adminUser) return;
+    const adminId = adminUser.id || 'admin_davemon080';
+    fetchAdminProfile(adminId).then((dbAdmin) => {
+      if (dbAdmin) {
+        const pic = dbAdmin.profile_pic_url || dbAdmin.profileImage || dbAdmin.photoURL || '';
+        if (pic && pic !== (adminUser.profile_pic_url || adminUser.profileImage)) {
+          const updated: AdminUser = {
+            ...adminUser,
+            profile_pic_url: pic,
+            profileImage: pic,
+          };
+          setAdminUser(updated);
+          try {
+            localStorage.setItem('university_admin_session', JSON.stringify(updated));
+          } catch {}
+        }
+      }
+    }).catch(() => {});
+  }, [adminUser?.id]);
+
   const [currentSemester, setCurrentSemester] = useState<string>(initialSemesterProp);
   const [academicSession, setAcademicSession] = useState<string>(initialSessionProp);
 
@@ -200,7 +224,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showDesktopNotice, setShowDesktopNotice] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Modals
   const [isAddEventModalOpen, setIsAddEventModalOpen] = useState(false);
@@ -682,85 +706,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Update Student (Credentials, Course Rep, Free Semester Access, Profile Pic)
+  // Update Student (Credentials, Course Rep, Free Semester Access, Profile Pic, Department, Level, Matric)
   const handleUpdateStudent = async (updatedStudent: StudentProfileRecord): Promise<boolean> => {
-    const identifier = updatedStudent.id || updatedStudent.uid || updatedStudent.email;
+    const origId = (updatedStudent as any)._originalId || updatedStudent.id || updatedStudent.uid;
+    const origEmail = ((updatedStudent as any)._originalEmail || updatedStudent.email || '').toLowerCase().trim();
+    const origMatric = ((updatedStudent as any)._originalMatric || updatedStudent.matric_number || updatedStudent.matricNumber || '').toUpperCase().trim();
+
     const updatedList = students.map((s) => {
-      if ((s.id && s.id === updatedStudent.id) || (s.uid && s.uid === updatedStudent.uid) || s.email === updatedStudent.email) {
+      const matchId = origId && (s.id === origId || s.uid === origId);
+      const matchEmail = origEmail && s.email?.toLowerCase().trim() === origEmail;
+      const matchMatric = origMatric && (
+        (s.matric_number && s.matric_number.toUpperCase().trim() === origMatric) ||
+        (s.matricNumber && s.matricNumber.toUpperCase().trim() === origMatric)
+      );
+      if (matchId || matchEmail || matchMatric) {
         return { ...s, ...updatedStudent };
       }
       return s;
     });
     setStudents(updatedList);
 
+    const identifier = origId || origEmail || origMatric || updatedStudent.id || updatedStudent.email;
     const ok = await updateStudentUser(identifier, updatedStudent);
     if (ok) {
-      showToast(`Student credentials & status updated for ${updatedStudent.full_name || updatedStudent.name}`);
-    }
-    return ok;
-  };
-
-  // Revoke Student Semester Access
-  const handleRevokeSemesterAccess = async (student: StudentProfileRecord): Promise<boolean> => {
-    const identifier = (student.id || student.uid || student.email || student.matric_number) as string;
-    const ok = await revokeStudentSemesterAccess(identifier);
-    if (ok) {
-      showToast(`Semester access revoked for ${student.full_name || student.name || 'student'}`);
-      setStudents((prev) =>
-        prev.map((s) => {
-          if (
-            (s.id && s.id === student.id) ||
-            (s.uid && s.uid === student.uid) ||
-            s.email === student.email
-          ) {
-            return {
-              ...s,
-              is_paid: false,
-              is_payed: false,
-              hasFreeAccess: false,
-              paid_semester: null as any,
-              paidSemester: null as any,
-              paid_at: null as any,
-            };
-          }
-          return s;
-        })
-      );
-    } else {
-      showToast('Failed to revoke student semester access.');
-    }
-    return ok;
-  };
-
-  // Grant Student Semester Access
-  const handleGrantSemesterAccess = async (student: StudentProfileRecord): Promise<boolean> => {
-    const identifier = (student.id || student.uid || student.email || student.matric_number) as string;
-    const targetSem = currentSemester || '1st Semester 2025/2026';
-    const ok = await grantStudentSemesterAccess(identifier, targetSem);
-    if (ok) {
-      showToast(`Semester access granted for ${student.full_name || student.name || 'student'}`);
-      setStudents((prev) =>
-        prev.map((s) => {
-          if (
-            (s.id && s.id === student.id) ||
-            (s.uid && s.uid === student.uid) ||
-            s.email === student.email
-          ) {
-            return {
-              ...s,
-              is_paid: true,
-              is_payed: true,
-              hasFreeAccess: true,
-              paid_semester: targetSem,
-              paidSemester: targetSem,
-              paid_at: new Date().toISOString(),
-            };
-          }
-          return s;
-        })
-      );
-    } else {
-      showToast('Failed to grant student semester access.');
+      showToast(`Student record & credentials updated for ${updatedStudent.full_name || updatedStudent.name}`);
+      fetchStudents().then((refreshed) => {
+        if (refreshed && refreshed.length > 0) setStudents(refreshed);
+      }).catch(() => {});
     }
     return ok;
   };
@@ -850,13 +822,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   return (
     <ErrorBoundary fallbackTitle="Admin Dashboard Safe Mode">
       <div className="h-screen w-full overflow-hidden bg-slate-50 text-slate-900 flex font-sans antialiased select-none">
-        {/* Fixed Desktop Side Menu */}
+        {/* Side Menu (Responsive Drawer on Mobile, Sticky on Desktop) */}
         <AdminSidebar
           activeTab={activeTab}
-          onSelectTab={setActiveTab}
+          onSelectTab={(tab) => {
+            setActiveTab(tab);
+            setIsMobileSidebarOpen(false);
+          }}
           adminUser={adminUser}
           onLogout={handleLogout}
           onSwitchToStudentPortal={onBackToStudentPortal}
+          isMobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
           eventCount={events.length}
           assignmentCount={assignments.length}
           studentCount={students.length}
@@ -867,7 +844,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Scrollable Page Section Alone */}
         <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
-          {/* Desktop Top Header Bar */}
+          {/* Top Header Bar */}
           <AdminHeader
             activeTab={activeTab}
             searchQuery={searchQuery}
@@ -881,6 +858,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             currentSemester={currentSemester}
             academicSession={academicSession}
             onNavigateToSemesterTab={() => setActiveTab('semester')}
+            onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
           />
 
           {/* View Switcher */}
@@ -977,8 +955,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onAddStudent={handleAddStudent}
                 onUpdateStudent={handleUpdateStudent}
                 onDeleteStudent={handleDeleteStudent}
-                onRevokeAccess={handleRevokeSemesterAccess}
-                onGrantAccess={handleGrantSemesterAccess}
                 isAddModalOpen={isAddStudentModalOpen}
                 setIsAddModalOpen={setIsAddStudentModalOpen}
                 isRegistry={Boolean(adminUser?.isRegistry)}
@@ -1010,15 +986,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <AdminSettings
                 adminUser={adminUser}
                 onLogout={handleLogout}
+                onUpdateAdminUser={(updated) => setAdminUser(updated)}
               />
             )}
           </main>
         </div>
-
-        {/* Desktop Only Small Viewport Notice */}
-        {showDesktopNotice && (
-          <DesktopOnlyNotice onDismiss={() => setShowDesktopNotice(false)} />
-        )}
 
         {/* Floating Active Background Task Indicator */}
         <AnimatePresence>

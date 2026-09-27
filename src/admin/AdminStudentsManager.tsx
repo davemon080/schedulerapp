@@ -4,6 +4,7 @@ import {
   Users, 
   Plus, 
   Trash2, 
+  Edit3, 
   Search, 
   GraduationCap, 
   Mail, 
@@ -27,10 +28,7 @@ import {
   Layers,
   AlertTriangle,
   RefreshCw,
-  SlidersHorizontal,
-  Lock,
-  Unlock,
-  XCircle
+  SlidersHorizontal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -43,10 +41,8 @@ import {
   bulkClearStudentTransactions,
   bulkResetStudentWallets,
   bulkResetStudentProfilePics,
-  bulkResetStudentNotifications,
-  revokeStudentSemesterAccess,
-  grantStudentSemesterAccess
-} from '../lib/dbService';
+  bulkResetStudentNotifications
+} from '@src/lib/dbService';
 import { StudentDetailsModal } from './StudentDetailsModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
@@ -61,8 +57,6 @@ interface AdminStudentsManagerProps {
   isAddModalOpen: boolean;
   setIsAddModalOpen: (open: boolean) => void;
   isRegistry?: boolean;
-  onRevokeAccess?: (student: StudentProfileRecord) => Promise<boolean>;
-  onGrantAccess?: (student: StudentProfileRecord) => Promise<boolean>;
   onRunBackgroundTask?: (
     taskTitle: string,
     taskFn: () => Promise<{ success: boolean; count?: number; message?: string; error?: string }>
@@ -81,8 +75,6 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   isAddModalOpen,
   setIsAddModalOpen,
   isRegistry = false,
-  onRevokeAccess,
-  onGrantAccess,
   onRunBackgroundTask,
   onManualSync,
 }) => {
@@ -192,6 +184,27 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
 
     return counts;
   }, [pureStudents, departments]);
+
+  // Level counts for student level filtering
+  const studentLevelCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: pureStudents.length,
+      '100': 0,
+      '200': 0,
+      '300': 0,
+      '400': 0,
+      '500': 0,
+    };
+    pureStudents.forEach((s) => {
+      const sLevelStr = (s.year_level || s.yearLevel || `${s.level || 100} Level`).toLowerCase();
+      const sLevelNum = s.level || parseInt(sLevelStr.replace(/\D/g, ''), 10) || 100;
+      const key = String(sLevelNum);
+      if (counts[key] !== undefined) {
+        counts[key] += 1;
+      }
+    });
+    return counts;
+  }, [pureStudents]);
 
   // Strict, isolated department, level, and comprehensive search filtering
   const filteredStudents = useMemo(() => {
@@ -604,56 +617,6 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     }
   };
 
-  // Bulk Revoke Semester Access
-  const handleBulkRevokeSemesterAccess = async () => {
-    if (selectedStudentIds.length === 0) return;
-    const targetIds = [...selectedStudentIds];
-    setActiveBulkModal(null);
-    setSelectedStudentIds([]);
-    setIsBulkProcessing(true);
-    let count = 0;
-    try {
-      for (const id of targetIds) {
-        const ok = await revokeStudentSemesterAccess(id);
-        if (ok) count++;
-      }
-      setBulkActionNotice(`Successfully revoked semester access for ${count} student(s) in Firestore.`);
-      if (onManualSync) {
-        await onManualSync();
-      }
-    } catch (e: any) {
-      setBulkActionNotice(`Error revoking semester access: ${e.message}`);
-    } finally {
-      setIsBulkProcessing(false);
-      setTimeout(() => setBulkActionNotice(null), 5000);
-    }
-  };
-
-  // Bulk Grant Semester Access
-  const handleBulkGrantSemesterAccess = async () => {
-    if (selectedStudentIds.length === 0) return;
-    const targetIds = [...selectedStudentIds];
-    setActiveBulkModal(null);
-    setSelectedStudentIds([]);
-    setIsBulkProcessing(true);
-    let count = 0;
-    try {
-      for (const id of targetIds) {
-        const ok = await grantStudentSemesterAccess(id, '1st Semester 2025/2026');
-        if (ok) count++;
-      }
-      setBulkActionNotice(`Successfully granted semester access for ${count} student(s) in Firestore.`);
-      if (onManualSync) {
-        await onManualSync();
-      }
-    } catch (e: any) {
-      setBulkActionNotice(`Error granting semester access: ${e.message}`);
-    } finally {
-      setIsBulkProcessing(false);
-      setTimeout(() => setBulkActionNotice(null), 5000);
-    }
-  };
-
   return (
     <div className="p-6 space-y-6">
       {/* Top Banner */}
@@ -862,18 +825,84 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
               onChange={(e) => setSelectedLevelFilter(e.target.value)}
               className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
             >
-              <option value="all">All Levels</option>
-              <option value="100">100 Level</option>
-              <option value="200">200 Level</option>
-              <option value="300">300 Level</option>
-              <option value="400">400 Level</option>
-              <option value="500">500 Level</option>
+              <option value="all">All Levels ({pureStudents.length})</option>
+              <option value="100">100 Level ({studentLevelCounts['100'] || 0})</option>
+              <option value="200">200 Level ({studentLevelCounts['200'] || 0})</option>
+              <option value="300">300 Level ({studentLevelCounts['300'] || 0})</option>
+              <option value="400">400 Level ({studentLevelCounts['400'] || 0})</option>
+              <option value="500">500 Level ({studentLevelCounts['500'] || 0})</option>
             </select>
           </div>
         </div>
 
+        {/* Level Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mr-1">
+            <Layers className="w-3 h-3 text-emerald-600" />
+            <span>Academic Level:</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedLevelFilter('all')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+              selectedLevelFilter === 'all'
+                ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            <span>All Levels</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+              selectedLevelFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {pureStudents.length}
+            </span>
+          </button>
+          {[
+            { lvl: '100', label: '100 Level' },
+            { lvl: '200', label: '200 Level' },
+            { lvl: '300', label: '300 Level' },
+            { lvl: '400', label: '400 Level' },
+            { lvl: '500', label: '500 Level' },
+          ].map((item) => {
+            const isSelected = selectedLevelFilter === item.lvl;
+            const count = studentLevelCounts[item.lvl] || 0;
+            return (
+              <button
+                key={item.lvl}
+                type="button"
+                onClick={() => setSelectedLevelFilter(item.lvl)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span>{item.label}</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  isSelected ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700 font-bold'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+          {selectedLevelFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setSelectedLevelFilter('all')}
+              className="text-[11px] text-emerald-600 hover:underline font-semibold ml-2 cursor-pointer"
+            >
+              Reset Level
+            </button>
+          )}
+        </div>
+
         {/* Interactive Filter Pills */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mr-1">
+            <Building2 className="w-3 h-3 text-blue-600" />
+            <span>Department:</span>
+          </span>
           {/* All */}
           <button
             onClick={() => setSelectedDeptFilter('all')}
@@ -1039,24 +1068,6 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
               </button>
             )}
 
-            {/* Revoke Semester Access (Bulk) */}
-            <button
-              onClick={() => setActiveBulkModal('revoke_semester_access')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Revoke Access</span>
-            </button>
-
-            {/* Grant Semester Access (Bulk) */}
-            <button
-              onClick={() => setActiveBulkModal('grant_semester_access')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
-            >
-              <Unlock className="w-3.5 h-3.5" />
-              <span>Grant Access</span>
-            </button>
-
             {/* Reset Profile Picture */}
             <button
               onClick={() => setActiveBulkModal('reset_profile_pics')}
@@ -1131,14 +1142,13 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                 <th className="py-3 px-4">Email Address</th>
                 <th className="py-3 px-4">Department &amp; Level</th>
                 {!isRegistry && <th className="py-3 px-4">Wallet Balance</th>}
-                <th className="py-3 px-4">Semester Access</th>
                 <th className="py-3 px-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={isRegistry ? 7 : 8} className="py-12 text-center text-slate-400">
+                  <td colSpan={isRegistry ? 6 : 7} className="py-12 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Users className="w-8 h-8 text-slate-300" />
                       <p className="text-sm font-semibold text-slate-600">No student records found</p>
@@ -1209,18 +1219,22 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
-                          {s.profile_picture || s.profilePicture || s.photo_url || s.photoURL ? (
-                            <img
-                              src={s.profile_picture || s.profilePicture || s.photo_url || s.photoURL}
-                              alt={s.full_name || s.name}
-                              referrerPolicy="no-referrer"
-                              className="w-9 h-9 rounded-full object-cover border border-emerald-200 shadow-xs shrink-0"
-                            />
-                          ) : (
-                            <div className="w-9 h-9 rounded-full bg-linear-to-br from-emerald-100 to-teal-100 text-emerald-800 font-bold text-xs flex items-center justify-center shrink-0 border border-emerald-200/60 shadow-xs">
-                              {(s.full_name || s.name)?.charAt(0) || 'S'}
-                            </div>
-                          )}
+                          {(() => {
+                            const pic = s.profile_pic_url || s.profileImage || s.profile_picture || s.profilePicture || s.photo_url || s.photoURL;
+                            return pic ? (
+                              <img
+                                key={pic}
+                                src={pic}
+                                alt={s.full_name || s.name}
+                                referrerPolicy="no-referrer"
+                                className="w-9 h-9 rounded-full object-cover border border-emerald-200 shadow-xs shrink-0"
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-linear-to-br from-emerald-100 to-teal-100 text-emerald-800 font-bold text-xs flex items-center justify-center shrink-0 border border-emerald-200/60 shadow-xs">
+                                {(s.full_name || s.name)?.charAt(0) || 'S'}
+                              </div>
+                            );
+                          })()}
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-slate-900 group-hover:text-emerald-700 transition-colors block truncate">
@@ -1274,73 +1288,41 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                           </div>
                         </td>
                       )}
-                      <td className="py-3.5 px-4" onClick={(e) => e.stopPropagation()}>
-                        {s.is_payed || s.is_paid || s.hasFreeAccess ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span className="max-w-[120px] truncate">{s.paid_semester || s.paidSemester || 'Active'}</span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (window.confirm(`Revoke semester access for ${s.full_name || s.name || 'this student'}?`)) {
-                                  if (onRevokeAccess) {
-                                    await onRevokeAccess(s);
-                                  } else {
-                                    await revokeStudentSemesterAccess((s.id || s.uid || s.email || s.matric_number) as string);
-                                    if (onManualSync) await onManualSync();
-                                  }
-                                }
-                              }}
-                              className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                              title="Revoke semester access in database"
-                            >
-                              <Lock className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                              <XCircle className="w-3 h-3 text-rose-500 shrink-0" />
-                              <span>Locked</span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (onGrantAccess) {
-                                  await onGrantAccess(s);
-                                } else {
-                                  await grantStudentSemesterAccess((s.id || s.uid || s.email || s.matric_number) as string, '1st Semester 2025/2026');
-                                  if (onManualSync) await onManualSync();
-                                }
-                              }}
-                              className="p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
-                              title="Grant semester access in database"
-                            >
-                              <Unlock className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </td>
                       <td className="py-3.5 px-5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         {!isRegistry ? (
-                          <button
-                            onClick={() => setDeletingStudent(s)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                            title="Remove student record"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentForDetails(s);
+                                setIsDetailsModalOpen(true);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-blue-200"
+                              title="Edit student matric, email, department, level & wallet"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingStudent(s)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                              title="Remove student record"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => {
                               setSelectedStudentForDetails(s);
                               setIsDetailsModalOpen(true);
                             }}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded-md hover:bg-blue-50 transition-colors cursor-pointer"
+                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer flex items-center gap-1"
                           >
-                            View Record
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>View / Edit Record</span>
                           </button>
                         )}
                       </td>
@@ -1808,136 +1790,6 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                       <>
                         <BellOff className="w-3.5 h-3.5" />
                         <span>Confirm Reset Notifications</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* 5. Bulk Revoke Semester Access Modal */}
-      <AnimatePresence>
-        {activeBulkModal === 'revoke_semester_access' && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
-            >
-              <div className="p-6 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-2xl bg-rose-100 text-rose-700 border border-rose-200">
-                    <Lock className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-base font-bold text-slate-900">Revoke Semester Access</h4>
-                    <p className="text-xs text-slate-500 font-medium">
-                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200/80 text-xs text-rose-900 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-rose-950">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>Immediate Access Restriction</span>
-                  </div>
-                  <p className="text-[11.5px] leading-relaxed">
-                    This will revoke semester access in Firestore for all {selectedStudentIds.length} selected students. Their access will be locked until fee payment or access is restored.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-end gap-2.5 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveBulkModal(null)}
-                    disabled={isBulkProcessing}
-                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleBulkRevokeSemesterAccess}
-                    disabled={isBulkProcessing}
-                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    {isBulkProcessing ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Revoking...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-3.5 h-3.5" />
-                        <span>Revoke Access for {selectedStudentIds.length} Students</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* 6. Bulk Grant Semester Access Modal */}
-      <AnimatePresence>
-        {activeBulkModal === 'grant_semester_access' && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden"
-            >
-              <div className="p-6 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-2xl bg-emerald-100 text-emerald-700 border border-emerald-200">
-                    <Unlock className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-base font-bold text-slate-900">Grant Semester Access</h4>
-                    <p className="text-xs text-slate-500 font-medium">
-                      Bulk operation for {selectedStudentIds.length} student account{selectedStudentIds.length !== 1 ? 's' : ''}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-xs text-emerald-900 space-y-1">
-                  <p className="text-[11.5px] leading-relaxed">
-                    This will grant active semester clearance in Firestore for all {selectedStudentIds.length} selected students without requiring individual payment.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-end gap-2.5 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveBulkModal(null)}
-                    disabled={isBulkProcessing}
-                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleBulkGrantSemesterAccess}
-                    disabled={isBulkProcessing}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    {isBulkProcessing ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Granting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="w-3.5 h-3.5" />
-                        <span>Grant Access for {selectedStudentIds.length} Students</span>
                       </>
                     )}
                   </button>

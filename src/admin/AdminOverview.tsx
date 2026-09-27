@@ -15,7 +15,7 @@ import {
   Zap,
   Activity
 } from 'lucide-react';
-import { EventItem, AssignmentItem, NotificationItem } from '../types';
+import { EventItem, AssignmentItem, NotificationItem } from '@src/types';
 import { StudentProfileRecord, AdminTab } from './types';
 
 interface AdminOverviewProps {
