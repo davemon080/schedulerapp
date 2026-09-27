@@ -1,0 +1,200 @@
+[
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/e4zM6AH_hPQ:APA91bFktW056cwL7qh4Er9ox_r44WYvEUS2WOqnwdHQ3CRtRCuFguuWrwfQ1Nw-ptK5Pus9OGKpqM5XxOGrqnwTO5j3SP-jPjO8RAecMRut__i3wTM9GywcQAnlaCcqLzOStNGxc71_",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/e4zM6AH_hPQ:APA91bFktW056cwL7qh4Er9ox_r44WYvEUS2WOqnwdHQ3CRtRCuFguuWrwfQ1Nw-ptK5Pus9OGKpqM5XxOGrqnwTO5j3SP-jPjO8RAecMRut__i3wTM9GywcQAnlaCcqLzOStNGxc71_",
+      "keys": {
+        "p256dh": "BKDJ0Tsk7VV3iDNtnZAqQiJSQufAb-dsPCAQxj2Wy3pJ--KWOQX0taPhKgJEVu8ka3xmKvKLWkdUlMQVMH9YcN4",
+        "auth": "i5Rb8KOlVpvZvmmBHm7TxQ"
+      }
+    },
+    "userId": "12wwrxw81cRFKpskJaU1hoIXNzD2",
+    "matricNumber": "2025/PS/ICH/0062",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "timestamp": 1788597377694,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/dJajyeknhmA:APA91bGxW7yvsT0Uy5TWnjiArNaZMfC1s13zJ44vmkX50AyOyH87QQlue1SBd3ammkYTBe_DKHypvqZcnLNADH3AoPKknktA2ADevTp1g6FHPFLggE9msWdwZWK98rfWLJUad8SwE_g2",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/dJajyeknhmA:APA91bGxW7yvsT0Uy5TWnjiArNaZMfC1s13zJ44vmkX50AyOyH87QQlue1SBd3ammkYTBe_DKHypvqZcnLNADH3AoPKknktA2ADevTp1g6FHPFLggE9msWdwZWK98rfWLJUad8SwE_g2",
+      "keys": {
+        "p256dh": "BPyEaEIycR1lmWJaYHkBH7G6H207XHA60YQl1pFvpeNJ7XFU4AYN4VJZLZYEUenQwzqb8rikjTjmkCcL_HdYFIE",
+        "auth": "NlzzYIsP41vV2wWeEI7p4Q"
+      }
+    },
+    "userId": "12wwrxw81cRFKpskJaU1hoIXNzD2",
+    "matricNumber": "2025/PS/ICH/0062",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "timestamp": 1788597377552,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/dd-vH_hHGoo:APA91bEJ2lIvg0wjqrYn0SxKMByh9sZ-JCiY5wYuhiNSEVivYKKpCH_LpWeQ7WJapgkmqcpXbbz0r3Q2iC9DbmUboi74-SNXIWZtWNiPJj41P7ih5wIN0DIMpbGNaEAn2ZM2-ytJTlbI",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/dd-vH_hHGoo:APA91bEJ2lIvg0wjqrYn0SxKMByh9sZ-JCiY5wYuhiNSEVivYKKpCH_LpWeQ7WJapgkmqcpXbbz0r3Q2iC9DbmUboi74-SNXIWZtWNiPJj41P7ih5wIN0DIMpbGNaEAn2ZM2-ytJTlbI",
+      "keys": {
+        "p256dh": "BPSL-QMNHhSK8ccwqzb6iTHTeCW2dMl8mm5EFKRy5AzPNWu76ol_hAadTO22xU6f9MDIZqh-mW_RWDmzQNcvE-4",
+        "auth": "lPf8QApGsyaovX3coWTfCQ"
+      }
+    },
+    "userId": "5NyHJ73RgWMqBZYrkMBX6oNAymg2",
+    "matricNumber": "2025-PS-ICH-4000",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "timestamp": 1790447694042,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/e7k5h3BAFks:APA91bE9z7YYc1TVrb0WdQ_sP7n0gwZYEvjHPSrHP5IOI4uWr90IaxHXVjHc_San2hxPJUzfXFXFSYBhflfT8jvX0tCP7an0nl51QlpdUbJLWNcV_aDjYK73Sv9cLwNNN7L2H9IbZN-g",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/e7k5h3BAFks:APA91bE9z7YYc1TVrb0WdQ_sP7n0gwZYEvjHPSrHP5IOI4uWr90IaxHXVjHc_San2hxPJUzfXFXFSYBhflfT8jvX0tCP7an0nl51QlpdUbJLWNcV_aDjYK73Sv9cLwNNN7L2H9IbZN-g",
+      "keys": {
+        "p256dh": "BPrdyFc0dQVPU3k5aqIoUo79-i2eBl6TVJr7av4W2ZixyOcznaFfwCG67SD-JHslvckqPAtApSDF_dyUvE8jpl4",
+        "auth": "AFojvJHewsAnf0AiK6iLYQ"
+      }
+    },
+    "userId": "7WXnzXm1N3g6eDR0hF3VU0ovIpU2",
+    "matricNumber": "2025/PS/ICH/0134",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "timestamp": 1790455060925,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/eMbhhcoZEP4:APA91bHKBkbxeEkUBBaZ5S0l4AxyBfHAElcwawAaWkCl7JlPNPt2JqL__iQm5sA-s9-mWzQm02a_epc6P23FRian5w8tI7yPE7MOcpBFDAciCTOyepwjnsh-BuN7b1-Kl9OiPi_LAz4g",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/eMbhhcoZEP4:APA91bHKBkbxeEkUBBaZ5S0l4AxyBfHAElcwawAaWkCl7JlPNPt2JqL__iQm5sA-s9-mWzQm02a_epc6P23FRian5w8tI7yPE7MOcpBFDAciCTOyepwjnsh-BuN7b1-Kl9OiPi_LAz4g",
+      "keys": {
+        "p256dh": "BBHw468RTsjkQNa5xZ3h4-zL-rSkgvhRkYE-nETZW4fnfDQkh-1R4TrXtgjWGr3sDV0RPa5tY6FOzb2E_XNGy80",
+        "auth": "usxsB4NSLlEefOOaK_nFMw"
+      }
+    },
+    "userId": "5NyHJ73RgWMqBZYrkMBX6oNAymg2",
+    "matricNumber": "2025-PS-ICH-4000",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "timestamp": 1790449055407,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/cUVTnqH-Mak:APA91bEBjju1jRb33M09RopAjmqMDdggHPqEwTR0i2-IWDbpB2I1IK554W7BanOlk_f5pe1-5LoJv5IBnrX3_j-_B4sI4vYR4-qobtn21RdT1nVSnu9bVojJ3H4pRtWPKsRbfHNi2hhM",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/cUVTnqH-Mak:APA91bEBjju1jRb33M09RopAjmqMDdggHPqEwTR0i2-IWDbpB2I1IK554W7BanOlk_f5pe1-5LoJv5IBnrX3_j-_B4sI4vYR4-qobtn21RdT1nVSnu9bVojJ3H4pRtWPKsRbfHNi2hhM",
+      "keys": {
+        "p256dh": "BHrLQKW0_FZD9WHc29x8TSIrQU-7t__EWc6vkLK3c7J4TbRh3ycvV9F4u9yPlu4yuPDQrRCcfse86pjL88hZ3jc",
+        "auth": "dood8ajCuFL-YGtzxya3ZA"
+      }
+    },
+    "userId": "7WXnzXm1N3g6eDR0hF3VU0ovIpU2",
+    "matricNumber": "2025/PS/ICH/0134",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "ios",
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+    "timestamp": 1790499299407,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/cQHa0gsk-GI:APA91bHGI7sOlcbJIBLM4NywscTqvrW6Cfm3_mv_EU_r0-8V_YCbpVDORsSn6uGK_IOsTHXBvbuZmzObZXPr-qJvr9-uwxPGuQMD8WUAlsBdaCzYdgT0cQisv0mfBR2QZr0HaUZ5_awW",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/cQHa0gsk-GI:APA91bHGI7sOlcbJIBLM4NywscTqvrW6Cfm3_mv_EU_r0-8V_YCbpVDORsSn6uGK_IOsTHXBvbuZmzObZXPr-qJvr9-uwxPGuQMD8WUAlsBdaCzYdgT0cQisv0mfBR2QZr0HaUZ5_awW",
+      "keys": {
+        "p256dh": "BOaDyRFr0qbL_qni-zeA0dpGp-D_73945KH1GggQ0jd6SqT8mdSxmCFmcStJr4hSOdZJvx7xdiBLASqUOC1q_ME",
+        "auth": "HxjfvKAtyh0tc7fHvY0ZxA"
+      }
+    },
+    "userId": "7WXnzXm1N3g6eDR0hF3VU0ovIpU2",
+    "matricNumber": "2025/PS/ICH/0134",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "timestamp": 1790500092236,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/dVGmkmhiaw4:APA91bHhv5AqO2uMpwLbf0mOeOhYevM45Zd5V8brpJokvgrifFOZ7zSI1bjxVHHaVW9Sc-akCSl62wqQ__r_yJqHiP1cg1r7gViTnRjLKucTQMEqgtepcwRMzyMvd4iHFo1J1sb4gFXa",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/dVGmkmhiaw4:APA91bHhv5AqO2uMpwLbf0mOeOhYevM45Zd5V8brpJokvgrifFOZ7zSI1bjxVHHaVW9Sc-akCSl62wqQ__r_yJqHiP1cg1r7gViTnRjLKucTQMEqgtepcwRMzyMvd4iHFo1J1sb4gFXa",
+      "keys": {
+        "p256dh": "BP0HlAgWSiahMgLwEtxJuc3rSHmoLxC8-altI1GtNqeGuV76qsb_ig4RFVzcWzWAIrvXI_-YkKfWOefwOt5pCyI",
+        "auth": "08Q2vBF7IrMbU_tNZMYIJw"
+      }
+    },
+    "userId": "anonymous",
+    "matricNumber": "",
+    "department": "",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+    "timestamp": 1790505455381,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/eNNKgfbDMEM:APA91bFk4gTnbGI8_Wn_Z4PM0tevlgz_7-y1FqyzPfLiSZAuBBNAhZQ-MYM-5ViSU178eBlGTLIx04ngjpooUQMLU1S4zFIPH1bkIjcrtIMTaDpkEpAL_Dz7a58ZEMTIP55_87Kdps02",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/eNNKgfbDMEM:APA91bFk4gTnbGI8_Wn_Z4PM0tevlgz_7-y1FqyzPfLiSZAuBBNAhZQ-MYM-5ViSU178eBlGTLIx04ngjpooUQMLU1S4zFIPH1bkIjcrtIMTaDpkEpAL_Dz7a58ZEMTIP55_87Kdps02",
+      "keys": {
+        "p256dh": "BLEGUn-4Z1huSprKXtq_Dk6nLtqZvVVmgsABJnfqQWcd2aus8ZJ43eCuKDyBX8-35Dl7oFPx6X-iYTSsXpIEkm0",
+        "auth": "5wljU4L1I9uI6jaoyeKl7A"
+      }
+    },
+    "userId": "12wwrxw81cRFKpskJaU1hoIXNzD2",
+    "matricNumber": "2025/PS/ICH/0062",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "ios",
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+    "timestamp": 1788597887977,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/fJLAhtoPTKE:APA91bFkDZdnQcVVfACw0F2fWxuAt3xFZLp3gqLGrBRv1YZK6Fmqb7e4enMri6T7xr0tFV3a9-egyIAUXaoHse3BZpVqAKOwW0DnWOMhnQKUf3MEwzZT6sgUsIjUF1TJSxrubvKrYYvc",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/fJLAhtoPTKE:APA91bFkDZdnQcVVfACw0F2fWxuAt3xFZLp3gqLGrBRv1YZK6Fmqb7e4enMri6T7xr0tFV3a9-egyIAUXaoHse3BZpVqAKOwW0DnWOMhnQKUf3MEwzZT6sgUsIjUF1TJSxrubvKrYYvc",
+      "keys": {
+        "p256dh": "BKi6VwF4RDjmZHG3NMf4U1-nKZ8ITXst6g4xc0hJM0TJrkeDNoFOogM95zVhGXKt4euZ7WrAqtBulQQ1O36kJ18",
+        "auth": "XMiuJOTTUx0wnNO4zSa1ow"
+      }
+    },
+    "userId": "5NyHJ73RgWMqBZYrkMBX6oNAymg2",
+    "matricNumber": "2025-PS-ICH-4000",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "timestamp": 1788595166520,
+    "active": true
+  },
+  {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/ed8RcsfZjP8:APA91bFTYJDjxs8huaW0UaAZrWvAvtYWG9KTme6tY0JStbf8dDS9VPsghluPNAWU8lI-Ts8Bmgy3Dwwvanhjs5XdFl45mNBNO1Ni984JgdSraWzqwNvky3SP9jOiQLPpFboofsVV2aA8",
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/ed8RcsfZjP8:APA91bFTYJDjxs8huaW0UaAZrWvAvtYWG9KTme6tY0JStbf8dDS9VPsghluPNAWU8lI-Ts8Bmgy3Dwwvanhjs5XdFl45mNBNO1Ni984JgdSraWzqwNvky3SP9jOiQLPpFboofsVV2aA8",
+      "keys": {
+        "p256dh": "BHh0694ozKpxOsKcEm8QFBTUkmIeevw2fiQ8lmRDFL61GtPv57ETpwc-Gqgp7-GKQSWcEupgUWBeGmaFjRbz-kU",
+        "auth": "UilnvawWHhhms69d_PmEyw"
+      }
+    },
+    "userId": "5NyHJ73RgWMqBZYrkMBX6oNAymg2",
+    "matricNumber": "2025-PS-ICH-4000",
+    "department": "Department of Industrial Chemistry",
+    "level": 100,
+    "platform": "web",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "timestamp": 1789031326327,
+    "active": true
+  }
+]

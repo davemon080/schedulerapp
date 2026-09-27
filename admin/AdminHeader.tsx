@@ -167,10 +167,11 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
         {/* User Profile Pill in Header */}
         {adminUser && (
           <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm overflow-hidden border border-slate-200">
-              {adminUser.profile_pic_url ? (
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-sm overflow-hidden border border-slate-200 shrink-0">
+              {adminUser.profile_pic_url || adminUser.profileImage ? (
                 <img
-                  src={adminUser.profile_pic_url}
+                  key={adminUser.profile_pic_url || adminUser.profileImage}
+                  src={adminUser.profile_pic_url || adminUser.profileImage}
                   alt={adminName}
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"

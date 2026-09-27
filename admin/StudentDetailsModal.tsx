@@ -42,6 +42,7 @@ import {
   fetchUserWalletData, 
   adminAdjustUserWalletBalance 
 } from '@src/lib/dbService';
+import { uploadProfilePicture, validateImageFile } from '@src/lib/storageService';
 
 interface StudentDetailsModalProps {
   student: StudentProfileRecord | null;
@@ -130,6 +131,38 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
       });
   }, [identifier, initialWalletBal, isRegistry]);
 
+  // Synchronize internal form fields whenever a student is selected or opened
+  useEffect(() => {
+    if (student && isOpen) {
+      setFullName(student.full_name || student.fullName || student.name || '');
+      setEmail(student.email || '');
+      setPassword(student.password || student.portal_password || '123456');
+      setMatricNumber(student.matric_number || student.matricNumber || '');
+      setDepartmentId(student.department_id || 'dept-ich');
+      const lvlN = typeof student.level === 'number' ? student.level : parseInt((student.year_level || student.yearLevel || '').replace(/\D/g, ''), 10) || 100;
+      setLevelNum(lvlN);
+      setYearLevel(student.year_level || student.yearLevel || `${lvlN} Level`);
+      setIsCourseRep(Boolean(student.iscourserep || student.isCourseRep));
+      setIsAdmin(Boolean(student.isadmin || student.isAdmin));
+      const hasFree = Boolean(
+        student.hasFreeAccess ||
+        (student as any).has_free_access ||
+        (student as any).free_access ||
+        (student as any).freeSemesterGranted ||
+        student.is_payed ||
+        student.is_paid
+      );
+      setIsPayed(hasFree);
+      setProfilePicUrl(
+        student.profile_pic_url || (student as any).profileImage || student.profile_picture || student.profilePicture || student.photo_url || student.photoURL || ''
+      );
+      const bal = typeof student.wallet_balance === 'number' ? student.wallet_balance : (typeof student.walletBalance === 'number' ? student.walletBalance : 0);
+      setWalletBalance(bal);
+      setErrorMessage(null);
+      setSaveSuccess(false);
+    }
+  }, [student, isOpen]);
+
   // Department info
   const currentDeptInfo = getStudentDepartmentInfo(
     { ...student, department_id: departmentId },
@@ -142,16 +175,29 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
     setLevelNum(parsed);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setProfilePicUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    const validation = validateImageFile(file, 6 * 1024 * 1024);
+    if (!validation.valid) {
+      alert(validation.error || 'Please select a valid image file under 6MB');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    try {
+      const userKey = student?.id || student?.email || student?.matric_number || 'student';
+      const result = await uploadProfilePicture(file, userKey);
+      setProfilePicUrl(result.downloadUrl);
+    } catch (err: any) {
+      console.error('Failed to upload student photo to Firebase Storage:', err);
+      alert(err.message || 'Failed to upload photo. Please try again.');
+    } finally {
+      setIsUploadingPhoto(false);
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -233,7 +279,13 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
 
     setIsSaving(true);
     try {
-      const targetDept = departments.find(d => d.id === departmentId);
+      const targetDept = departments.find(
+        (d) => d.id === departmentId || d.code?.toUpperCase() === departmentId.toUpperCase() || d.name?.toLowerCase() === departmentId.toLowerCase()
+      );
+      const targetDeptName = targetDept ? targetDept.name : (currentDeptInfo.name || departmentId);
+      const targetDeptId = targetDept ? targetDept.id : (currentDeptInfo.id || departmentId);
+      const targetDeptCode = targetDept ? targetDept.code : (currentDeptInfo.code || 'ICH');
+
       const updatedRecord: StudentProfileRecord = {
         ...student,
         id: student.id || student.uid,
@@ -249,8 +301,9 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
         is_default_password: password.trim() === '123456',
         matric_number: matricNumber.trim().toUpperCase(),
         matricNumber: matricNumber.trim().toUpperCase(),
-        department_id: departmentId,
-        department: targetDept ? targetDept.name : currentDeptInfo.name,
+        department_id: targetDeptId,
+        department: targetDeptName,
+        department_code: targetDeptCode,
         year_level: yearLevel,
         yearLevel: yearLevel,
         level: levelNum,
@@ -269,9 +322,15 @@ export const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({
         profile_pic_url: profilePicUrl,
         profile_picture: profilePicUrl,
         profilePicture: profilePicUrl,
+        profileImage: profilePicUrl,
         photo_url: profilePicUrl,
         photoURL: profilePicUrl,
       };
+
+      // Pass tracking of original keys so database service can update document even if email, matric, or ID was changed
+      (updatedRecord as any)._originalId = student.id || student.uid;
+      (updatedRecord as any)._originalEmail = student.email;
+      (updatedRecord as any)._originalMatric = student.matric_number || student.matricNumber;
 
       if (onUpdateStudent) {
         const ok = await onUpdateStudent(updatedRecord);

@@ -5,6 +5,17 @@ service cloud.firestore {
     match /departments/{departmentId} {
       allow read: if true;
       allow write: if true;
+
+      // Nested level subcollection
+      match /levels/{levelId} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+
+    match /department_levels/{levelId} {
+      allow read: if true;
+      allow write: if true;
     }
 
     match /courses/{courseId} {
@@ -71,6 +82,12 @@ service cloud.firestore {
     }
 
     match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Native Device Push Subscriptions & Tokens
+    match /push_subscriptions/{subscriptionId} {
       allow read: if true;
       allow write: if true;
     }

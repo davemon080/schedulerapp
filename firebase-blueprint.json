@@ -13,6 +13,24 @@
       },
       "required": ["name", "code"]
     },
+    "DepartmentLevel": {
+      "title": "DepartmentLevel",
+      "description": "Auto-generated department level dashboard records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "department_id": { "type": "string" },
+        "department_name": { "type": "string" },
+        "department_code": { "type": "string" },
+        "level": { "type": "number" },
+        "level_name": { "type": "string" },
+        "academic_year": { "type": "string" },
+        "is_active": { "type": "boolean" },
+        "created_at": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["department_id", "level"]
+    },
     "Course": {
       "title": "Course",
       "description": "Registered academic course syllabus and units",
@@ -125,9 +143,29 @@
         "iscourserep": { "type": "boolean" },
         "profile_pic_url": { "type": "string" },
         "profile_pic_storage_path": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "privacy_settings": { "type": "object" },
         "created_at": { "type": "string" }
       },
       "required": ["email", "full_name"]
+    },
+    "PushSubscription": {
+      "title": "PushSubscription",
+      "description": "Native Web Push subscription records",
+      "type": "object",
+      "properties": {
+        "endpoint": { "type": "string" },
+        "subscription": { "type": "object" },
+        "userId": { "type": "string" },
+        "matricNumber": { "type": "string" },
+        "department": { "type": "string" },
+        "level": { "type": "number" },
+        "platform": { "type": "string" },
+        "active": { "type": "boolean" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["endpoint"]
     },
     "Feedback": {
       "title": "Feedback",
@@ -197,6 +235,10 @@
       "schema": "Department",
       "description": "University academic departments"
     },
+    "/department_levels/{levelId}": {
+      "schema": "DepartmentLevel",
+      "description": "Auto-generated department level dashboards"
+    },
     "/courses/{courseId}": {
       "schema": "Course",
       "description": "Registered academic courses"
@@ -240,6 +282,10 @@
     "/current_semester/{semesterId}": {
       "schema": "CurrentSemester",
       "description": "Academic semester control state"
+    },
+    "/push_subscriptions/{subscriptionId}": {
+      "schema": "PushSubscription",
+      "description": "Native device push subscriptions"
     }
   }
 }

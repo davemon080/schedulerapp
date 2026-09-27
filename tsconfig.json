@@ -25,6 +25,12 @@
       ],
       "@src/*": [
         "./src/*"
+      ],
+      "@capacitor/push-notifications": [
+        "./src/lib/capacitorPushNotifications.ts"
+      ],
+      "@capacitor/local-notifications": [
+        "./src/lib/capacitorLocalNotifications.ts"
       ]
     },
     "allowImportingTsExtensions": true,

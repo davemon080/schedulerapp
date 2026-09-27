@@ -4,6 +4,7 @@ import {
   Users, 
   Plus, 
   Trash2, 
+  Edit3, 
   Search, 
   GraduationCap, 
   Mail, 
@@ -183,6 +184,27 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
 
     return counts;
   }, [pureStudents, departments]);
+
+  // Level counts for student level filtering
+  const studentLevelCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: pureStudents.length,
+      '100': 0,
+      '200': 0,
+      '300': 0,
+      '400': 0,
+      '500': 0,
+    };
+    pureStudents.forEach((s) => {
+      const sLevelStr = (s.year_level || s.yearLevel || `${s.level || 100} Level`).toLowerCase();
+      const sLevelNum = s.level || parseInt(sLevelStr.replace(/\D/g, ''), 10) || 100;
+      const key = String(sLevelNum);
+      if (counts[key] !== undefined) {
+        counts[key] += 1;
+      }
+    });
+    return counts;
+  }, [pureStudents]);
 
   // Strict, isolated department, level, and comprehensive search filtering
   const filteredStudents = useMemo(() => {
@@ -803,18 +825,84 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
               onChange={(e) => setSelectedLevelFilter(e.target.value)}
               className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
             >
-              <option value="all">All Levels</option>
-              <option value="100">100 Level</option>
-              <option value="200">200 Level</option>
-              <option value="300">300 Level</option>
-              <option value="400">400 Level</option>
-              <option value="500">500 Level</option>
+              <option value="all">All Levels ({pureStudents.length})</option>
+              <option value="100">100 Level ({studentLevelCounts['100'] || 0})</option>
+              <option value="200">200 Level ({studentLevelCounts['200'] || 0})</option>
+              <option value="300">300 Level ({studentLevelCounts['300'] || 0})</option>
+              <option value="400">400 Level ({studentLevelCounts['400'] || 0})</option>
+              <option value="500">500 Level ({studentLevelCounts['500'] || 0})</option>
             </select>
           </div>
         </div>
 
+        {/* Level Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mr-1">
+            <Layers className="w-3 h-3 text-emerald-600" />
+            <span>Academic Level:</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedLevelFilter('all')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+              selectedLevelFilter === 'all'
+                ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            <span>All Levels</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+              selectedLevelFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'
+            }`}>
+              {pureStudents.length}
+            </span>
+          </button>
+          {[
+            { lvl: '100', label: '100 Level' },
+            { lvl: '200', label: '200 Level' },
+            { lvl: '300', label: '300 Level' },
+            { lvl: '400', label: '400 Level' },
+            { lvl: '500', label: '500 Level' },
+          ].map((item) => {
+            const isSelected = selectedLevelFilter === item.lvl;
+            const count = studentLevelCounts[item.lvl] || 0;
+            return (
+              <button
+                key={item.lvl}
+                type="button"
+                onClick={() => setSelectedLevelFilter(item.lvl)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span>{item.label}</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  isSelected ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700 font-bold'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+          {selectedLevelFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setSelectedLevelFilter('all')}
+              className="text-[11px] text-emerald-600 hover:underline font-semibold ml-2 cursor-pointer"
+            >
+              Reset Level
+            </button>
+          )}
+        </div>
+
         {/* Interactive Filter Pills */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 mr-1">
+            <Building2 className="w-3 h-3 text-blue-600" />
+            <span>Department:</span>
+          </span>
           {/* All */}
           <button
             onClick={() => setSelectedDeptFilter('all')}
@@ -1131,18 +1219,22 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-3">
-                          {s.profile_picture || s.profilePicture || s.photo_url || s.photoURL ? (
-                            <img
-                              src={s.profile_picture || s.profilePicture || s.photo_url || s.photoURL}
-                              alt={s.full_name || s.name}
-                              referrerPolicy="no-referrer"
-                              className="w-9 h-9 rounded-full object-cover border border-emerald-200 shadow-xs shrink-0"
-                            />
-                          ) : (
-                            <div className="w-9 h-9 rounded-full bg-linear-to-br from-emerald-100 to-teal-100 text-emerald-800 font-bold text-xs flex items-center justify-center shrink-0 border border-emerald-200/60 shadow-xs">
-                              {(s.full_name || s.name)?.charAt(0) || 'S'}
-                            </div>
-                          )}
+                          {(() => {
+                            const pic = s.profile_pic_url || s.profileImage || s.profile_picture || s.profilePicture || s.photo_url || s.photoURL;
+                            return pic ? (
+                              <img
+                                key={pic}
+                                src={pic}
+                                alt={s.full_name || s.name}
+                                referrerPolicy="no-referrer"
+                                className="w-9 h-9 rounded-full object-cover border border-emerald-200 shadow-xs shrink-0"
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-linear-to-br from-emerald-100 to-teal-100 text-emerald-800 font-bold text-xs flex items-center justify-center shrink-0 border border-emerald-200/60 shadow-xs">
+                                {(s.full_name || s.name)?.charAt(0) || 'S'}
+                              </div>
+                            );
+                          })()}
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-slate-900 group-hover:text-emerald-700 transition-colors block truncate">
@@ -1198,22 +1290,39 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                       )}
                       <td className="py-3.5 px-5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         {!isRegistry ? (
-                          <button
-                            onClick={() => setDeletingStudent(s)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                            title="Remove student record"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentForDetails(s);
+                                setIsDetailsModalOpen(true);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-blue-200"
+                              title="Edit student matric, email, department, level & wallet"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingStudent(s)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                              title="Remove student record"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => {
                               setSelectedStudentForDetails(s);
                               setIsDetailsModalOpen(true);
                             }}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded-md hover:bg-blue-50 transition-colors cursor-pointer"
+                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer flex items-center gap-1"
                           >
-                            View Record
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>View / Edit Record</span>
                           </button>
                         )}
                       </td>

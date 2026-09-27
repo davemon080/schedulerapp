@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { EventItem } from '@src/types';
+import { isEventMatchingDay } from '@src/lib/dbService';
 import { DepartmentRecord } from './types';
 import { 
   Calendar, 
@@ -65,7 +66,7 @@ export const AdminScheduleManager: React.FC<AdminScheduleManagerProps> = ({
     time: '08:00 AM - 10:00 AM',
     location: '',
     instructor: '',
-    dayKey: 'WED 19',
+    dayKey: 'Monday',
     tags: 'Lecture, Required',
     views: '128 views',
     isPostponed: false,
@@ -75,14 +76,14 @@ export const AdminScheduleManager: React.FC<AdminScheduleManagerProps> = ({
     semester: currentSemester || '1st Semester',
   });
 
-  const daysList = ['ALL', 'MON 17', 'TUE 18', 'WED 19', 'THU 20', 'FRI 21', 'SAT 22'];
+  const daysList = ['ALL', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const levelList = ['ALL', '100', '200', '300', '400', '500'];
   const semesterList = ['ALL', '1st Semester', '2nd Semester'];
 
   const filteredEvents = useMemo(() => {
     return events.filter((evt) => {
       // Day filter
-      const matchesDay = selectedDayFilter === 'ALL' || evt.dayKey === selectedDayFilter;
+      const matchesDay = selectedDayFilter === 'ALL' || isEventMatchingDay(evt.dayKey, selectedDayFilter);
       
       // Department filter
       const matchesDept = 
@@ -139,7 +140,7 @@ export const AdminScheduleManager: React.FC<AdminScheduleManagerProps> = ({
         time: '08:00 AM - 10:00 AM',
         location: '',
         instructor: '',
-        dayKey: 'WED 19',
+        dayKey: 'Monday',
         tags: 'Lecture, Required',
         views: '128 views',
         isPostponed: false,

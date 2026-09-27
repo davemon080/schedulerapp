@@ -39,7 +39,9 @@ import {
   deleteCourseVideoModule,
   purgeAllMockMaterials
 } from '@src/lib/dbService';
+import { uploadCourseMaterialPdf, validatePdfFile, deleteStorageFile } from '@src/lib/storageService';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { PdfViewerPage } from '@src/components/PdfViewerPage';
 
 interface AdminCoursesManagerProps {
   onCourseChanged?: () => void;
@@ -95,6 +97,8 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
     description: '',
   });
   const [isSubmittingPdf, setIsSubmittingPdf] = useState(false);
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const [pdfUploadProgress, setPdfUploadProgress] = useState<number>(0);
   const pdfFileInputRef = useRef<HTMLInputElement>(null);
 
   // Add Video Modal inside Material Manager
@@ -349,23 +353,26 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const validation = validatePdfFile(file, 50 * 1024 * 1024);
+    if (!validation.valid) {
+      showToast(validation.error || 'Please select a valid PDF file under 50MB.');
+      if (e.target) e.target.value = '';
+      return;
+    }
+
+    setSelectedPdfFile(file);
     const rawName = file.name;
     const cleanTitle = rawName.replace(/\.[^/.]+$/, '').replace(/[_.-]+/g, ' ').trim();
     const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
     const sizeStr = `${sizeInMb} MB`;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setPdfFormData((prev) => ({
-        ...prev,
-        title: prev.title.trim() ? prev.title : cleanTitle,
-        fileName: rawName,
-        fileSize: sizeStr,
-        pdfUrl: dataUrl,
-      }));
-    };
-    reader.readAsDataURL(file);
+    setPdfFormData((prev) => ({
+      ...prev,
+      title: prev.title.trim() ? prev.title : cleanTitle,
+      fileName: rawName,
+      fileSize: sizeStr,
+      pdfUrl: '',
+    }));
   };
 
   // Fetch YouTube Title & Info via oEmbed
@@ -402,19 +409,47 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
       showToast('Please enter a PDF title');
       return;
     }
-    if (!pdfFormData.pdfUrl.trim()) {
-      showToast('Please select a PDF file or enter a valid PDF link');
-      return;
+
+    let finalPdfUrl = pdfFormData.pdfUrl.trim();
+    let finalStoragePath: string | undefined = undefined;
+
+    if (pdfUploadMode === 'upload') {
+      if (!selectedPdfFile) {
+        showToast('Please select a PDF file from your computer');
+        return;
+      }
+
+      setIsSubmittingPdf(true);
+      try {
+        const uploadResult = await uploadCourseMaterialPdf(
+          selectedPdfFile,
+          selectedCourseForMaterials.courseCode,
+          (progress) => setPdfUploadProgress(progress)
+        );
+        finalPdfUrl = uploadResult.downloadUrl;
+        finalStoragePath = uploadResult.storagePath;
+      } catch (err: any) {
+        console.error('Failed to upload PDF material to Firebase Storage:', err);
+        showToast(err.message || 'Failed to upload PDF to Cloud Storage');
+        setIsSubmittingPdf(false);
+        return;
+      }
+    } else {
+      if (!finalPdfUrl) {
+        showToast('Please enter a valid PDF link');
+        return;
+      }
+      setIsSubmittingPdf(true);
     }
 
-    setIsSubmittingPdf(true);
     const newPdf: CourseMaterialPdf = {
       id: `pdf-${Date.now()}`,
       title: pdfFormData.title.trim(),
       topic: pdfFormData.topic.trim() || 'Course Handout',
-      pdfUrl: pdfFormData.pdfUrl.trim(),
-      fileName: pdfFormData.fileName.trim() || `${pdfFormData.title.trim()}.pdf`,
-      fileSize: pdfFormData.fileSize.trim() || 'PDF Document',
+      pdfUrl: finalPdfUrl,
+      storagePath: finalStoragePath,
+      fileName: selectedPdfFile?.name || pdfFormData.fileName.trim() || `${pdfFormData.title.trim()}.pdf`,
+      fileSize: selectedPdfFile ? `${(selectedPdfFile.size / (1024 * 1024)).toFixed(1)} MB` : (pdfFormData.fileSize.trim() || 'PDF Document'),
       uploadedAt: 'Just now',
       description: pdfFormData.description.trim() || 'Course lecture note & reading materials.',
     };
@@ -423,7 +458,7 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
     if (updated) {
       setSelectedCourseForMaterials(updated);
       setCourses((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-      showToast(`PDF handout "${newPdf.title}" added to ${selectedCourseForMaterials.courseCode}`);
+      showToast(`PDF handout "${newPdf.title}" saved to ${selectedCourseForMaterials.courseCode}`);
     } else {
       const localUpdated: CourseRecord = {
         ...selectedCourseForMaterials,
@@ -434,6 +469,8 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
       showToast(`PDF handout added locally`);
     }
 
+    setSelectedPdfFile(null);
+    setPdfUploadProgress(0);
     setPdfFormData({
       title: '',
       topic: '',
@@ -515,6 +552,10 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
 
     try {
       if (materialToDelete.type === 'pdf') {
+        const targetPdf = materialToDelete.item as CourseMaterialPdf;
+        if (targetPdf?.storagePath || (targetPdf?.pdfUrl && targetPdf.pdfUrl.includes('firebasestorage'))) {
+          deleteStorageFile(targetPdf.storagePath || targetPdf.pdfUrl).catch((e) => console.warn(e));
+        }
         const updated = await deleteCoursePdfModule(selectedCourseForMaterials.id, materialToDelete.item.id);
         if (updated) {
           setSelectedCourseForMaterials(updated);
@@ -1530,45 +1571,14 @@ export const AdminCoursesManager: React.FC<AdminCoursesManagerProps> = ({
 
       {/* ================= IN-APP PDF PREVIEW MODAL ================= */}
       {previewingPdf && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl max-w-4xl w-full h-[85vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2 min-w-0 pr-4">
-                <FileText className="w-5 h-5 text-rose-400 shrink-0" />
-                <div className="min-w-0">
-                  <h4 className="text-xs font-bold truncate">{previewingPdf.title}</h4>
-                  <p className="text-[10px] text-slate-400 truncate">{previewingPdf.topic} &bull; {previewingPdf.fileSize}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <a
-                  href={previewingPdf.pdfUrl}
-                  download={previewingPdf.fileName || `${previewingPdf.title}.pdf`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download</span>
-                </a>
-                <button
-                  onClick={() => setPreviewingPdf(null)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 bg-slate-100">
-              <iframe
-                src={previewingPdf.pdfUrl}
-                title={previewingPdf.title}
-                className="w-full h-full border-none"
-              />
-            </div>
-          </div>
-        </div>
+        <PdfViewerPage
+          pdf={previewingPdf}
+          courseCode={selectedCourseForMaterials?.code || 'Admin'}
+          courseTitle={selectedCourseForMaterials?.title || previewingPdf.title}
+          allPdfs={selectedCourseForMaterials?.pdfMaterials || [previewingPdf]}
+          onBack={() => setPreviewingPdf(null)}
+          onSelectPdf={(p: CourseMaterialPdf) => setPreviewingPdf(p)}
+        />
       )}
 
       {/* ================= IN-APP VIDEO PLAYER MODAL ================= */}

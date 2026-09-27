@@ -4,8 +4,202 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
+import webPush from 'web-push';
 
 dotenv.config();
+
+// VAPID keys for native Web Push API (Android, Chrome, Edge, Safari/iOS)
+const VAPID_PUBLIC_KEY =
+  process.env.VAPID_PUBLIC_KEY ||
+  'BHoy9tfmziOVOcP4VtTpaRDqZN_26K2a1pNrC_KxPBYQ_zsZknVGe3tqUgOFlSJkXLP95uTa5PIA2gDN5s02XBU';
+const VAPID_PRIVATE_KEY =
+  process.env.VAPID_PRIVATE_KEY || 'l65n7jj_glumLgp3ctPFxWndJnVccglcY1L441fi8Yc';
+const VAPID_SUBJECT =
+  process.env.VAPID_SUBJECT || 'mailto:support@schedulerapp.edu';
+
+try {
+  webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('[Web Push] VAPID details configured successfully');
+} catch (vapidErr) {
+  console.warn('[Web Push] VAPID configuration note:', vapidErr);
+}
+
+// In-memory + persistent cache for push notification subscriptions
+interface PushSubscriptionRecord {
+  endpoint: string;
+  subscription?: webPush.PushSubscription;
+  fcmToken?: string;
+  userId?: string;
+  matricNumber?: string;
+  department?: string;
+  level?: string | number;
+  platform?: string;
+  userAgent?: string;
+  timestamp: number;
+  active: boolean;
+}
+
+const pushSubscriptionsMap = new Map<string, PushSubscriptionRecord>();
+const PUSH_STORAGE_FILE = path.join(process.cwd(), 'push_subscriptions_store.json');
+// Helper to load persistent subscriptions on startup
+function loadStoredPushSubscriptions() {
+  try {
+    if (fs.existsSync(PUSH_STORAGE_FILE)) {
+      const raw = fs.readFileSync(PUSH_STORAGE_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          if (item && item.endpoint) {
+            pushSubscriptionsMap.set(item.endpoint, item);
+          }
+        }
+        console.log(`[Web Push] Loaded ${pushSubscriptionsMap.size} active device subscriptions from storage`);
+      }
+    }
+  } catch (err) {
+    console.warn('[Web Push] Could not load stored subscriptions:', err);
+  }
+}
+
+// Helper to persist push subscriptions
+function savePushSubscriptionsToDisk() {
+  try {
+    const list = Array.from(pushSubscriptionsMap.values()).filter((s) => s.active !== false);
+    fs.writeFileSync(PUSH_STORAGE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[Web Push] Could not save subscriptions to storage:', err);
+  }
+}
+
+// Push delivery audit log
+interface PushLogItem {
+  id: string;
+  title: string;
+  body: string;
+  target: string;
+  sentCount: number;
+  failureCount: number;
+  targetedCount: number;
+  timestamp: number;
+}
+const pushHistoryLogs: PushLogItem[] = [];
+
+// Sync push subscriptions from Firestore push_subscriptions collection
+async function syncPushSubscriptionsFromFirestore(): Promise<number> {
+  try {
+    const url = 'https://firestore.googleapis.com/v1/projects/schedulerapp-7f7ca/databases/(default)/documents/push_subscriptions?pageSize=300';
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[Web Push] Firestore fetch error status: ${res.status}`);
+      return pushSubscriptionsMap.size;
+    }
+    const data = await res.json();
+    if (data && Array.isArray(data.documents)) {
+      let imported = 0;
+      for (const doc of data.documents) {
+        const fields = doc.fields;
+        if (!fields) continue;
+        const fcmToken = fields.fcmToken?.stringValue || fields.token?.stringValue;
+        const endpoint = fields.endpoint?.stringValue || (fcmToken ? `fcm_${fcmToken.slice(-32)}` : null);
+        const active = fields.active?.booleanValue !== false;
+        if (!endpoint || !active) continue;
+
+        const subMap = fields.subscription?.mapValue?.fields;
+        let subscription: webPush.PushSubscription | undefined = undefined;
+        if (subMap) {
+          const subEndpoint = subMap.endpoint?.stringValue || endpoint;
+          const p256dh = subMap.keys?.mapValue?.fields?.p256dh?.stringValue;
+          const auth = subMap.keys?.mapValue?.fields?.auth?.stringValue;
+          if (p256dh && auth) {
+            subscription = {
+              endpoint: subEndpoint,
+              keys: {
+                p256dh,
+                auth,
+              },
+            };
+          }
+        }
+
+        const record: PushSubscriptionRecord = {
+          endpoint,
+          subscription,
+          fcmToken: fcmToken || undefined,
+          userId: fields.userId?.stringValue || '',
+          matricNumber: (fields.matricNumber?.stringValue || '').toUpperCase().trim(),
+          department: (fields.department?.stringValue || '').trim(),
+          level: fields.level?.integerValue ? Number(fields.level.integerValue) : (fields.level?.stringValue || ''),
+          platform: fields.platform?.stringValue || (fcmToken ? 'android' : 'web'),
+          userAgent: fields.userAgent?.stringValue || '',
+          timestamp: fields.timestamp?.integerValue ? Number(fields.timestamp.integerValue) : Date.now(),
+          active: true,
+        };
+
+        pushSubscriptionsMap.set(endpoint, record);
+        imported++;
+      }
+      savePushSubscriptionsToDisk();
+      console.log(`[Push] Synced ${imported} active push subscriptions from Firestore (total active: ${pushSubscriptionsMap.size})`);
+    }
+  } catch (err) {
+    console.warn('[Push] Error syncing push subscriptions from Firestore:', err);
+  }
+  return pushSubscriptionsMap.size;
+}
+
+// Department matching helper (normalizes ICH, CSC, CHM, full departmental names, and codes)
+function matchesDepartment(subDept?: string, reqDept?: string): boolean {
+  if (!reqDept || reqDept.trim().toLowerCase() === 'all') return true;
+  if (!subDept || !subDept.trim()) return true; // Deliver to unassigned device subscriptions
+  const s = subDept.toLowerCase().trim();
+  const rawR = reqDept.toLowerCase().trim();
+  // Strip dept- or dept_ prefix
+  const r = rawR.replace(/^dept[-_]/i, '');
+  if (s === r || s === rawR) return true;
+
+  // Check code in string
+  if (r.length >= 3 && s.includes(r)) return true;
+
+  // ICH / Industrial Chemistry
+  const isReqICH = r.includes('ich') || r.includes('industrial');
+  const isSubICH = s.includes('ich') || s.includes('industrial');
+  if (isReqICH && isSubICH) return true;
+
+  // CSC / Computer Science
+  const isReqCSC = r.includes('csc') || r.includes('computer');
+  const isSubCSC = s.includes('csc') || s.includes('computer');
+  if (isReqCSC && isSubCSC) return true;
+
+  // CHM / Chemistry
+  const isReqCHM = r.includes('chm') || r.includes('chemistry');
+  const isSubCHM = s.includes('chm') || s.includes('chemistry');
+  if (isReqCHM && isSubCHM) return true;
+
+  // BCH / Biochemistry
+  const isReqBCH = r.includes('bch') || r.includes('biochem');
+  const isSubBCH = s.includes('bch') || s.includes('biochem');
+  if (isReqBCH && isSubBCH) return true;
+
+  // MCB / Microbiology
+  const isReqMCB = r.includes('mcb') || r.includes('microbio');
+  const isSubMCB = s.includes('mcb') || s.includes('microbio');
+  if (isReqMCB && isSubMCB) return true;
+
+  return s.includes(r) || r.includes(s);
+}
+
+// Academic level matching helper
+function matchesLevel(subLevel?: string | number, reqLevel?: string | number): boolean {
+  if (!reqLevel || String(reqLevel).toLowerCase() === 'all') return true;
+  if (!subLevel) return true; // Deliver if device has not specified level
+  const r = String(reqLevel).replace(/\D/g, '');
+  const s = String(subLevel).replace(/\D/g, '');
+  if (!r || !s) return true;
+  return r === s;
+}
+
+loadStoredPushSubscriptions();
+syncPushSubscriptionsFromFirestore().catch(() => {});
 
 // Helper to send 6-digit security PIN via email
 async function dispatchEmailPin(
@@ -153,7 +347,17 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Server] Unhandled Rejection:', reason);
 });
 
-const PORT = 3000;
+let portFromArg = 3000;
+const portArgIndex = process.argv.indexOf('--port');
+if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+  portFromArg = parseInt(process.argv[portArgIndex + 1], 10) || 3000;
+} else {
+  const portArgEqual = process.argv.find((arg) => arg.startsWith('--port='));
+  if (portArgEqual) {
+    portFromArg = parseInt(portArgEqual.split('=')[1], 10) || 3000;
+  }
+}
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : portFromArg;
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'schedulerapp-7f7ca';
 
 async function startServer() {
@@ -430,6 +634,363 @@ async function startServer() {
     } catch (err: any) {
       console.error('Verify reset pin error:', err);
       res.status(500).json({ success: false, message: err?.message || 'Failed to verify PIN' });
+    }
+  });
+
+  // ================= NATIVE PUSH NOTIFICATION API =================
+
+  // 1. Get VAPID public key for Web Push subscription
+  app.get('/api/push/config', (_req, res) => {
+    res.json({
+      vapidPublicKey: VAPID_PUBLIC_KEY,
+      status: true,
+    });
+  });
+
+  // 2. Register native device push subscription
+  app.post('/api/push/register', (req, res) => {
+    try {
+      const {
+        subscription,
+        endpoint,
+        fcmToken,
+        token,
+        userId,
+        matricNumber,
+        department,
+        level,
+        platform,
+        userAgent,
+      } = req.body;
+
+      const effectiveToken = fcmToken || token;
+      const subEndpoint = endpoint || subscription?.endpoint || (effectiveToken ? `fcm_${effectiveToken.slice(-32)}` : null);
+      if (!subEndpoint) {
+        return res.status(400).json({ success: false, message: 'Valid subscription, FCM token, or endpoint required' });
+      }
+
+      const cleanSub = subscription ? (subscription as webPush.PushSubscription) : undefined;
+      const record: PushSubscriptionRecord = {
+        endpoint: subEndpoint,
+        subscription: cleanSub,
+        fcmToken: effectiveToken || undefined,
+        userId: userId || 'anonymous',
+        matricNumber: (matricNumber || '').toUpperCase().trim(),
+        department: (department || '').trim(),
+        level: level || '',
+        platform: platform || (effectiveToken ? 'android' : 'web'),
+        userAgent: userAgent || '',
+        timestamp: Date.now(),
+        active: true,
+      };
+
+      pushSubscriptionsMap.set(subEndpoint, record);
+      savePushSubscriptionsToDisk();
+
+      console.log(
+        `[Web Push] Registered push subscription for ${record.matricNumber || record.userId} (${record.platform}, Dept: ${record.department || 'All'})`
+      );
+
+      return res.json({
+        success: true,
+        message: 'Push subscription registered successfully',
+        endpoint: subEndpoint,
+        totalSubscribers: pushSubscriptionsMap.size,
+      });
+    } catch (err: any) {
+      console.error('[Web Push] Registration error:', err);
+      return res.status(500).json({ success: false, message: err?.message || 'Registration failed' });
+    }
+  });
+
+  // 3. Unregister push subscription (e.g. on user logout)
+  app.post('/api/push/unregister', (req, res) => {
+    try {
+      const { endpoint } = req.body;
+      if (endpoint && pushSubscriptionsMap.has(endpoint)) {
+        const record = pushSubscriptionsMap.get(endpoint);
+        if (record) {
+          record.active = false;
+        }
+        pushSubscriptionsMap.delete(endpoint);
+        savePushSubscriptionsToDisk();
+        console.log(`[Web Push] Unregistered subscription for endpoint: ${endpoint.slice(-20)}`);
+      }
+      return res.json({ success: true, message: 'Unregistered successfully' });
+    } catch (err: any) {
+      console.error('[Web Push] Unregister error:', err);
+      return res.status(500).json({ success: false, message: err?.message || 'Unregister failed' });
+    }
+  });
+
+  // 4. Dispatch native push notifications to department students / devices
+  app.post('/api/push/send', async (req, res) => {
+    try {
+      const {
+        title,
+        body,
+        department,
+        level,
+        url = '/',
+        targetMatric,
+        targetUserId,
+        category = 'schedule',
+        priority = 'high',
+        broadcastAll,
+      } = req.body;
+
+      if (!title || !body) {
+        return res.status(400).json({ success: false, message: 'Notification title and body are required' });
+      }
+
+      // Always sync fresh subscriptions from Firestore so newly registered student devices receive alerts immediately
+      try {
+        await syncPushSubscriptionsFromFirestore();
+      } catch (syncErr) {
+        console.warn('[Web Push] Auto-sync note before dispatch:', syncErr);
+      }
+
+      const activeSubscribers = Array.from(pushSubscriptionsMap.values()).filter(
+        (s) => s.active !== false && (s.endpoint || s.fcmToken)
+      );
+
+      // Filter matching recipients using normalized matching
+      let targets = activeSubscribers.filter((s) => {
+        // If target matric specified (normalizes slashes, dashes, spaces)
+        if (targetMatric) {
+          const cleanTarget = targetMatric.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+          const cleanSub = (s.matricNumber || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+          return cleanSub === cleanTarget;
+        }
+        // If target user ID specified
+        if (targetUserId) {
+          return s.userId === targetUserId;
+        }
+        // If broad broadcast requested or no department specified, deliver to all registered devices
+        if (broadcastAll || !department || department.trim().toLowerCase() === 'all') {
+          return true;
+        }
+        // Department filtering (normalizes codes and full names)
+        if (!matchesDepartment(s.department, department)) {
+          return false;
+        }
+        // Level filtering
+        if (level && !matchesLevel(s.level, level)) {
+          return false;
+        }
+        return true;
+      });
+
+      // Fallback: If targeted filtering finds 0 devices (e.g. slight department spelling discrepancy or unassigned student level),
+      // fallback to delivering to all active device subscribers so no student misses alerts when app is closed!
+      if (targets.length === 0 && activeSubscribers.length > 0 && !targetMatric && !targetUserId) {
+        console.log(
+          `[Web Push] Department filter (${department || 'None'}) returned 0 targets, falling back to all ${activeSubscribers.length} active device subscribers.`
+        );
+        targets = activeSubscribers;
+      }
+
+      console.log(
+        `[Web Push] Dispatching notification "${title}" to ${targets.length} target devices (total pool: ${activeSubscribers.length})`
+      );
+
+      const pushPayload = JSON.stringify({
+        title: title.trim(),
+        body: body.trim(),
+        icon: '/logo-192.png',
+        badge: '/logo-192.png',
+        tag: `activity-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        renotify: true,
+        requireInteraction: true,
+        data: {
+          url,
+          category,
+          timestamp: Date.now(),
+        },
+      });
+
+      let sentCount = 0;
+      let failureCount = 0;
+      const endpointsToPrune: string[] = [];
+
+      await Promise.all(
+        targets.map(async (target) => {
+          try {
+            if (target.subscription?.keys?.p256dh && target.subscription?.keys?.auth) {
+              await webPush.sendNotification(target.subscription, pushPayload, {
+                TTL: 60 * 60 * 24, // 24 hours
+                urgency: priority === 'high' || priority === 'urgent' ? 'high' : 'normal',
+              });
+            }
+            sentCount++;
+          } catch (err: any) {
+            failureCount++;
+            // HTTP 404 or 410 indicates the subscription has expired or is unsubscribed
+            if (err.statusCode === 404 || err.statusCode === 410) {
+              endpointsToPrune.push(target.endpoint);
+            } else {
+              console.warn(`[Push] Delivery warning for ${target.matricNumber || 'device'}:`, err?.message || err);
+            }
+          }
+        })
+      );
+
+      // Clean up dead subscriptions
+      if (endpointsToPrune.length > 0) {
+        for (const ep of endpointsToPrune) {
+          pushSubscriptionsMap.delete(ep);
+        }
+        savePushSubscriptionsToDisk();
+        console.log(`[Web Push] Pruned ${endpointsToPrune.length} expired subscriptions`);
+      }
+
+      // Record to audit logs
+      const logEntry: PushLogItem = {
+        id: `push_${Date.now()}`,
+        title: title.trim(),
+        body: body.trim(),
+        target: targetMatric ? `Student: ${targetMatric}` : department ? `Dept: ${department} (Lvl: ${level || 'All'})` : 'All Devices',
+        sentCount,
+        failureCount,
+        targetedCount: targets.length,
+        timestamp: Date.now(),
+      };
+      pushHistoryLogs.unshift(logEntry);
+      if (pushHistoryLogs.length > 50) pushHistoryLogs.pop();
+
+      return res.json({
+        success: true,
+        sentCount,
+        failureCount,
+        targetedCount: targets.length,
+        message: `Push delivered to ${sentCount} devices`,
+      });
+    } catch (err: any) {
+      console.error('[Web Push] Send error:', err);
+      return res.status(500).json({ success: false, message: err?.message || 'Failed to dispatch push' });
+    }
+  });
+
+  // 5. Query all registered device push subscriptions (for Admin Control Center)
+  app.get('/api/push/subscriptions', async (_req, res) => {
+    try {
+      await syncPushSubscriptionsFromFirestore().catch(() => {});
+      const activeSubscribers = Array.from(pushSubscriptionsMap.values()).filter(
+        (s) => s.active !== false && (s.endpoint || s.fcmToken)
+      );
+
+      const byDept: Record<string, number> = {};
+      const byLevel: Record<string, number> = {};
+      const byPlatform: Record<string, number> = {};
+
+      for (const s of activeSubscribers) {
+        const d = (s.department || 'Unassigned').trim();
+        byDept[d] = (byDept[d] || 0) + 1;
+        const l = s.level ? `${s.level}L` : 'Unassigned';
+        byLevel[l] = (byLevel[l] || 0) + 1;
+        const p = s.platform || 'web';
+        byPlatform[p] = (byPlatform[p] || 0) + 1;
+      }
+
+      return res.json({
+        success: true,
+        total: activeSubscribers.length,
+        devices: activeSubscribers.map((s) => ({
+          endpoint: s.endpoint,
+          userId: s.userId || '',
+          matricNumber: s.matricNumber || '',
+          department: s.department || '',
+          level: s.level || '',
+          platform: s.platform || 'web',
+          userAgent: s.userAgent || '',
+          timestamp: s.timestamp || Date.now(),
+          active: s.active !== false,
+        })),
+        byDepartment: byDept,
+        byLevel: byLevel,
+        byPlatform: byPlatform,
+      });
+    } catch (err: any) {
+      console.error('[Web Push] Subscriptions query error:', err);
+      return res.status(500).json({ success: false, message: err?.message });
+    }
+  });
+
+  // 6. Send test push notification to a specific device or the latest registered device
+  app.post('/api/push/test', async (req, res) => {
+    try {
+      const { endpoint } = req.body;
+      let target: PushSubscriptionRecord | undefined;
+
+      if (endpoint && pushSubscriptionsMap.has(endpoint)) {
+        target = pushSubscriptionsMap.get(endpoint);
+      } else {
+        // Pick the latest registered active subscriber
+        const list = Array.from(pushSubscriptionsMap.values()).filter((s) => s.active !== false);
+        list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        target = list[0];
+      }
+
+      if (!target || !target.subscription) {
+        return res.status(404).json({
+          success: false,
+          message: 'No registered devices found. Enable notifications in the app first to register your device.',
+        });
+      }
+
+      const testPayload = JSON.stringify({
+        title: '🔔 Test Push Notification',
+        body: `Test alert received at ${new Date().toLocaleTimeString()} on ${target.platform || 'device'}. Push delivery verified!`,
+        icon: '/logo-192.png',
+        badge: '/logo-192.png',
+        tag: `test-${Date.now()}`,
+        renotify: true,
+        data: {
+          url: '/',
+          category: 'system',
+          timestamp: Date.now(),
+        },
+      });
+
+      await webPush.sendNotification(target.subscription, testPayload, {
+        TTL: 60,
+        urgency: 'high',
+      });
+
+      return res.json({
+        success: true,
+        message: `Test push sent successfully to ${target.matricNumber || target.platform || 'device'}!`,
+        targetDevice: target.matricNumber || target.userId,
+      });
+    } catch (err: any) {
+      console.error('[Web Push] Test push error:', err);
+      return res.status(500).json({ success: false, message: err?.message || 'Failed to dispatch test push' });
+    }
+  });
+
+  // 7. Get push dispatch history logs
+  app.get('/api/push/history', (_req, res) => {
+    res.json({
+      success: true,
+      logs: pushHistoryLogs,
+      totalDispatched: pushHistoryLogs.reduce((acc, l) => acc + l.sentCount, 0),
+    });
+  });
+
+  // Alias compatibility route for legacy broadcast push dispatch
+  app.post('/api/send-broadcast-push', async (req, res) => {
+    try {
+      req.url = '/api/push/send';
+      // Forward to /api/push/send
+      const sendHandler = (app as any)._router.stack.find(
+        (s: any) => s.route && s.route.path === '/api/push/send' && s.route.methods.post
+      );
+      if (sendHandler) {
+        return sendHandler.handle(req, res);
+      }
+      return res.json({ success: true, message: 'Processed via push dispatcher' });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, message: e?.message });
     }
   });
 

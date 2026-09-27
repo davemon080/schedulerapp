@@ -3,6 +3,7 @@ import {
   Calendar, 
   Clock, 
   Megaphone, 
+  Bell,
   Users, 
   Database, 
   Settings, 
@@ -78,6 +79,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
       id: 'announcements' as AdminTab,
       label: 'Broadcast Notices',
       icon: Megaphone,
+    },
+    {
+      id: 'push-notifications' as AdminTab,
+      label: 'Push Notifications',
+      icon: Bell,
     },
     {
       id: 'departments' as AdminTab,
@@ -233,8 +239,18 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
         {/* Admin Profile Box */}
         <div className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/40 flex items-center justify-between">
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
-              {adminUser.fullName?.charAt(0) || 'A'}
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0 overflow-hidden">
+              {adminUser.profile_pic_url || adminUser.profileImage ? (
+                <img
+                  key={adminUser.profile_pic_url || adminUser.profileImage}
+                  src={adminUser.profile_pic_url || adminUser.profileImage}
+                  alt={adminUser.fullName}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                adminUser.fullName?.charAt(0) || 'A'
+              )}
             </div>
             <div className="truncate">
               <p className="text-[12px] font-bold text-white truncate leading-tight">

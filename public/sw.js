@@ -3,7 +3,7 @@
  * Standard offline-ready installation, network pass-through, and Web Push notifications
  */
 
-const CACHE_NAME = 'ich100l-cache-v5';
+const CACHE_NAME = 'ich100l-cache-v6';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -20,18 +20,16 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      console.log('[PWA SW] Resilient activation start. Pre-caching critical assets (including offline template)...');
+      console.log('[PWA SW] Pre-caching offline application shell and assets...');
       for (const url of ASSETS_TO_CACHE) {
         try {
           const response = await fetch(url);
           if (response.ok) {
             await cache.put(url, response);
-            console.log(`[PWA SW] Cached successfully: ${url}`);
-          } else {
-            console.warn(`[PWA SW] Skip caching non-200 asset: ${url} (status: ${response.status})`);
+            console.log(`[PWA SW] Cached asset: ${url}`);
           }
         } catch (err) {
-          console.warn(`[PWA SW] Skip caching failed asset fetch: ${url}`, err);
+          console.warn(`[PWA SW] Asset pre-cache skip: ${url}`, err);
         }
       }
     }).then(() => self.skipWaiting())
@@ -61,38 +59,41 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Bypass API calls, uploads, or hot-module-reload files
+  // Bypass API calls, uploads, or dev hot-module-reload files
   if (
     url.pathname.startsWith('/api/') || 
     url.pathname.startsWith('/uploads/') || 
     url.pathname.includes('@vite') || 
-    url.pathname.includes('node_modules') ||
     url.hostname.includes('googleapis') ||
     url.hostname.includes('firebase')
   ) {
     return;
   }
 
-  // Intercept standard layout & HTML navigation pages (Network-first with custom Offline fallback)
+  // Intercept standard layout & HTML navigation pages (Network-first with offline shell fallback)
   if (event.request.mode === 'navigate' || (event.request.headers.get('accept') || '').includes('text/html')) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          // If response is valid, update our root / index.html cache dynamically
-          if (response.ok && (url.pathname === '/' || url.pathname === '/index.html')) {
+          if (response && response.ok) {
             const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, clone);
+              cache.put('/', response.clone());
+              cache.put('/index.html', response.clone());
+            });
           }
           return response;
         })
         .catch(async () => {
           const cache = await caches.open(CACHE_NAME);
-          // 1. Try to serve the cached main page
-          const cachedMain = await cache.match('/') || await cache.match('/index.html');
-          if (cachedMain) {
-            return cachedMain;
+          // Return the cached SPA shell for full offline application experience
+          const cachedShell = await cache.match(event.request) ||
+                              await cache.match('/') ||
+                              await cache.match('/index.html');
+          if (cachedShell) {
+            return cachedShell;
           }
-          // 2. Fall back to our dedicated offline screen
           const cachedOffline = await cache.match('/offline.html');
           if (cachedOffline) {
             return cachedOffline;
@@ -103,7 +104,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For static assets (JS, CSS, images, fonts, icons), implement a clean/strict Cache-First strategy
+  // For static assets (JS, CSS, images, fonts, icons), implement stale-while-revalidate / cache-first
   if (
     event.request.destination === 'script' ||
     event.request.destination === 'style' ||
@@ -113,16 +114,16 @@ self.addEventListener('fetch', (event) => {
     url.pathname.endsWith('.css') ||
     url.pathname.endsWith('.png') ||
     url.pathname.endsWith('.jpg') ||
+    url.pathname.endsWith('.jpeg') ||
     url.pathname.endsWith('.svg') ||
-    url.pathname.endsWith('.ico')
+    url.pathname.endsWith('.ico') ||
+    url.pathname.endsWith('.woff2') ||
+    url.pathname.endsWith('.woff') ||
+    url.pathname.startsWith('/assets/')
   ) {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
-        if (cachedResponse) {
-          // Return from cache instantly to keep app running fast and offline-ready
-          return cachedResponse;
-        }
-        return fetch(event.request)
+        const fetchPromise = fetch(event.request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
               const clone = networkResponse.clone();
@@ -130,7 +131,13 @@ self.addEventListener('fetch', (event) => {
             }
             return networkResponse;
           })
-          .catch(() => Response.error());
+          .catch(() => null);
+
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+
+        return fetchPromise.then((res) => res || caches.match('/index.html'));
       })
     );
     return;
@@ -162,7 +169,7 @@ self.addEventListener('push', (event) => {
   console.log('[PWA SW] Push event received:', event);
 
   let data = { 
-    title: 'ICH 100L Alerts 🔔', 
+    title: 'University Schedule 🔔', 
     body: 'New live update from your Course Representative.' 
   };
 
@@ -176,7 +183,7 @@ self.addEventListener('push', (event) => {
         const textPayload = event.data.text();
         if (textPayload) {
           data = { 
-            title: 'ICH 100L Announcements 📢', 
+            title: 'University Schedule 📢', 
             body: textPayload 
           };
         }
@@ -186,23 +193,30 @@ self.addEventListener('push', (event) => {
   }
 
   const baseUrl = self.location.origin || '';
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '');
   const options = {
     body: data.body || '',
     icon: baseUrl + '/logo-192.png',
     badge: baseUrl + '/logo-192.png',
-    tag: data.id || `ich-alert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    tag: data.tag || data.id || `sched-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    renotify: true,
     data: {
-      url: baseUrl + '/'
-    }
+      url: (data.data && data.data.url) || data.url || baseUrl + '/',
+      category: (data.data && data.data.category) || data.category || 'schedule',
+      timestamp: Date.now(),
+    },
   };
 
-  console.log('[PWA SW] Triggering showNotification via self.registration instance. Title:', data.title, 'Options:', options);
+  if (!isIOS) {
+    options.vibrate = [200, 100, 200];
+    options.actions = [
+      { action: 'open', title: 'Open Schedule' },
+    ];
+  }
 
-  // CRITICAL iOS 16.4+ FIXED: iOS background push notifications MUST synchronously trigger and return 
-  // self.registration.showNotification immediately from the main execution cycle in the 'push' event listener.
-  // Any preliminary asynchronous calls (like self.clients.matchAll or local fetch calls) will cause the iOS
-  // background push daemon to terminate the background worker thread, resulting in completely missed background alerts!
-  const notificationPromise = self.registration.showNotification(data.title || 'ICH 100L Alerts 🔔', options)
+  console.log('[PWA SW] Triggering showNotification via self.registration. Title:', data.title, 'Options:', options);
+
+  const notificationPromise = self.registration.showNotification(data.title || 'University Schedule 🔔', options)
     .then(() => {
       console.log('[PWA SW] showNotification completed successfully.');
     })

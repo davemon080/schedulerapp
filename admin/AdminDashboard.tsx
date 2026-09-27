@@ -6,6 +6,7 @@ import { AdminOverview } from './AdminOverview';
 import { AdminScheduleManager } from './AdminScheduleManager';
 import { AdminAssignmentsManager } from './AdminAssignmentsManager';
 import { AdminAnnouncementsManager } from './AdminAnnouncementsManager';
+import { AdminPushNotifications } from './AdminPushNotifications';
 import { AdminDepartmentsManager } from './AdminDepartmentsManager';
 import { AdminCoursesManager } from './AdminCoursesManager';
 import { AdminStudentsManager } from './AdminStudentsManager';
@@ -49,6 +50,8 @@ import {
   recordOrUpdateClassCancelledNotification,
   recordOrUpdateDeadlineDeletedNotification,
   recordOrUpdateBroadcastDeletedNotification,
+  fetchAdminProfile,
+  ensureAllDepartmentLevelDashboards,
 } from '@src/lib/dbService';
 
 const VALID_TABS: AdminTab[] = [
@@ -148,6 +151,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
     return null;
   });
+
+  // Load actual admin profile picture directly from database (No stale cache)
+  useEffect(() => {
+    // Ensure all level dashboards are automatically created and synchronized in Firestore
+    ensureAllDepartmentLevelDashboards().catch((e) => console.warn('Admin level dashboards ensure notice:', e));
+
+    if (!adminUser) return;
+    const adminId = adminUser.id || 'admin_davemon080';
+    fetchAdminProfile(adminId).then((dbAdmin) => {
+      if (dbAdmin) {
+        const pic = dbAdmin.profile_pic_url || dbAdmin.profileImage || dbAdmin.photoURL || '';
+        if (pic && pic !== (adminUser.profile_pic_url || adminUser.profileImage)) {
+          const updated: AdminUser = {
+            ...adminUser,
+            profile_pic_url: pic,
+            profileImage: pic,
+          };
+          setAdminUser(updated);
+          try {
+            localStorage.setItem('university_admin_session', JSON.stringify(updated));
+          } catch {}
+        }
+      }
+    }).catch(() => {});
+  }, [adminUser?.id]);
 
   const [currentSemester, setCurrentSemester] = useState<string>(initialSemesterProp);
   const [academicSession, setAcademicSession] = useState<string>(initialSessionProp);
@@ -603,6 +631,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       title: newNotifData.title,
       message: newNotifData.message,
       priority: newNotifData.type === 'alert' ? 'urgent' : 'normal',
+      department_id: newNotifData.department_id && newNotifData.department_id !== 'ALL' ? newNotifData.department_id : undefined,
+      level: newNotifData.level ? Number(newNotifData.level) : undefined,
+      semester: newNotifData.semester && newNotifData.semester !== 'ALL' ? newNotifData.semester : undefined,
+      author: adminUser?.fullName || 'Administrator',
     });
 
     if (created) {
@@ -679,20 +711,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // Update Student (Credentials, Course Rep, Free Semester Access, Profile Pic)
+  // Update Student (Credentials, Course Rep, Free Semester Access, Profile Pic, Department, Level, Matric)
   const handleUpdateStudent = async (updatedStudent: StudentProfileRecord): Promise<boolean> => {
-    const identifier = updatedStudent.id || updatedStudent.uid || updatedStudent.email;
+    const origId = (updatedStudent as any)._originalId || updatedStudent.id || updatedStudent.uid;
+    const origEmail = ((updatedStudent as any)._originalEmail || updatedStudent.email || '').toLowerCase().trim();
+    const origMatric = ((updatedStudent as any)._originalMatric || updatedStudent.matric_number || updatedStudent.matricNumber || '').toUpperCase().trim();
+
     const updatedList = students.map((s) => {
-      if ((s.id && s.id === updatedStudent.id) || (s.uid && s.uid === updatedStudent.uid) || s.email === updatedStudent.email) {
+      const matchId = origId && (s.id === origId || s.uid === origId);
+      const matchEmail = origEmail && s.email?.toLowerCase().trim() === origEmail;
+      const matchMatric = origMatric && (
+        (s.matric_number && s.matric_number.toUpperCase().trim() === origMatric) ||
+        (s.matricNumber && s.matricNumber.toUpperCase().trim() === origMatric)
+      );
+      if (matchId || matchEmail || matchMatric) {
         return { ...s, ...updatedStudent };
       }
       return s;
     });
     setStudents(updatedList);
 
+    const identifier = origId || origEmail || origMatric || updatedStudent.id || updatedStudent.email;
     const ok = await updateStudentUser(identifier, updatedStudent);
     if (ok) {
-      showToast(`Student credentials & status updated for ${updatedStudent.full_name || updatedStudent.name}`);
+      showToast(`Student record & credentials updated for ${updatedStudent.full_name || updatedStudent.name}`);
+      fetchStudents().then((refreshed) => {
+        if (refreshed && refreshed.length > 0) setStudents(refreshed);
+      }).catch(() => {});
     }
     return ok;
   };
@@ -893,6 +938,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               />
             )}
 
+            {activeTab === 'push-notifications' && (
+              <AdminPushNotifications
+                departments={departments}
+                onBroadcastAdded={handleManualSync}
+              />
+            )}
+
             {activeTab === 'departments' && (
               <AdminDepartmentsManager
                 departments={departments}
@@ -946,6 +998,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <AdminSettings
                 adminUser={adminUser}
                 onLogout={handleLogout}
+                onUpdateAdminUser={(updated) => setAdminUser(updated)}
               />
             )}
           </main>
